@@ -7,7 +7,18 @@
 
   function emit(){ for(const fn of listeners){ try{fn(snapshot())}catch(_){ } } }
   function snapshot(){ return {state,session:currentSession,user:currentSession?.user||null}; }
-  function setState(next){ state=next; emit(); document.documentElement.dataset.authState=next; }
+  function setState(next){
+    state=next;
+    document.documentElement.dataset.authState=next;
+    const gate=document.getElementById('authGate');
+    if(gate){
+      const ready=next==='ready';
+      gate.hidden=ready;
+      gate.style.display=ready?'none':'';
+      gate.setAttribute('aria-hidden',String(ready));
+    }
+    emit();
+  }
 
   async function init(){
     if(!window.supabase?.createClient){ setState('sdk_error'); return snapshot(); }
@@ -88,8 +99,28 @@
     setState('signed_out');
   }
 
+  function bindLoginForm(){
+    const form=document.getElementById('magicLinkForm');
+    if(!form||form.dataset.authBound==='1') return;
+    form.dataset.authBound='1';
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const email=document.getElementById('authEmail')?.value||'';
+      const msg=document.getElementById('authMessage');
+      try{
+        if(!client) await init();
+        await sendMagicLink(email);
+      }catch(err){
+        console.error('Magic Link failed',err);
+        if(msg) msg.textContent='登入連結寄送失敗，請稍後再試。';
+      }
+    });
+  }
+
   window.TravelAuth={
     init,sendMagicLink,signOut,getClient:()=>client,
     onChange(fn){listeners.add(fn);return()=>listeners.delete(fn)},snapshot
   };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bindLoginForm,{once:true});
+  else bindLoginForm();
 })();
