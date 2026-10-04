@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#173c35" />
+  <title>Iceland 2026 · Travel OS</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <section class="auth-gate" id="authGate" aria-live="polite">
+    <div class="auth-card">
+      <div class="auth-mark">I</div>
+      <span class="section-kicker">TRAVEL OS</span>
+      <h1>Iceland 2026</h1>
+      <p id="authMessage">私人旅程需要驗證此裝置。第一次登入後，這支手機會被記住。</p>
+      <form id="magicLinkForm" class="auth-form">
+        <label for="authEmail">Email</label>
+        <input id="authEmail" type="email" autocomplete="email" value="anching.ho@gmail.com" required>
+        <button type="submit" id="magicLinkBtn">寄送登入連結</button>
+      </form>
+      <p class="auth-foot" id="authFoot">不需要密碼。Magic Link 使用一次後失效。</p>
+    </div>
+  </section>
+  <div class="app-shell today-mode">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ICELAND · 2026</div>
+        <h1 id="pageTitle">今天</h1>
+      </div>
+      <button class="round-btn" id="tripMenuBtn" aria-label="旅程資訊">•••</button>
+    </header>
+
+    <main>
+      <section class="view active" id="todayView">
+        <div class="hero-card hero-today-shell" id="heroCard">
+          <div class="hero-media-overlay"></div>
+          <div class="hero-header-row">
+            <div class="hero-heading-group">
+              <div class="hero-meta-line">
+                <span>ICELAND · 2026</span>
+                <span class="hero-meta-day" id="heroDay">D3 · 11/23</span>
+              </div>
+              <div class="hero-title-combined">
+                <span class="hero-today-word" id="heroRelativeLabel">今日</span>
+                <span class="hero-topic" id="heroTitle">冰洞日</span>
+              </div>
+            </div>
+            <div class="hero-menu-group"><span class="demo-badge" id="heroDemoBadge" hidden>DEMO</span><button class="round-btn hero-menu-btn" id="heroMenuBtn" aria-label="旅程資訊">•••</button></div>
+          </div>
+          <button class="weather-pill weather-inline" id="weatherBtn" type="button" aria-label="查看天氣預報">
+            <span class="weather-icon" id="weatherIconWrap" aria-hidden="true"></span>
+            <strong id="weatherTemp">-2°</strong>
+            <small id="weatherLabel">陰天</small>
+          </button>
+          <div class="hero-stats" id="heroStats">
+            <div class="hero-stat">
+              <small>里程</small>
+              <strong id="todayKm">220 km</strong>
+            </div>
+            <div class="hero-stat">
+              <small>駕車</small>
+              <strong id="todayDrive">3h 05m</strong>
+            </div>
+            <div class="hero-stat">
+              <small>日出</small>
+              <strong id="todaySunrise">09:58</strong>
+            </div>
+            <div class="hero-stat">
+              <small>日落</small>
+              <strong id="todaySunset">15:49</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="day-strip" id="dayStrip"></div>
+
+        <div class="section-head">
+          <div><span class="section-kicker">TIMELINE</span><h2 id="timelineHeading">今日行程</h2></div>
+          <button class="text-btn" data-nav="map">看地圖 →</button>
+        </div>
+        <div class="timeline" id="timeline"></div>
+
+        <div class="section-head">
+          <div><span class="section-kicker">STAY</span><h2>今晚住宿</h2></div>
+          <button class="text-btn" data-nav="booking">全部預訂 →</button>
+        </div>
+        <div id="tonightCard"></div>
+      </section>
+
+      <section class="view" id="mapView">
+        <div class="map-controls">
+          <div class="map-day-title"><span id="mapDayLabel">D3</span><strong id="mapDayName">冰洞日</strong></div>
+          <button id="playRoute" class="play-btn">▶ 跟著走</button>
+        </div>
+        <div class="map-range-head">
+          <div>
+            <span class="section-kicker">ROUTE RANGE</span>
+            <strong id="mapRangeHint">點日期直接切換</strong>
+          </div>
+          <div class="map-range-actions">
+            <button class="map-multi-toggle" id="mapMultiToggle" type="button">複選</button>
+            <div class="map-range-summary" id="mapRangeSummary">1 天</div>
+          </div>
+        </div>
+        <div class="map-day-strip" id="mapDayStrip"></div>
+        <div id="map"></div>
+        <div class="route-panel" id="routePanel">
+          <div class="route-progress-row">
+            <button id="routePlayCircle" class="route-play-circle">▶</button>
+            <div>
+              <div class="route-current" id="routeCurrent">Fossar Cabin</div>
+              <div class="route-meta" id="routeMeta">D3 · 08:15</div>
+            </div>
+            <div class="route-distance"><strong id="routeDistance">0</strong><span id="routeDistanceSuffix"> / <span id="routeTotal">220</span> km</span></div>
+          </div>
+          <input type="range" id="routeSlider" min="0" max="100" value="0" />
+          <div class="route-stops" id="routeStops"></div>
+        </div>
+      </section>
+
+      <section class="view" id="bookingView">
+        <div class="booking-summary">
+          <span class="section-kicker">BOOKING CENTER</span>
+          <h2>所有重要預訂都在這裡</h2>
+          <p>住宿、航班、租車、Tour；訂位碼與 PIN 預設隱藏，需要時再顯示。</p>
+        </div>
+        <div class="filter-row" id="bookingFilters"></div>
+        <div class="booking-list" id="bookingList"></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-target="today"><span class="nav-icon" data-icon="today"></span><small>今天</small></button>
+      <button class="nav-item" data-target="map"><span class="nav-icon" data-icon="map"></span><small>地圖</small></button>
+      <button class="nav-item" data-target="booking"><span class="nav-icon" data-icon="booking"></span><small>預訂</small></button>
+      <button class="nav-item disabled" title="v0.2"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
+      <button class="nav-item disabled" title="v0.2"><span class="nav-icon" data-icon="more"></span><small>更多</small></button>
+    </nav>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <aside class="trip-sheet" id="tripSheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP</span><h2>Iceland 2026</h2></div><button class="round-btn" id="closeSheet">×</button></div>
+    <div class="sheet-grid">
+      <div><small>旅行日期</small><strong>11/19–11/29</strong></div>
+      <div><small>旅伴</small><strong>3 人</strong></div>
+      <button class="sheet-toggle-card" id="demoModeToggle" type="button" aria-pressed="false">
+        <small>DEMO 模式</small><strong id="demoModeState">關閉</strong>
+      </button>
+      <div><small>租車</small><strong>Defender</strong></div>
+    </div>
+    <div class="info-note">v1.0 Beta：Supabase Auth＋Trusted Device 已接線；公開前端不包含私人 Booking。離線資料由 IndexedDB 保存。</div>
+  </aside>
+
+  <div class="modal-backdrop" id="weatherBackdrop"></div>
+  <aside class="weather-sheet" id="weatherSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title weather-sheet-title">
+      <div>
+        <span class="section-kicker">WEATHER</span>
+        <h2 id="weatherSheetTitle">今日天氣</h2>
+        <p id="weatherSheetSubtitle">逐小時預測</p>
+      </div>
+      <button class="round-btn" id="closeWeather">×</button>
+    </div>
+    <div class="weather-summary" id="weatherSummary"></div>
+    <div class="weather-hourly" id="weatherHourly"></div>
+  </aside>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="data.js"></script>
+  <script src="local-db.js"></script>
+  <script src="sync-engine.js"></script>
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
