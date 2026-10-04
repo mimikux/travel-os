@@ -67,3 +67,13 @@ html:not([data-auth-state="ready"]) .weather-sheet{
 .booking-detail-row{display:grid;grid-template-columns:minmax(88px,.8fr) minmax(0,1.4fr);gap:10px;padding:8px 0;border-top:1px solid #eee8df;font-size:11px}
 .booking-detail-row span{color:var(--muted)}
 .booking-detail-row strong{text-align:right;color:var(--ink);font-weight:850}
+
+/* beta-5 mobile polish */
+.hero-header-row{padding-right:2px}
+.hero-menu-group{flex:0 0 auto;max-width:70px}
+.hero-menu-btn{
+  width:28px!important;min-width:28px!important;height:28px!important;
+  border:0!important;border-radius:8px!important;background:rgba(0,0,0,.08)!important;
+  box-shadow:none!important;backdrop-filter:none!important;padding:0!important;
+}
+.hero-card.hero-compact .hero-menu-btn{background:transparent!important}
