@@ -155,7 +155,26 @@
       </button>
       <div><small>租車</small><strong>Defender</strong></div>
     </div>
-    <div class="info-note">v1.0 Beta：Supabase Auth＋Trusted Device 已接線；公開前端不包含私人 Booking。離線資料由 IndexedDB 保存。</div>
+    <button class="sheet-action-card" id="membersBtn" type="button">
+  <span><small>TRIP ACCESS</small><strong>成員與裝置</strong></span><span>→</span>
+</button>
+<div class="info-note">此 Trip 的 Owner 可邀請 Editor / Viewer，並管理每位成員的 Trusted Device。</div>
+  </aside>
+
+  <div class="modal-backdrop" id="membersBackdrop"></div>
+  <aside class="members-sheet" id="membersSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">TRIP ACCESS</span><h2>成員與裝置</h2><p id="membersRoleHint">Iceland 2026</p></div>
+      <button class="round-btn" id="closeMembers">×</button>
+    </div>
+    <form id="inviteMemberForm" class="member-invite-form">
+      <label><span>Email</span><input id="inviteEmail" type="email" autocomplete="email" placeholder="member@example.com" required></label>
+      <label><span>權限</span><select id="inviteRole"><option value="editor">Editor · 可共同編輯</option><option value="viewer">Viewer · 唯讀觀看</option></select></label>
+      <button type="submit">＋ 邀請成員</button>
+    </form>
+    <p class="member-status" id="memberStatus"></p>
+    <div class="members-list" id="membersList"></div>
   </aside>
 
   <div class="modal-backdrop" id="weatherBackdrop"></div>
