@@ -19,7 +19,7 @@ const heroImages=[
 "https://commons.wikimedia.org/wiki/Special:FilePath/Keflav%C3%ADk%20International%20Airport%20seen%20from%20runway.jpg?width=1600"
 ];
 function initIcons(){document.querySelectorAll("[data-icon]").forEach(x=>x.innerHTML=icon(x.dataset.icon))}
-function renderDayStrip(){const el=$("dayStrip");el.innerHTML=TRIP.days.map((d,i)=>'<button class="day-btn '+(i===selectedDay?'active':'')+'" data-day="'+i+'"><strong>'+d.label+'</strong><small>'+fmtDate(d.date)+'</small></button>').join("");el.querySelectorAll("button").forEach(b=>b.onclick=()=>{selectedDay=+b.dataset.day;renderAll()})}
+function renderDayStrip(){const el=$("dayStrip");el.innerHTML=TRIP.days.map((d,i)=>'<button class="day-btn '+(i===selectedDay?'active':'')+'" data-day="'+i+'"><strong>'+d.label+'</strong><small>'+fmtDate(d.date)+'</small></button>').join("");el.querySelectorAll("button").forEach(b=>b.onclick=()=>{selectedDay=+b.dataset.day;if(!mapMultiSelectMode)mapSelectedDays=new Set([selectedDay]);renderAll()})}
 function renderHero(){const d=TRIP.days[selectedDay];$("heroDay").textContent=d.label+" · "+fmtDate(d.date);$("heroRelativeLabel").textContent=relLabel(d.date);$("heroTitle").textContent=d.name;$("todayKm").textContent=d.km+" km";$("todayDrive").textContent=d.drive;$("todaySunrise").textContent="--:--";$("todaySunset").textContent="--:--";$("heroCard").style.backgroundImage='url("'+heroImages[selectedDay%heroImages.length]+'")';$("heroDemoBadge").hidden=!demoMode;$("timelineHeading").textContent=relLabel(d.date)+"行程";refreshWeather(d)}
 function renderTimeline(){const d=TRIP.days[selectedDay],el=$("timeline");el.innerHTML=d.events.map(e=>{const nav=e.lat?'<a class="nav-link" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+e.lat+','+e.lng+'">導航 →</a>':'';return'<div class="timeline-item"><div class="timeline-dot"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">'+e.type.toUpperCase()+'</div><h3>'+e.title+'</h3></div><div class="time">'+e.time+'</div></div><div class="sub">'+(e.subtitle||'')+'</div><div class="note">'+(e.note||'')+'</div>'+nav+'</article></div>'}).join("")}
 function renderStay(){const e=[...TRIP.days[selectedDay].events].reverse().find(x=>x.type==="stay");$("tonightCard").innerHTML=e?'<div class="stay-card"><span class="section-kicker">CHECK-IN</span><h3>'+e.title+'</h3><p>'+e.subtitle+'</p><p>'+e.note+'</p></div>':'<div class="stay-card"><p>今天沒有住宿資料。</p></div>'}
@@ -93,12 +93,13 @@ async function renderMap(){
   routeLayers.forEach(l=>{if(map.hasLayer(l))map.removeLayer(l)});routeLayers=[];
   if(routeLine&&map.hasLayer(routeLine))routeLine.remove();routeLine=null;
   const bounds=L.latLngBounds([]);
+  const fallbackByDay=new Map();
   let fallbackKm=0;
   for(const idx of indices){
     const day=TRIP.days[idx],stops=routeStops(day);fallbackKm+=Number(day.km)||0;
     day.events.filter(e=>e.lat&&e.lng).forEach((e,i)=>{const m=L.marker([e.lat,e.lng]).addTo(map).bindPopup("<b>"+day.label+" · "+(i+1)+". "+e.title+"</b><br>"+e.time);mapMarkers.push(m);bounds.extend([e.lat,e.lng])});
     const pts=stops.map(e=>[e.lat,e.lng]);
-    if(pts.length>1){const l=L.polyline(pts,{color:"#8b8f8c",weight:3,opacity:.45,dashArray:"6,7"}).addTo(map);routeLayers.push(l)}
+    if(pts.length>1){const l=L.polyline(pts,{color:"#8b8f8c",weight:3,opacity:.35,dashArray:"6,7"}).addTo(map);routeLayers.push(l);fallbackByDay.set(idx,l)}
   }
   $("mapRangeSummary").textContent=indices.length+" 天 · "+fallbackKm.toFixed(1)+" km";
   $("mapRangeHint").textContent=mapMultiSelectMode?(indices.length>1?indices.map(i=>TRIP.days[i].label).join(" · "):"複選模式：再點日期加入"):"點日期直接切換";
@@ -107,6 +108,7 @@ async function renderMap(){
   for(const idx of indices){
     try{
       const rr=await roadRoute(idx);if(token!==routeRenderToken)return;if(!rr)continue;
+      const fallback=fallbackByDay.get(idx);if(fallback&&map.hasLayer(fallback)){map.removeLayer(fallback);routeLayers=routeLayers.filter(x=>x!==fallback)}
       const line=L.polyline(rr.points,{color:"#173c35",weight:5,opacity:.95,lineCap:"round",lineJoin:"round"}).addTo(map);routeLayers.push(line);if(single)routeLine=line;
       rr.points.forEach(p=>bounds.extend(p));totalKm+=rr.km;totalSec+=rr.sec;
     }catch(err){console.warn("Road route unavailable",err);totalKm+=Number(TRIP.days[idx].km)||0}
@@ -129,8 +131,8 @@ function setupUI(){initIcons();document.querySelectorAll("[data-target]").forEac
   const updateHero=()=>{
     const h=$("heroCard"); if(!h) return;
     const y=Math.max(0,scrollY||0), compact=h.classList.contains("hero-compact");
-    if(!compact && y>170) h.classList.add("hero-compact");
-    else if(compact && y<90) h.classList.remove("hero-compact");
+    if(!compact && y>280) h.classList.add("hero-compact");
+    else if(compact && y<40) h.classList.remove("hero-compact");
   };
   addEventListener("scroll",()=>{if(heroRAF)return;heroRAF=requestAnimationFrame(()=>{heroRAF=0;updateHero()})},{passive:true});updateHero();
   const idx=dayIndexByToday();selectedDay=demoMode?3:(idx>=0?idx:0);renderAll()}
@@ -181,8 +183,13 @@ async function boot(){
   setupUI();
   if("serviceWorker"in navigator)navigator.serviceWorker.register("./service-worker.js").catch(()=>{});
   try{
+    const seedBookings=[...(TRIP.bookings||[])];
     const local=await TravelStore.init(TRIP);
-    if(local?.trip){TRIP=local.trip;renderAll()}
+    if(local?.trip){
+      TRIP=local.trip;
+      if((!TRIP.bookings||!TRIP.bookings.length)&&seedBookings.length) TRIP.bookings=seedBookings;
+      renderAll()
+    }
     await TravelSync.init();
   }catch(e){console.warn("Local DB",e)}
   window.addEventListener("travel-auth-ready",()=>syncCloudPrivateData());
