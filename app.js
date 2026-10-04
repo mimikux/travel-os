@@ -115,9 +115,72 @@ function closeTrip(){ $("tripSheet").classList.remove("show");$("sheetBackdrop")
 function setupUI(){initIcons();document.querySelectorAll("[data-target]").forEach(b=>b.onclick=()=>switchView(b.dataset.target));document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>switchView(b.dataset.nav));$("tripMenuBtn").onclick=openTrip;$("heroMenuBtn").onclick=openTrip;$("closeSheet").onclick=closeTrip;$("sheetBackdrop").onclick=closeTrip;$("demoModeToggle").onclick=()=>{demoMode=!demoMode;localStorage.setItem("travelDemo",demoMode?"1":"0");$("demoModeToggle").classList.toggle("active",demoMode);$("demoModeState").textContent=demoMode?"開啟":"關閉";if(demoMode)selectedDay=3;renderAll()};$("demoModeToggle").classList.toggle("active",demoMode);$("demoModeState").textContent=demoMode?"開啟":"關閉";$("routeSlider").oninput=e=>$("routeDistance").textContent=Math.round((+$("routeTotal").textContent||TRIP.days[selectedDay].km)*(+e.target.value/100));
   $("mapMultiToggle").onclick=toggleMapMulti;
   let heroRAF=0;
-  const updateHero=()=>{const h=$("heroCard");if(!h)return;const y=Math.max(0,scrollY||0),p=Math.min(1,y/230);const expanded=244,collapsed=82;h.style.height=(expanded-(expanded-collapsed)*p)+"px";const compact=h.classList.contains("hero-compact");if(!compact&&p>.90)h.classList.add("hero-compact");else if(compact&&p<.72)h.classList.remove("hero-compact")};
+  const updateHero=()=>{
+    const h=$("heroCard"); if(!h) return;
+    const y=Math.max(0,scrollY||0), compact=h.classList.contains("hero-compact");
+    if(!compact && y>170) h.classList.add("hero-compact");
+    else if(compact && y<90) h.classList.remove("hero-compact");
+  };
   addEventListener("scroll",()=>{if(heroRAF)return;heroRAF=requestAnimationFrame(()=>{heroRAF=0;updateHero()})},{passive:true});updateHero();
   const idx=dayIndexByToday();selectedDay=demoMode?3:(idx>=0?idx:0);renderAll()}
+
+function cloudReservationToBooking(row){
+  const base=(row.details&&typeof row.details==="object")?row.details:{};
+  return {
+    ...base,
+    type:base.type||row.reservation_type||"other",
+    provider:base.provider||row.provider||"",
+    title:base.title||row.title||"預訂",
+    dates:base.dates||row.public_summary||"",
+    meta:base.meta||row.public_summary||"",
+    code:row.confirmation_code||base.code||"—",
+    secret:row.pin_code||base.secret||null,
+    notice:base.notice||row.private_notes||"",
+    status:base.status||row.status||"confirmed",
+    details:base.details||{
+      rows:[
+        ...(row.public_price_text?[["費用",row.public_price_text]]:[]),
+        ...(row.cancellation_policy?[["取消條款",row.cancellation_policy]]:[])
+      ]
+    }
+  };
+}
+async function syncCloudPrivateData(){
+  try{
+    const client=TravelAuth.getClient();
+    if(!client) return;
+    const device=await TravelStore.getDevice();
+    const {data,error}=await client.functions.invoke("travel-data",{body:{
+      tripSlug:window.TRAVEL_CONFIG.tripSlug,
+      devicePublicId:device.device_public_id,
+      deviceSecret:device.device_secret
+    }});
+    if(error) throw error;
+    if(!data?.ok) throw new Error(data?.error||"cloud_sync_failed");
+    TRIP.bookings=(data.reservations||[]).map(cloudReservationToBooking);
+    if(TravelStore.replaceBookings) await TravelStore.replaceBookings(TRIP.bookings);
+    bookingRender();
+  }catch(err){
+    console.warn("Private booking sync unavailable",err);
+  }
+}
+
 function authPaint(s){const msg=$("authMessage"),foot=$("authFoot"),btn=$("magicLinkBtn");if(!msg)return;btn.disabled=["sending_link","registering_device","loading"].includes(s.state);if(s.state==="loading")msg.textContent="正在檢查登入狀態…";if(s.state==="sending_link")msg.textContent="正在寄送一次性登入連結…";if(s.state==="link_sent"){msg.textContent="登入連結已寄出，請到 Gmail 點一下 Magic Link。";foot.textContent="點開後會回到這個 Travel OS，並把這支裝置註冊成 Trusted Device。"}if(s.state==="signed_out")msg.textContent="私人旅程需要驗證此裝置。第一次登入後，這支手機會被記住。";if(s.state==="registering_device")msg.textContent="登入成功，正在核准這支裝置…";if(s.state==="device_error"){msg.textContent="登入成功，但裝置核准失敗。";foot.textContent="請重新整理；若仍失敗我會檢查 Supabase。"}}
-async function boot(){setupUI();if("serviceWorker"in navigator)navigator.serviceWorker.register("./service-worker.js").catch(()=>{});try{const local=await TravelStore.init(TRIP);if(local?.trip){TRIP=local.trip;renderAll()}await TravelSync.init()}catch(e){console.warn("Local DB",e)}TravelAuth.onChange(authPaint);authPaint(TravelAuth.snapshot());$("magicLinkForm").onsubmit=async e=>{e.preventDefault();try{await TravelAuth.sendMagicLink($("authEmail").value.trim())}catch(err){$("authMessage").textContent="寄送失敗："+(err.message||err)}};try{await TravelAuth.init()}catch(e){console.error(e)}}
+async function boot(){
+  setupUI();
+  if("serviceWorker"in navigator)navigator.serviceWorker.register("./service-worker.js").catch(()=>{});
+  try{
+    const local=await TravelStore.init(TRIP);
+    if(local?.trip){TRIP=local.trip;renderAll()}
+    await TravelSync.init();
+  }catch(e){console.warn("Local DB",e)}
+  window.addEventListener("travel-auth-ready",()=>syncCloudPrivateData());
+  TravelAuth.onChange(authPaint);
+  authPaint(TravelAuth.snapshot());
+  $("magicLinkForm").onsubmit=async e=>{e.preventDefault();try{await TravelAuth.sendMagicLink($("authEmail").value.trim())}catch(err){$("authMessage").textContent="寄送失敗："+(err.message||err)}};
+  try{
+    await TravelAuth.init();
+    if(TravelAuth.snapshot().state==="ready") await syncCloudPrivateData();
+  }catch(e){console.error(e)}
+}
 document.addEventListener("DOMContentLoaded",boot);
