@@ -226,6 +226,39 @@ async function syncCloudPrivateData(){
   }
 }
 
+
+let tripAccessState=null;
+async function tripAdmin(action="list",payload={}){
+  const client=TravelAuth.getClient(); if(!client)throw new Error("尚未登入");
+  const {data,error}=await client.functions.invoke("trip-admin",{body:{tripSlug:window.TRAVEL_CONFIG.tripSlug,action,...payload}});
+  if(error)throw error;if(!data?.ok)throw new Error(data?.error||"操作失敗");return data;
+}
+function openMembers(){closeTrip();$("membersSheet").classList.add("show");$("membersBackdrop").classList.add("show");$("membersSheet").setAttribute("aria-hidden","false");loadMembers()}
+function closeMembers(){$("membersSheet").classList.remove("show");$("membersBackdrop").classList.remove("show");$("membersSheet").setAttribute("aria-hidden","true")}
+function fmtSeen(v){if(!v)return"尚未使用";try{return new Intl.DateTimeFormat("zh-TW",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}).format(new Date(v))}catch{return""}}
+function renderMembers(data){
+  tripAccessState=data;const owner=data.role==="owner";$("inviteMemberForm").hidden=!owner;
+  $("membersRoleHint").textContent="Iceland 2026 · "+(data.role==="owner"?"Owner":data.role==="editor"?"Editor":"Viewer");
+  const byUser={};(data.devices||[]).forEach(d=>(byUser[d.user_id]??=[]).push(d));
+  const members=(data.members||[]).filter(m=>!m.revoked_at);
+  const active=new Set(members.map(m=>String(m.email||"").toLowerCase()));
+  const cards=members.map(m=>{
+    const role=m.role==="owner"?"Owner":m.role==="editor"?"Editor":"Viewer";
+    const ds=(byUser[m.user_id]||[]).map(d=>'<div class="device-row"><div><strong>'+(d.device_name||"Trusted device")+'</strong><small>'+(d.revoked_at?"已撤銷":"最後使用 "+fmtSeen(d.last_seen_at))+'</small></div>'+(owner&&!d.revoked_at?'<button data-revoke-device="'+d.id+'">撤銷裝置</button>':'')+'</div>').join("")||'<div class="device-empty">尚未登記裝置</div>';
+    const roleCtl=owner&&m.role!=="owner"?'<select data-role-user="'+m.user_id+'"><option value="editor" '+(m.role==="editor"?"selected":"")+'>Editor</option><option value="viewer" '+(m.role==="viewer"?"selected":"")+'>Viewer</option></select>':'<span class="member-role">'+role+'</span>';
+    const remove=owner&&m.role!=="owner"?'<button class="member-remove" data-remove-member="'+m.user_id+'">移除</button>':'';
+    return '<article class="member-card"><div class="member-head"><div><strong>'+m.email+'</strong><small>'+role+'</small></div><div class="member-actions">'+roleCtl+remove+'</div></div><div class="device-list">'+ds+'</div></article>';
+  }).join("");
+  const pending=(data.invites||[]).filter(i=>i.status==="pending"&&!active.has(String(i.email||"").toLowerCase())).map(i=>'<article class="member-card invite-pending"><div class="member-head"><div><strong>'+i.email+'</strong><small>邀請中 · '+(i.role==="editor"?"Editor":"Viewer")+'</small></div>'+(owner?'<button class="member-remove" data-revoke-invite="'+i.id+'">取消邀請</button>':'')+'</div></article>').join("");
+  $("membersList").innerHTML=cards+pending;
+  $("membersList").querySelectorAll("[data-role-user]").forEach(el=>el.onchange=()=>memberAction("role",{userId:el.dataset.roleUser,role:el.value},"權限已更新"));
+  $("membersList").querySelectorAll("[data-remove-member]").forEach(el=>el.onclick=()=>memberAction("remove_member",{userId:el.dataset.removeMember},"成員已移除"));
+  $("membersList").querySelectorAll("[data-revoke-device]").forEach(el=>el.onclick=()=>memberAction("revoke_device",{deviceId:el.dataset.revokeDevice},"裝置已撤銷"));
+  $("membersList").querySelectorAll("[data-revoke-invite]").forEach(el=>el.onclick=()=>memberAction("revoke_invite",{inviteId:el.dataset.revokeInvite},"邀請已取消"));
+}
+async function loadMembers(){$("memberStatus").textContent="讀取中…";try{renderMembers(await tripAdmin("list"));$("memberStatus").textContent=""}catch(e){$("memberStatus").textContent="無法讀取："+(e.message||e)}}
+async function memberAction(action,payload,msg){$("memberStatus").textContent="處理中…";try{await tripAdmin(action,payload);$("memberStatus").textContent=msg;await loadMembers()}catch(e){$("memberStatus").textContent="操作失敗："+(e.message||e)}}
+
 function authPaint(s){const msg=$("authMessage"),foot=$("authFoot"),btn=$("magicLinkBtn");if(!msg)return;btn.disabled=["sending_link","registering_device","loading"].includes(s.state);if(s.state==="loading")msg.textContent="正在檢查登入狀態…";if(s.state==="sending_link")msg.textContent="正在寄送一次性登入連結…";if(s.state==="link_sent"){msg.textContent="登入連結已寄出，請到 Gmail 點一下 Magic Link。";foot.textContent="點開後會回到這個 Travel OS，並把這支裝置註冊成 Trusted Device。"}if(s.state==="signed_out")msg.textContent="私人旅程需要驗證此裝置。第一次登入後，這支手機會被記住。";if(s.state==="registering_device")msg.textContent="登入成功，正在核准這支裝置…";if(s.state==="device_error"){msg.textContent="登入成功，但裝置核准失敗。";foot.textContent="請重新整理；若仍失敗我會檢查 Supabase。"}}
 async function boot(){
   setupUI();
