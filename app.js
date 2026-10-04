@@ -949,6 +949,66 @@ async function hydratePrivateCloudData(){
   }
 }
 
+
+async function tripAdmin(action='list',payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const response=await client.functions.invoke('trip-admin',{body:{tripSlug:window.TRAVEL_CONFIG.tripSlug,action,...payload}});
+  if(response.error) throw response.error;
+  if(response.data?.error) throw new Error(response.data.error);
+  return response.data;
+}
+function closeMembersSheet(){
+  qs('#membersSheet')?.classList.remove('show');
+  qs('#membersBackdrop')?.classList.remove('show');
+}
+async function loadMembers(){
+  const box=qs('#membersList'),status=qs('#memberStatus');
+  status.textContent='讀取中…';
+  try{
+    const data=await tripAdmin('list');
+    const owner=data.role==='owner';
+    qs('#inviteMemberForm').hidden=!owner;
+    qs('#membersRoleHint').textContent='Iceland 2026 · '+String(data.role||'viewer').toUpperCase();
+    box.replaceChildren();
+    for(const m of (data.members||[]).filter(x=>!x.revoked_at)){
+      const card=document.createElement('article');card.className='member-card';
+      const head=document.createElement('div');head.className='member-head';
+      const who=document.createElement('div');
+      const strong=document.createElement('strong');strong.textContent=m.email||m.user_id;
+      const small=document.createElement('small');small.textContent=m.role==='owner'?'Trip Owner':'已啟用 · '+m.role;
+      who.append(strong,small);head.append(who);
+      if(owner&&m.role!=='owner'){
+        const remove=document.createElement('button');remove.className='member-remove';remove.textContent='移除';
+        remove.onclick=async()=>{await tripAdmin('remove_member',{userId:m.user_id});await loadMembers()};
+        head.append(remove);
+      }
+      card.append(head);
+      const list=document.createElement('div');list.className='device-list';
+      for(const d of (data.devices||[]).filter(x=>x.user_id===m.user_id&&!x.revoked_at)){
+        const row=document.createElement('div');row.className='device-row';
+        const label=document.createElement('span');label.textContent=d.device_name||'Trusted Device';row.append(label);
+        if(owner){const revoke=document.createElement('button');revoke.textContent='撤銷';revoke.onclick=async()=>{await tripAdmin('revoke_device',{deviceId:d.id});await loadMembers()};row.append(revoke)}
+        list.append(row);
+      }
+      card.append(list);box.append(card);
+    }
+    status.textContent='';
+  }catch(err){console.warn(err);status.textContent='無法讀取成員資料。'}
+}
+qs('#membersBtn').onclick=async()=>{
+  closeSheet();qs('#membersBackdrop').classList.add('show');qs('#membersSheet').classList.add('show');await loadMembers();
+};
+qs('#closeMembers').onclick=closeMembersSheet;
+qs('#membersBackdrop').onclick=closeMembersSheet;
+qs('#inviteMemberForm').onsubmit=async e=>{
+  e.preventDefault();
+  const email=qs('#inviteEmail').value.trim(),role=qs('#inviteRole').value;
+  qs('#memberStatus').textContent='正在寄送邀請…';
+  try{await tripAdmin('invite',{email,role});qs('#inviteEmail').value='';await loadMembers()}
+  catch(err){console.warn(err);qs('#memberStatus').textContent='邀請失敗。'}
+};
+
 async function initCloudShell(){
   try{
     const local=await window.TravelStore?.init?.(TRIP);
