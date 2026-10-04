@@ -32,7 +32,6 @@ html:not([data-auth-state="ready"]) .weather-sheet{
 }
 
 /* v1.0 beta mobile regression fixes */
-.hero-card{transition:height .18s ease}
 .hero-menu-btn{
   width:32px!important;
   min-width:32px!important;
