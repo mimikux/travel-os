@@ -971,42 +971,85 @@ async function loadMembers(){
     qs('#inviteMemberForm').hidden=!owner;
     qs('#membersRoleHint').textContent='Iceland 2026 · '+String(data.role||'viewer').toUpperCase();
     box.replaceChildren();
+
     for(const m of (data.members||[]).filter(x=>!x.revoked_at)){
       const card=document.createElement('article');card.className='member-card';
       const head=document.createElement('div');head.className='member-head';
       const who=document.createElement('div');
       const strong=document.createElement('strong');strong.textContent=m.email||m.user_id;
-      const small=document.createElement('small');small.textContent=m.role==='owner'?'Trip Owner':'已啟用 · '+m.role;
+      const small=document.createElement('small');small.textContent=m.role==='owner'?'Trip Owner':'已啟用';
       who.append(strong,small);head.append(who);
+
+      const actions=document.createElement('div');actions.className='member-actions';
       if(owner&&m.role!=='owner'){
+        const role=document.createElement('select');
+        role.innerHTML='<option value="editor">Editor</option><option value="viewer">Viewer</option>';
+        role.value=m.role;
+        role.onchange=async()=>{status.textContent='更新權限中…';await tripAdmin('role',{userId:m.user_id,role:role.value});await loadMembers()};
         const remove=document.createElement('button');remove.className='member-remove';remove.textContent='移除';
-        remove.onclick=async()=>{await tripAdmin('remove_member',{userId:m.user_id});await loadMembers()};
-        head.append(remove);
+        remove.onclick=async()=>{if(confirm('移除此 Trip 成員？他的這個 Trip 裝置權限也會一併撤銷。')){await tripAdmin('remove_member',{userId:m.user_id});await loadMembers()}};
+        actions.append(role,remove);
+      }else{
+        const badge=document.createElement('span');badge.className='member-role';badge.textContent=m.role;actions.append(badge);
       }
-      card.append(head);
+      head.append(actions);card.append(head);
+
       const list=document.createElement('div');list.className='device-list';
-      for(const d of (data.devices||[]).filter(x=>x.user_id===m.user_id&&!x.revoked_at)){
+      const memberDevices=(data.devices||[]).filter(x=>x.user_id===m.user_id);
+      if(!memberDevices.length){
+        const empty=document.createElement('div');empty.className='device-empty';empty.textContent='尚無 Trusted Device';list.append(empty);
+      }
+      for(const d of memberDevices){
         const row=document.createElement('div');row.className='device-row';
-        const label=document.createElement('span');label.textContent=d.device_name||'Trusted Device';row.append(label);
-        if(owner){const revoke=document.createElement('button');revoke.textContent='撤銷';revoke.onclick=async()=>{await tripAdmin('revoke_device',{deviceId:d.id});await loadMembers()};row.append(revoke)}
+        if(d.revoked_at) row.classList.add('revoked');
+        const label=document.createElement('div');
+        const ds=document.createElement('strong');ds.textContent=d.device_name||'Trusted Device';
+        const meta=document.createElement('small');
+        meta.textContent=d.revoked_at?'已撤銷':(d.last_seen_at?'最近使用 '+new Date(d.last_seen_at).toLocaleString('zh-TW'):'已核准');
+        label.append(ds,meta);row.append(label);
+        if(owner&&!d.revoked_at){
+          const revoke=document.createElement('button');revoke.textContent='撤銷裝置';
+          revoke.onclick=async()=>{if(confirm('只撤銷這一台 Trusted Device？其他裝置仍可使用。')){await tripAdmin('revoke_device',{deviceId:d.id});await loadMembers()}};
+          row.append(revoke);
+        }
         list.append(row);
       }
       card.append(list);box.append(card);
     }
+
+    for(const i of (data.invites||[]).filter(x=>x.status==='pending')){
+      const card=document.createElement('article');card.className='member-card invite-pending';
+      const head=document.createElement('div');head.className='member-head';
+      const who=document.createElement('div');
+      const strong=document.createElement('strong');strong.textContent=i.email;
+      const small=document.createElement('small');small.textContent='邀請中 · '+i.role;
+      who.append(strong,small);head.append(who);
+      if(owner){
+        const cancel=document.createElement('button');cancel.className='member-remove';cancel.textContent='取消邀請';
+        cancel.onclick=async()=>{await tripAdmin('revoke_invite',{inviteId:i.id});await loadMembers()};
+        head.append(cancel);
+      }
+      card.append(head);box.append(card);
+    }
+
     status.textContent='';
   }catch(err){console.warn(err);status.textContent='無法讀取成員資料。'}
 }
 qs('#membersBtn').onclick=async()=>{
-  closeSheet();qs('#membersBackdrop').classList.add('show');qs('#membersSheet').classList.add('show');await loadMembers();
+  closeSheet();qs('#membersBackdrop').classList.add('show');qs('#membersSheet').classList.add('show');qs('#membersSheet').setAttribute('aria-hidden','false');await loadMembers();
 };
 qs('#closeMembers').onclick=closeMembersSheet;
 qs('#membersBackdrop').onclick=closeMembersSheet;
 qs('#inviteMemberForm').onsubmit=async e=>{
   e.preventDefault();
   const email=qs('#inviteEmail').value.trim(),role=qs('#inviteRole').value;
-  qs('#memberStatus').textContent='正在寄送邀請…';
-  try{await tripAdmin('invite',{email,role});qs('#inviteEmail').value='';await loadMembers()}
-  catch(err){console.warn(err);qs('#memberStatus').textContent='邀請失敗。'}
+  qs('#memberStatus').textContent='正在建立邀請…';
+  try{
+    const result=await tripAdmin('invite',{email,role});
+    qs('#inviteEmail').value='';
+    qs('#memberStatus').textContent=result.mode==='invite_sent'?'邀請信已寄出。':'已授權此成員；對方可使用相同 Email 登入。';
+    await loadMembers();
+  }catch(err){console.warn(err);qs('#memberStatus').textContent='邀請失敗。'}
 };
 
 async function initCloudShell(){
