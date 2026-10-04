@@ -1,6 +1,6 @@
 (() => {
   const DB_NAME = 'travel-os-local';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const CURRENT_TRIP_ID = 'iceland-2026';
 
   function requestToPromise(req){
@@ -23,6 +23,7 @@
       const req=indexedDB.open(DB_NAME,DB_VERSION);
       req.onupgradeneeded=()=>{
         const db=req.result;
+        const oldVersion=req.oldVersion||0;
         if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta',{keyPath:'key'});
         if(!db.objectStoreNames.contains('trips')) db.createObjectStore('trips',{keyPath:'id'});
         if(!db.objectStoreNames.contains('days')){
@@ -65,9 +66,12 @@
     const tx=db.transaction(['meta','trips','days','itinerary_items','bookings'],'readwrite');
     const meta=tx.objectStore('meta');
     const seeded=await requestToPromise(meta.get('seed_version'));
-    if(seeded){await txDone(tx);return false;}
-
+    if(seeded?.value==='v017-cloud-seed-2'){await txDone(tx);return false;}
     const now=new Date().toISOString();
+    // Refresh public itinerary from the v0.17 baseline on schema/seed upgrades.
+    // Private bookings are never copied from public data.js.
+    tx.objectStore('days').clear();
+    tx.objectStore('itinerary_items').clear();
     tx.objectStore('trips').put({
       id:CURRENT_TRIP_ID,
       title:seedTrip.title,
@@ -121,7 +125,7 @@
       });
     });
 
-    meta.put({key:'seed_version',value:'v1-alpha-seed-1',updated_at:now});
+    meta.put({key:'seed_version',value:'v017-cloud-seed-2',updated_at:now});
     meta.put({key:'cloud_state',value:'local_only',updated_at:now});
     await txDone(tx);
     return true;
