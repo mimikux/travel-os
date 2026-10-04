@@ -110,3 +110,26 @@ html:not([data-auth-state="ready"]) .weather-sheet{
 .timeline-details p{margin:0 0 7px}
 .timeline-details ul{margin:0;padding-left:18px}
 .timeline-actions{display:flex;justify-content:flex-end;margin-top:7px}
+
+.sheet-action-card{width:100%;margin-top:14px;border:1px solid #e3ddd3;background:#fffdf8;border-radius:16px;padding:14px 15px;display:flex;align-items:center;justify-content:space-between;color:var(--ink);text-align:left}
+.sheet-action-card small{display:block;color:var(--gold);font-size:9px;letter-spacing:.13em;font-weight:900;margin-bottom:4px}
+.sheet-action-card strong{font-size:14px}
+.members-sheet{position:fixed;z-index:120;left:50%;bottom:0;transform:translate(-50%,105%);width:min(100%,680px);max-height:86dvh;overflow:auto;background:#f7f3eb;border-radius:24px 24px 0 0;padding:12px 18px calc(24px + env(safe-area-inset-bottom));box-shadow:0 -18px 50px rgba(20,42,36,.18);transition:transform .24s ease}
+.members-sheet.show{transform:translate(-50%,0)}
+.members-sheet .sheet-title p{margin:4px 0 0;color:var(--muted);font-size:11px}
+.member-invite-form{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(130px,.9fr);gap:9px;background:#fffdf8;border-radius:18px;padding:13px;margin:8px 0 12px}
+.member-invite-form label span{display:block;font-size:9px;font-weight:900;letter-spacing:.08em;color:var(--muted);margin-bottom:5px}
+.member-invite-form input,.member-invite-form select{width:100%;height:40px;border:1px solid #ddd6cb;border-radius:11px;background:white;padding:0 10px;font:inherit;font-size:12px;color:var(--ink)}
+.member-invite-form button{grid-column:1/-1;height:42px;border:0;border-radius:12px;background:var(--green);color:white;font-weight:900}
+.member-status{min-height:18px;margin:4px 2px 8px;color:var(--muted);font-size:11px}
+.members-list{display:grid;gap:10px}
+.member-card{background:#fffdf8;border-radius:18px;padding:14px;box-shadow:0 6px 18px rgba(33,52,46,.05)}
+.member-head,.device-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.member-head>div:first-child{min-width:0}.member-head strong{display:block;font-size:13px;overflow-wrap:anywhere}.member-head small{display:block;margin-top:3px;color:var(--muted);font-size:10px}
+.member-actions{display:flex;align-items:center;gap:7px}.member-actions select{height:32px;border:1px solid #ddd6cb;border-radius:9px;background:#f7f3eb;padding:0 7px;font-size:10px}
+.member-role{font-size:10px;font-weight:900;color:var(--green)}
+.member-remove,.device-row button{border:0;background:#eee8df;color:#715f57;border-radius:9px;padding:7px 9px;font-size:9px;font-weight:850}
+.device-list{display:grid;gap:6px;margin-top:11px;padding-top:9px;border-top:1px solid #eee8df}
+.device-row{padding:5px 0}.device-row strong{font-size:11px}.device-row small{display:block;color:var(--muted);font-size:9px;margin-top:2px}.device-empty{font-size:10px;color:var(--muted)}
+.invite-pending{border:1px dashed #d9cfbf}
+@media(max-width:480px){.member-invite-form{grid-template-columns:1fr}.member-invite-form button{grid-column:auto}}
