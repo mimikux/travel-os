@@ -53,5 +53,14 @@ let TRIP={
       {time:"12:00",type:"flight",title:"KEF → Europe",subtitle:"回程航班",note:"完整航班訂位資訊登入後載入",lat:63.985,lng:-22.606}
     ]}
   ],
-  bookings:[]
+  bookings:[
+    {type:"stay",title:"Bakkastaðir 119",provider:"Airbnb",dates:"11/20 → 11/21",meta:"Reykjavík 東北 · 1 晚",code:"—",secret:null,notice:"共用洗衣/烘衣；無完整廚房。",status:"confirmed"},
+    {type:"stay",title:"Áskot Cottages",provider:"Booking.com",dates:"11/21 → 11/22",meta:"Hella · Check-in 16:00–22:00",code:"—",secret:null,notice:"住宿會在抵達前寄 key code。",status:"confirmed"},
+    {type:"stay",title:"Fossar Cabin",provider:"Airbnb",dates:"11/22 → 11/25",meta:"Kirkjubæjarklaustur · 3 晚",code:"—",secret:null,notice:"完整廚房；無洗衣/烘衣。",status:"confirmed"},
+    {type:"stay",title:"Kalastaðakot · Hvalfjörður",provider:"Airbnb",dates:"11/25 → 11/27",meta:"海邊農場 · 2 晚",code:"—",secret:null,notice:"海邊可看極光；無洗衣機。",status:"confirmed"},
+    {type:"car",title:"Land Rover Defender",provider:"Blue Car Rental",dates:"11/20 14:00 → 11/27 14:00",meta:"Keflavík Airport",code:"—",secret:null,notice:"Extra Driver ×2 · 4G Wi-Fi · 完整保險。",status:"confirmed"},
+    {type:"tour",title:"瓦特納冰川原始冰洞 Tour",provider:"Local Guide of Vatnajökull",dates:"11/23 · 10:15",meta:"Jökulsárlón 主停車場集合",code:"—",secret:null,notice:"約 3.5 小時；提早 15 分鐘抵達。",status:"planned"},
+    {type:"flight",title:"HV 6887 · AMS → KEF",provider:"Transavia",dates:"11/20 · 11:20–13:45",meta:"10kg 隨身 + 25kg 託運",code:"—",secret:null,notice:"不可取消。",status:"confirmed"},
+    {type:"flight",title:"BA801 · KEF → LHR",provider:"British Airways",dates:"11/27 · 11:50–15:00",meta:"冰島 → 倫敦",code:"—",secret:null,notice:"不可取消。",status:"confirmed"}
+  ]
 };
