@@ -905,11 +905,82 @@ qs('#closeWeather').onclick=closeWeatherSheet;
 qs('#weatherBackdrop').onclick=closeWeatherSheet;
 qs('#demoModeToggle').onclick=toggleDemoMode;
 
+function setAuthGateState(state){
+  const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
+  if(btn) btn.disabled=state==='sending_link'||state==='loading'||state==='registering_device';
+  if(state==='link_sent'){
+    if(msg) msg.textContent='登入連結已寄出，請到 Gmail 點一下 Magic Link。';
+    if(foot) foot.textContent='點開後會回到 Travel OS，並把這支裝置記為 Trusted Device。';
+  }else if(state==='device_error'){
+    if(msg) msg.textContent='帳號已登入，但這支裝置尚未完成授權。請保持連線後重試。';
+  }else if(state==='signed_out'){
+    if(msg) msg.textContent='私人旅程需要驗證此裝置。第一次登入後，這支裝置會被記住。';
+  }
+}
+
+async function hydratePrivateCloudData(){
+  const client=window.TravelAuth?.getClient?.();
+  const user=window.TravelAuth?.snapshot?.().user;
+  if(!client||!user||!navigator.onLine) return;
+  try{
+    const {data,error}=await client.functions.invoke('travel-private-data',{body:{tripSlug:window.TRAVEL_CONFIG.tripSlug}});
+    if(error) throw error;
+    if(Array.isArray(data?.bookings)){
+      TRIP.bookings=data.bookings;
+      await window.TravelStore?.replaceBookings?.(data.bookings);
+      renderBookings();
+      renderToday();
+    }
+  }catch(err){
+    console.warn('Private cloud data unavailable; using trusted local cache.',err);
+    try{
+      const cached=await window.TravelStore?.getTrip?.();
+      if(Array.isArray(cached?.bookings)&&cached.bookings.length){
+        TRIP.bookings=cached.bookings;
+        renderBookings();
+        renderToday();
+      }
+    }catch(_){}
+  }
+}
+
+async function initCloudShell(){
+  try{
+    const local=await window.TravelStore?.init?.(TRIP);
+    if(local?.trip?.bookings?.length) TRIP.bookings=local.trip.bookings;
+  }catch(err){console.warn('Local store init failed',err)}
+  renderAll();
+
+  const form=qs('#magicLinkForm');
+  if(form) form.onsubmit=async e=>{
+    e.preventDefault();
+    const email=qs('#authEmail')?.value||'';
+    try{
+      await window.TravelAuth.sendMagicLink(email);
+    }catch(err){
+      const msg=qs('#authMessage');
+      if(msg) msg.textContent='這個 Email 目前沒有此旅程的登入權限，或登入服務暫時無法使用。';
+      console.warn('Magic link request failed',err);
+    }
+  };
+
+  if(window.TravelAuth){
+    window.TravelAuth.onChange(s=>{
+      setAuthGateState(s.state);
+      if(s.state==='ready') hydratePrivateCloudData();
+    });
+    const authState=await window.TravelAuth.init();
+    setAuthGateState(authState.state);
+    if(authState.state==='ready') hydratePrivateCloudData();
+  }
+}
+
 qs('.app-shell')?.classList.add('today-mode');
 syncToReferenceTripDay();
 updateDemoModeUI();
 renderAll();
 updateHeroCollapse();
+initCloudShell();
 lastObservedIcelandDate=icelandTodayISO();
 setInterval(()=>{
   if(demoMode) return;
