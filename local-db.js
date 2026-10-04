@@ -213,6 +213,25 @@
   }
 
   let dbPromise=null;
+
+  async function replaceBookings(db,bookings){
+    const tx=db.transaction('bookings','readwrite');
+    const store=tx.objectStore('bookings');
+    store.clear();
+    (bookings||[]).forEach((booking,index)=>{
+      store.put({
+        id:stableBookingId(index),
+        trip_id:CURRENT_TRIP_ID,
+        sort_order:index,
+        payload:clone(booking),
+        version:1,
+        updated_at:new Date().toISOString(),
+        deleted_at:null
+      });
+    });
+    await txDone(tx);
+  }
+
   const api={
     async init(seedTrip){
       if(!('indexedDB' in window)) return {trip:clone(seedTrip),device:null,mode:'memory'};
@@ -229,6 +248,7 @@
     async setCloudState(value){const db=await (dbPromise||openDb());return setMeta(db,'cloud_state',value);},
     async queueOperation(op){const db=await (dbPromise||openDb());return queueOperation(db,op);},
     async getPendingOperations(){const db=await (dbPromise||openDb());return getPendingOperations(db);},
+    async replaceBookings(bookings){const db=await (dbPromise||openDb());return replaceBookings(db,bookings);},
     currentTripId:CURRENT_TRIP_ID,
     dbName:DB_NAME
   };
