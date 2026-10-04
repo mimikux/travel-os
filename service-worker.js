@@ -1,4 +1,4 @@
-const CACHE='travel-os-v017-rebuild-1';
+const CACHE='travel-os-v017-rebuild-2';
 const ASSETS=['./','./index.html','./app.css','./app.js','./data.js','./config.js','./auth.js','./local-db.js','./sync-engine.js','./manifest.json','./icon.svg'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
