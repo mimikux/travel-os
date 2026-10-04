@@ -32,11 +32,18 @@
     if(!client) throw new Error('Auth not initialized');
     setState('sending_link');
     const redirectTo=location.origin+location.pathname;
-    const {error}=await client.auth.signInWithOtp({
-      email,
-      options:{emailRedirectTo:redirectTo,shouldCreateUser:true}
+    const normalized=String(email||'').trim().toLowerCase();
+    const {data:gate,error:gateError}=await client.functions.invoke('request-travel-login',{
+      body:{email:normalized,tripSlug:cfg.tripSlug,redirectTo}
     });
-    if(error){setState('signed_out');throw error;}
+    if(gateError){setState('signed_out');throw gateError;}
+    if(gate?.existing){
+      const {error}=await client.auth.signInWithOtp({
+        email:normalized,
+        options:{emailRedirectTo:redirectTo,shouldCreateUser:false}
+      });
+      if(error){setState('signed_out');throw error;}
+    }
     setState('link_sent');
   }
 
