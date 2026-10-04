@@ -58,3 +58,12 @@ html:not([data-auth-state="ready"]) .weather-sheet{
   color:#fff!important;
   border-color:var(--green)!important;
 }
+
+.booking-card .notice{margin-top:10px;padding:10px 12px;border-radius:12px;background:#f0ece4;font-size:12px;line-height:1.5;color:#5f6b66}
+.booking-code{display:flex;justify-content:space-between;align-items:end;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid #ece6dc}
+.booking-code small{display:block;font-size:9px;letter-spacing:.08em;color:var(--muted);font-weight:800}
+.booking-code strong{display:block;margin-top:2px;color:var(--green);font-size:13px;word-break:break-all}
+.booking-detail-grid{display:grid;gap:7px;margin-top:12px}
+.booking-detail-row{display:grid;grid-template-columns:minmax(88px,.8fr) minmax(0,1.4fr);gap:10px;padding:8px 0;border-top:1px solid #eee8df;font-size:11px}
+.booking-detail-row span{color:var(--muted)}
+.booking-detail-row strong{text-align:right;color:var(--ink);font-weight:850}
