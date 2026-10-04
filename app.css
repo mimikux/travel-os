@@ -76,3 +76,37 @@ html:not([data-auth-state="ready"]) .weather-sheet{
   box-shadow:none!important;backdrop-filter:none!important;padding:0!important;
 }
 .hero-card.hero-compact .hero-menu-btn{background:transparent!important}
+
+/* v1.0 parity pass: preserve the v0.17 feel while keeping a stable sticky footprint */
+.hero-card{
+  --hero-collapse:0;
+  height:calc(244px - (162px * var(--hero-collapse)))!important;
+  min-height:82px;
+  will-change:height;
+  contain:paint;
+}
+.hero-card .hero-stats,.hero-card .weather-inline{
+  opacity:calc(1 - var(--hero-collapse));
+  transform:translateY(calc(-8px * var(--hero-collapse)));
+  pointer-events:none;
+}
+.hero-card .hero-topic{
+  font-size:calc(28px - (9px * var(--hero-collapse)))!important;
+}
+.hero-card.hero-compact{height:calc(244px - (162px * var(--hero-collapse)))!important}
+.hero-card.hero-compact .hero-stats,.hero-card.hero-compact .weather-inline{display:grid}
+.hero-card.hero-compact .weather-inline{display:flex}
+.hero-card.hero-collapsed .hero-stats,.hero-card.hero-collapsed .weather-inline{visibility:hidden}
+.booking-card-head{display:flex;align-items:flex-start;gap:13px}
+.booking-card-title{min-width:0;flex:1}
+.booking-type-icon{width:38px;height:38px;flex:0 0 38px;border-radius:12px;background:#f0ece4;color:var(--green);display:grid;place-items:center}
+.booking-type-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.booking-type-icon.flight svg{width:23px;height:23px}
+.timeline-detail-toggle{width:100%;margin-top:11px;padding:10px 0 2px;border:0;border-top:1px solid #eee8df;background:transparent;color:var(--green);font:inherit;font-size:11px;font-weight:850;display:flex;justify-content:space-between;align-items:center;text-align:left}
+.timeline-detail-toggle .chev{font-size:17px;transition:transform .18s ease}
+.timeline-detail-toggle.open .chev{transform:rotate(180deg)}
+.timeline-details{padding:9px 0 2px;font-size:11px;line-height:1.6;color:#5f6b66}
+.timeline-details[hidden]{display:none}
+.timeline-details p{margin:0 0 7px}
+.timeline-details ul{margin:0;padding-left:18px}
+.timeline-actions{display:flex;justify-content:flex-end;margin-top:7px}
