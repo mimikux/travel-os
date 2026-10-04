@@ -11,15 +11,26 @@
 
   async function init(){
     if(!window.supabase?.createClient){ setState('sdk_error'); return snapshot(); }
+    try{
+      const device=await window.TravelStore.getDevice();
+      const cloudState=await window.TravelStore.getCloudState?.();
+      if(device?.device_public_id && (cloudState==="trusted_device" || cloudState?.state==="trusted_device")){
+        setState('ready');
+      }
+    }catch(_){ }
     client=window.supabase.createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{
       auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
     });
     const {data}=await client.auth.getSession();
     currentSession=data.session||null;
     if(currentSession){
-      setState('registering_device');
-      await registerTrustedDevice();
-    }else setState('signed_out');
+      if(navigator.onLine){
+        setState('registering_device');
+        try{await registerTrustedDevice()}catch(_){ }
+      }else{
+        setState('ready');
+      }
+    }else if(state!=='ready') setState('signed_out');
     client.auth.onAuthStateChange(async (_event,session)=>{
       currentSession=session||null;
       if(currentSession){ setState('registering_device'); await registerTrustedDevice(); }
