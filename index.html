@@ -9,21 +9,21 @@
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261005-auth2" />
+  <link rel="stylesheet" href="app.css?v=20261005-auth3" />
 </head>
 <body>
-  <section class="auth-gate" id="authGate" aria-live="polite">
+  <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
     <div class="auth-card">
       <div class="auth-mark">I</div>
       <span class="section-kicker">TRAVEL OS</span>
       <h1>Iceland 2026</h1>
-      <p id="authMessage">私人旅程需要驗證此裝置。第一次登入後，這支手機會被記住。</p>
-      <form id="magicLinkForm" class="auth-form">
+      <p id="authMessage">正在確認這台裝置的登入狀態…</p>
+      <form id="magicLinkForm" class="auth-form" hidden>
         <label for="authEmail">Email</label>
         <input id="authEmail" type="email" autocomplete="email" value="anching.ho@gmail.com" required>
         <button type="submit" id="magicLinkBtn">寄送登入連結</button>
       </form>
-      <p class="auth-foot" id="authFoot">不需要密碼。Magic Link 使用一次後失效。</p>
+      <p class="auth-foot" id="authFoot">已有權限的裝置會自動進入，不需要重新寄信。</p>
     </div>
   </section>
   <div class="app-shell today-mode">
@@ -196,11 +196,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261005-auth2"></script>
-  <script src="data.js?v=20261005-auth2"></script>
-  <script src="local-db.js?v=20261005-auth2"></script>
-  <script src="sync-engine.js?v=20261005-auth2"></script>
-  <script src="auth.js?v=20261005-auth2"></script>
-  <script src="app.js?v=20261005-auth2"></script>
+  <script src="config.js?v=20261005-auth3"></script>
+  <script src="data.js?v=20261005-auth3"></script>
+  <script src="local-db.js?v=20261005-auth3"></script>
+  <script src="sync-engine.js?v=20261005-auth3"></script>
+  <script src="auth.js?v=20261005-auth3"></script>
+  <script src="app.js?v=20261005-auth3"></script>
 </body>
 </html>
