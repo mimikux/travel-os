@@ -840,11 +840,6 @@ function updateHeroCollapse(){
   const y=Math.max(0,window.scrollY||document.documentElement.scrollTop||0);
   const collapseDistance=230;
   const progress=Math.min(1,y/collapseDistance);
-  const css=getComputedStyle(hero);
-  const expanded=parseFloat(css.getPropertyValue('--hero-expanded-height'))||330;
-  const collapsed=parseFloat(css.getPropertyValue('--hero-collapsed-height'))||112;
-  const height=expanded-(expanded-collapsed)*progress;
-  hero.style.height=`${height}px`;
   hero.style.setProperty('--hero-progress',String(progress));
   hero.classList.toggle('hero-compact',progress>0.82);
 }
