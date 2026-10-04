@@ -923,7 +923,12 @@ async function hydratePrivateCloudData(){
   const user=window.TravelAuth?.snapshot?.().user;
   if(!client||!user||!navigator.onLine) return;
   try{
-    const {data,error}=await client.functions.invoke('travel-private-data',{body:{tripSlug:window.TRAVEL_CONFIG.tripSlug}});
+    const device=await window.TravelStore.getDevice();
+    const {data,error}=await client.functions.invoke('travel-data',{body:{
+      tripSlug:window.TRAVEL_CONFIG.tripSlug,
+      devicePublicId:device.device_public_id,
+      deviceSecret:device.device_secret
+    }});
     if(error) throw error;
     if(Array.isArray(data?.bookings)){
       TRIP.bookings=data.bookings;
