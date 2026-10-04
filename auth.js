@@ -11,16 +11,37 @@
     state=next;
     document.documentElement.dataset.authState=next;
     const gate=document.getElementById('authGate');
+    const form=document.getElementById('magicLinkForm');
+    const msg=document.getElementById('authMessage');
+    const foot=document.getElementById('authFoot');
     if(gate){
       const ready=next==='ready';
       gate.hidden=ready;
       gate.style.display=ready?'none':'';
       gate.setAttribute('aria-hidden',String(ready));
     }
+    if(form){
+      const showForm=['signed_out','link_sent','device_error','sdk_error'].includes(next);
+      form.hidden=!showForm;
+    }
+    if(msg){
+      if(next==='loading') msg.textContent='正在確認這台裝置的登入狀態…';
+      else if(next==='registering_device') msg.textContent='已找到登入狀態，正在驗證 Trusted Device…';
+      else if(next==='signed_out') msg.textContent='這台裝置尚未驗證，請用已授權 Email 取得登入連結。';
+      else if(next==='link_sent') msg.textContent='登入連結已寄出，請到 Email 點一下 Magic Link。';
+      else if(next==='device_error') msg.textContent='帳號已登入，但這台裝置驗證失敗。請保持連線後重新整理。';
+      else if(next==='sdk_error') msg.textContent='登入模組載入失敗，請重新整理。';
+    }
+    if(foot){
+      foot.textContent=next==='loading'||next==='registering_device'?'已有權限的裝置會自動進入，不需要重新寄信。':'不需要密碼。Magic Link 使用一次後失效。';
+    }
     emit();
   }
 
+  let initPromise=null;
   async function init(){
+    if(initPromise) return initPromise;
+    initPromise=(async()=>{
     if(!window.supabase?.createClient){ setState('sdk_error'); return snapshot(); }
     try{
       const device=await window.TravelStore.getDevice();
@@ -48,6 +69,12 @@
       else setState('signed_out');
     });
     return snapshot();
+    })().catch(err=>{
+      console.error('Auth init failed',err);
+      setState('signed_out');
+      return snapshot();
+    });
+    return initPromise;
   }
 
   async function sendMagicLink(email){
@@ -121,6 +148,10 @@
     init,sendMagicLink,signOut,getClient:()=>client,
     onChange(fn){listeners.add(fn);return()=>listeners.delete(fn)},snapshot
   };
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bindLoginForm,{once:true});
-  else bindLoginForm();
+  const boot=()=>{
+    bindLoginForm();
+    init().catch(err=>console.error('Auth boot failed',err));
+  };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
 })();
