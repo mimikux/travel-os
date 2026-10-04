@@ -127,14 +127,15 @@ function openTrip(){ $("tripSheet").classList.add("show");$("sheetBackdrop").cla
 function closeTrip(){ $("tripSheet").classList.remove("show");$("sheetBackdrop").classList.remove("show")}
 function setupUI(){initIcons();document.querySelectorAll("[data-target]").forEach(b=>b.onclick=()=>switchView(b.dataset.target));document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>switchView(b.dataset.nav));$("tripMenuBtn").onclick=openTrip;$("heroMenuBtn").onclick=openTrip;$("closeSheet").onclick=closeTrip;$("sheetBackdrop").onclick=closeTrip;$("demoModeToggle").onclick=()=>{demoMode=!demoMode;localStorage.setItem("travelDemo",demoMode?"1":"0");$("demoModeToggle").classList.toggle("active",demoMode);$("demoModeState").textContent=demoMode?"開啟":"關閉";if(demoMode)selectedDay=3;renderAll()};$("demoModeToggle").classList.toggle("active",demoMode);$("demoModeState").textContent=demoMode?"開啟":"關閉";$("routeSlider").oninput=e=>$("routeDistance").textContent=Math.round((+$("routeTotal").textContent||TRIP.days[selectedDay].km)*(+e.target.value/100));
   $("mapMultiToggle").onclick=toggleMapMulti;
-  let heroRAF=0;
-  const updateHero=()=>{
-    const h=$("heroCard"); if(!h) return;
-    const y=Math.max(0,scrollY||0), compact=h.classList.contains("hero-compact");
-    if(!compact && y>280) h.classList.add("hero-compact");
-    else if(compact && y<40) h.classList.remove("hero-compact");
-  };
-  addEventListener("scroll",()=>{if(heroRAF)return;heroRAF=requestAnimationFrame(()=>{heroRAF=0;updateHero()})},{passive:true});updateHero();
+  let ticking=false;
+  addEventListener("scroll",()=>{
+    if(ticking)return;
+    ticking=true;
+    requestAnimationFrame(()=>{
+      $("heroCard")?.classList.toggle("hero-compact",scrollY>130);
+      ticking=false;
+    });
+  },{passive:true});
   const idx=dayIndexByToday();selectedDay=demoMode?3:(idx>=0?idx:0);renderAll()}
 
 function cloudReservationToBooking(row){
