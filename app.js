@@ -930,9 +930,37 @@ async function hydratePrivateCloudData(){
       deviceSecret:device.device_secret
     }});
     if(error) throw error;
-    if(Array.isArray(data?.bookings)){
-      TRIP.bookings=data.bookings;
-      await window.TravelStore?.replaceBookings?.(data.bookings);
+    const sourceRows=Array.isArray(data?.bookings)?data.bookings:(Array.isArray(data?.reservations)?data.reservations:[]);
+    if(sourceRows.length){
+      const bookings=sourceRows.map(row=>{
+        if(row?.type&&row?.provider&&row?.title) return row;
+        const d=row?.details&&typeof row.details==='object'?row.details:{};
+        const nested=d.details&&typeof d.details==='object'?d.details:{};
+        const rows=Array.isArray(nested.rows)?[...nested.rows]:[];
+        if(row?.public_price_text&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('費用'))) rows.push(['費用',row.public_price_text]);
+        if(row?.cancellation_policy&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('取消'))) rows.push(['取消條款',row.cancellation_policy]);
+        return {
+          id:row?.id,
+          type:d.type||row?.reservation_type||'other',
+          provider:d.provider||row?.provider||'',
+          title:d.title||row?.title||'預訂',
+          dates:d.dates||row?.public_summary||'',
+          meta:d.meta||row?.public_summary||'',
+          code:row?.confirmation_code||d.code||'',
+          secret:row?.pin_code||d.secret||'',
+          status:d.status||row?.status||'confirmed',
+          alert:d.alert||'',
+          notice:d.notice||row?.private_notes||'',
+          details:{
+            rows,
+            amenities:Array.isArray(nested.amenities)?nested.amenities:[],
+            tips:Array.isArray(nested.tips)?nested.tips:[],
+            source:nested.source||d.source||'Supabase 私人預訂資料'
+          }
+        };
+      });
+      TRIP.bookings=bookings;
+      await window.TravelStore?.replaceBookings?.(bookings);
       renderBookings();
       renderToday();
     }
