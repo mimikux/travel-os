@@ -2040,10 +2040,11 @@ async function importGoogleMapIntoEditor(){
     if(Number.isFinite(data.lng)) qs('#editItemLng').value=data.lng;
     if(data.navQuery) qs('#editItemNav').value=data.navQuery;
 
-    // Type suggestion is only safe for a brand-new item that still has the default/blank type.
-    if(isNew&&data.suggestedType&&(!existingType||existingType==='spot')&&typeInput?.querySelector(`option[value="${data.suggestedType}"]`)){
-      typeInput.value=data.suggestedType;
-    }
+    // New itinerary items always default to 景點. Google Maps parsing may suggest
+    // a type, but never changes the user's type selection automatically.
+    const suggestedType=(isNew&&data.suggestedType&&typeInput?.querySelector(`option[value="${data.suggestedType}"]`))
+      ?data.suggestedType
+      :'';
 
     // Preserve what the user pasted. Store the expanded URL separately for audit/debugging.
     input.dataset.resolvedUrl=data.finalUrl||'';
@@ -2069,11 +2070,13 @@ async function importGoogleMapIntoEditor(){
       (!existingTitle&&data.name)?'店名/地名':'',
       data.address?'地址':'',
       Number.isFinite(data.lat)&&Number.isFinite(data.lng)?'GPS':'',
-      (isNew&&data.suggestedType)?'類型建議':'',
       hours.length?'營業時間':''
     ].filter(Boolean).join('、');
     const kept=existingTitle?'；已保留你原本輸入的名稱':'';
-    status.textContent=warning?warning:(filled?`已帶入：${filled}${kept}`:`連結已展開並保留原始網址${kept}。`);
+    const typeHint=suggestedType&&suggestedType!==existingType
+      ?`；Google 類型建議：${typeLabel[suggestedType]||suggestedType}（未自動修改）`
+      :'';
+    status.textContent=warning?warning:(filled?`已帶入：${filled}${kept}${typeHint}`:`連結已展開並保留原始網址${kept}${typeHint}。`);
   }catch(err){
     status.textContent='解析失敗，已保留你貼上的原始連結，不會覆蓋現有資料：'+(err.code||err.message||'unknown');
   }
