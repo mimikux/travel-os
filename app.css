@@ -831,3 +831,101 @@ body.timeline-dragging{touch-action:none!important}
 .route-node{
   pointer-events:auto!important;
 }
+
+
+/* route ruler metric toggle r110aa */
+/* Symmetric track insets maximize usable width: first/last node have equal margins. */
+.route-track-area{
+  left:22px!important;
+  right:22px!important;
+}
+.route-scale-wrap #routeSlider{
+  left:22px!important;
+  right:22px!important;
+}
+/* Every segment label now shares one baseline. */
+.route-segment-label,
+.route-segment-label.tight,
+.route-segment-label.tight.lane-a,
+.route-segment-label.tight.lane-b{
+  top:60px!important;
+  font-size:9px!important;
+  line-height:1!important;
+}
+.route-total-label{display:none!important}
+
+.route-progress-copy{
+  flex:1;
+  min-width:0;
+}
+.route-current{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.route-metric-cluster{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:0 0 auto;
+}
+.route-distance{
+  margin-left:0!important;
+  min-width:72px;
+  text-align:right;
+  white-space:nowrap;
+}
+.route-metric-toggle{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  align-items:center;
+  width:68px;
+  height:28px;
+  padding:3px!important;
+  border:1px solid #d9d5cc!important;
+  border-radius:999px!important;
+  background:#eee9e0!important;
+  color:var(--muted)!important;
+  box-shadow:none!important;
+  cursor:pointer;
+}
+.route-metric-toggle span{
+  display:grid;
+  place-items:center;
+  min-width:0;
+  height:20px;
+  padding:0!important;
+  border-radius:999px!important;
+  background:transparent!important;
+  font-size:9px!important;
+  line-height:1!important;
+  font-weight:950!important;
+}
+.route-metric-toggle span.active{
+  background:var(--green)!important;
+  color:#fff!important;
+}
+.route-panel.multi-mode .route-metric-toggle{display:none!important}
+
+@media(max-width:420px){
+  .route-track-area{
+    left:20px!important;
+    right:20px!important;
+  }
+  .route-scale-wrap #routeSlider{
+    left:20px!important;
+    right:20px!important;
+  }
+  .route-segment-label,
+  .route-segment-label.tight,
+  .route-segment-label.tight.lane-a,
+  .route-segment-label.tight.lane-b{
+    top:60px!important;
+    font-size:8px!important;
+  }
+  .route-metric-cluster{gap:5px}
+  .route-metric-toggle{width:62px;height:27px}
+  .route-distance{min-width:62px;font-size:10px}
+  .route-distance strong{font-size:16px}
+}
