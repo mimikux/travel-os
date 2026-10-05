@@ -393,3 +393,11 @@
 .timeline-item.drag-ready .timeline-card{outline:2px solid rgba(185,145,73,.38);outline-offset:2px}
 .timeline-item.dragging{opacity:.55}
 .timeline-item.drag-over .timeline-card{transform:translateY(3px);box-shadow:0 0 0 2px rgba(185,145,73,.35),var(--shadow)}
+
+
+/* Google Maps itinerary import */
+.map-import-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:stretch}
+.map-import-row input{min-width:0}
+.map-import-btn{min-width:72px;margin:0!important}
+.map-import-status{margin:-2px 0 2px!important}
+@media(max-width:420px){.map-import-row{grid-template-columns:1fr}.map-import-btn{width:100%}}
