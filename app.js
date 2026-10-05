@@ -434,7 +434,8 @@ function renderToday(){
   const dayIndex=selectedDay;
   const ui=dayUi(d);
   const context=dayContext(d.date);
-  qs('#heroDay').textContent=`${d.label} · ${String(d.date||'').slice(5).replace('-','/')}`;
+  const weekday=d.date?new Intl.DateTimeFormat('en-US',{weekday:'short',timeZone:'UTC'}).format(new Date(d.date+'T00:00:00Z')).toUpperCase():'';
+  qs('#heroDay').textContent=`${d.label} · ${String(d.date||'').slice(5).replace('-','/')} ${weekday}`.trim();
   qs('#heroTitle').textContent=d.name;
   const rel=qs('#heroRelativeLabel');
   if(rel) rel.textContent=context.label;
