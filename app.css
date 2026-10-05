@@ -269,3 +269,31 @@
   border-radius:50%!important;
   background:var(--gold)!important;
 }
+
+
+/* Timeline geometry parity refinement 2026-10-05
+   Mobile goal: rail centered in the left gutter, card slightly wider,
+   marker center aligned with the event type label. */
+@media(max-width:699px){
+  .timeline{
+    margin-left:-4px;
+    --timeline-gutter:32px;
+    --timeline-rail-x:11px;
+  }
+  .timeline:before{
+    left:var(--timeline-rail-x)!important;
+    transform:translateX(-50%)!important;
+  }
+  .timeline-item{
+    grid-template-columns:var(--timeline-gutter) minmax(0,1fr)!important;
+  }
+  .timeline-dot{
+    width:20px!important;
+    height:20px!important;
+    margin:9px auto 0!important;
+    border:2px solid rgba(185,145,73,.46)!important;
+  }
+  .timeline-dot:after{
+    inset:3px!important;
+  }
+}
