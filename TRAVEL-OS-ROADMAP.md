@@ -340,3 +340,5 @@ Later:
 - [x] 2026-10-05 Route ruler r110aa: symmetric start/end node margins; all per-leg labels share one horizontal baseline; KM formatting is <100 => one decimal and >=100 => integer; minimum leg width now reserves label space; added one-button KM/MIN switch using OSRM per-leg distance + duration data, with itinerary day totals as the temporary fallback before routing resolves.
 
 - [x] 2026-10-05 Route ruler r110ab: stop tooltip changed to dark text on a light card; tapping a stop now jumps the slider/playback/car directly to that stop and makes the tapped node current. Real route progress is kept separate from readability-adjusted ruler positions so the progress fill stays aligned.
+
+- [x] 2026-10-05 Flexible itinerary drag r110ac: floating card now preserves the exact finger/handle grab offset instead of snapping the finger to the card edge; long-press suppresses text selection; live insertion placeholder physically opens a card-sized gap so surrounding flexible cards move aside before drop.
