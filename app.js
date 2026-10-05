@@ -1063,7 +1063,7 @@ async function hydratePrivateCloudData(){
 }
 
 function tripHref(slug){
-  return `${window.TRAVEL_CONFIG?.appBasePath||'/travel-os/'}${encodeURIComponent(slug)}`;
+  return `${window.TRAVEL_CONFIG?.appBasePath||'/travel-os/'}?trip=${encodeURIComponent(slug)}`;
 }
 
 async function fetchAuthorizedTrips(){
