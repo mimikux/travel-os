@@ -315,3 +315,7 @@ Later:
 
 - [x] 2026-10-05 Google Maps import v2: prefer resolved /place/ name over generic Google Maps page titles, narrow type inference to place-specific context, and return confidence.
 - [x] 2026-10-05 Google Maps import v2: best-effort weekly opening-hours extraction; append hours to Notes and warn when the scheduled trip date falls on a parsed closed day.
+
+- [x] 2026-10-05 Visual consistency: Hero bottom corners, timeline cards, and Today D0-D7 buttons share one 18px corner radius so the collapsed Hero visually aligns with itinerary cards while scrolling.
+- [x] 2026-10-05 Trip place audit: Owner/Editor can run a one-time opening-hours / closed-day check for itinerary items that already have a confirmed Google Maps URL; items without URLs are listed as needing manual completion instead of fuzzy-matched.
+- [x] 2026-10-05 Existing itinerary metadata: Google Maps URL, opening hours, closed weekdays, check timestamp, and source are persisted in Supabase and loaded back into Travel OS; closed-day warnings render on Today cards.
