@@ -230,6 +230,8 @@ Later:
 ### Weather / alerts / push
 
 - [x] Weather forecast display.
+- [x] Weather sheet links to the exact Open-Meteo raw forecast request and Google weather search for the day's primary location.
+- [x] DEMO weather explicitly warns that displayed values are illustrative, not live source data.
 - [ ] Weather risk rules linked to itinerary activities.
 - [ ] Plan B recommendation when weather conflicts with outdoor activities.
 - [ ] Web Push reminders/alerts.
