@@ -312,3 +312,6 @@ Later:
 - [x] 2026-10-05 Edit-mode visibility: Owner/Editor gets an explicit header Edit entry plus a persistent high-contrast edit toolbar with 編輯本日 / ＋新增 / 完成 on both mobile and desktop.
 
 - [x] 2026-10-05 Today day selector sizing refined: on mobile, exactly five D-day buttons fit across the same content width as the Hero while remaining horizontally scrollable for D5-D7.
+
+- [x] 2026-10-05 Google Maps import v2: prefer resolved /place/ name over generic Google Maps page titles, narrow type inference to place-specific context, and return confidence.
+- [x] 2026-10-05 Google Maps import v2: best-effort weekly opening-hours extraction; append hours to Notes and warn when the scheduled trip date falls on a parsed closed day.
