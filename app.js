@@ -946,7 +946,10 @@ function updateHeroCollapse(){
   const collapseDistance=230;
   const progress=Math.min(1,y/collapseDistance);
   hero.style.setProperty('--hero-progress',String(progress));
-  hero.classList.toggle('hero-compact',progress>0.82);
+  // Do not switch layout states mid-animation: the old 0.82 threshold changed
+  // Hero height/font/display in one frame, which could change scrollY and flicker.
+  // hero-compact is now only a final visual state after the continuous animation.
+  hero.classList.toggle('hero-compact',progress>=0.995);
 }
 
 let heroScrollRAF=0;
