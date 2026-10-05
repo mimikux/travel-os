@@ -189,15 +189,30 @@ function dayContext(dateString){
   const diff=isoDayNumber(dateString)-isoDayNumber(today);
   const tripStarted=today>=first;
   const tripEnded=today>last;
-  let label;
-  if(diff===-2) label='前天';
-  else if(diff===-1) label='昨天';
-  else if(diff===0) label='今天';
-  else if(diff===1) label='明天';
-  else if(diff===2) label='後天';
-  else if(diff<0) label=`${Math.abs(diff)}天前`;
-  else label=`${diff}天後`;
-  return {label,diff,isPast:diff<0,isToday:diff===0,isFuture:diff>0,tripStarted,tripEnded,today};
+
+  let label,timelineLabel;
+  if(demoMode){
+    if(diff===-2) label='前天';
+    else if(diff===-1) label='昨天';
+    else if(diff===0) label='今天';
+    else if(diff===1) label='明天';
+    else if(diff===2) label='後天';
+    else if(diff<0) label=`${Math.abs(diff)}天前`;
+    else label=`${diff}天後`;
+    timelineLabel=label;
+  }else{
+    // Live mode is a simple trip countdown/count-up. Keep the compact hero
+    // label numeric (e.g. 46天) because the date is already shown above.
+    if(diff===0){
+      label='今天';
+      timelineLabel='今天';
+    }else{
+      label=`${Math.abs(diff)}天`;
+      timelineLabel=diff<0?`${Math.abs(diff)}天前`:`${diff}天後`;
+    }
+  }
+
+  return {label,timelineLabel,diff,isPast:diff<0,isToday:diff===0,isFuture:diff>0,tripStarted,tripEnded,today};
 }
 function syncToReferenceTripDay(forceDemo=false){
   const today=(demoMode||forceDemo)?DEMO_REFERENCE_DATE:icelandTodayISO();
@@ -424,7 +439,7 @@ function renderToday(){
   const rel=qs('#heroRelativeLabel');
   if(rel) rel.textContent=context.label;
   const heading=qs('#timelineHeading');
-  if(heading) heading.textContent=`${context.label}行程`;
+  if(heading) heading.textContent=`${context.timelineLabel||context.label}行程`;
   qs('#todayView').classList.toggle('past-day',context.isPast);
   const hero=qs('#heroCard');
   hero.style.setProperty('--hero-photo',ui.photo);
