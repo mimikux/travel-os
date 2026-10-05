@@ -2,7 +2,7 @@ let selectedDay=3, currentFilter='all', map, routeLine, routeCar, routeTimer=nul
 let mapSelectedDays=new Set([selectedDay]), mapPrimaryDay=selectedDay, mapRouteLayers=[];
 let mapMultiSelectMode=false;
 let demoMode=(()=>{try{return localStorage.getItem('icelandDemoMode')==='1'}catch(_){return false}})();
-let routeGeometry=[], routeCumulative=[], routeTotalKm=0, routeStopFractions=[];
+let routeGeometry=[], routeCumulative=[], routeTotalKm=0, routeStopFractions=[], routeSegmentDistancesKm=[];
 let routeRenderToken=0;
 const roadRouteCache=new Map();
 let todayRouteToken=0;
@@ -546,6 +546,8 @@ async function fetchRoadRoute(stops){
     points:route.geometry.coordinates.map(([lng,lat])=>[lat,lng]),
     distanceKm:route.distance/1000,
     durationSec:route.duration,
+    segmentDistancesKm:(route.legs||[]).map(leg=>Number(leg.distance||0)/1000),
+    segmentDurationsSec:(route.legs||[]).map(leg=>Number(leg.duration||0)),
     snapped:(json.waypoints||[]).map(w=>[w.location[1],w.location[0]])
   };
 }
@@ -589,7 +591,7 @@ function haversineKm(a,b){
   return 2*R*Math.asin(Math.sqrt(h));
 }
 
-function setRouteGeometry(points,totalKm=null,stopPoints=[]){
+function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=null){
   routeGeometry=points||[];
   routeCumulative=[];
   let total=0;
@@ -599,6 +601,27 @@ function setRouteGeometry(points,totalKm=null,stopPoints=[]){
   }
   routeTotalKm=Number.isFinite(totalKm)?totalKm:total;
   routeStopFractions=[];
+  routeSegmentDistancesKm=[];
+
+  const supplied=Array.isArray(segmentDistancesKm)?segmentDistancesKm.map(Number):[];
+  const validSupplied=stopPoints.length>=2
+    && supplied.length===stopPoints.length-1
+    && supplied.every(v=>Number.isFinite(v)&&v>=0)
+    && supplied.reduce((a,b)=>a+b,0)>0;
+
+  if(validSupplied){
+    const legTotal=supplied.reduce((a,b)=>a+b,0);
+    let acc=0;
+    routeStopFractions=[0];
+    routeSegmentDistancesKm=[...supplied];
+    for(const km of supplied){
+      acc+=km;
+      routeStopFractions.push(Math.min(1,acc/legTotal));
+    }
+    routeStopFractions[routeStopFractions.length-1]=1;
+    return;
+  }
+
   const denom=routeCumulative[routeCumulative.length-1]||1;
   for(const stop of stopPoints){
     let best=0,bestDist=Infinity;
@@ -608,6 +631,85 @@ function setRouteGeometry(points,totalKm=null,stopPoints=[]){
     }
     routeStopFractions.push((routeCumulative[best]||0)/denom);
   }
+  for(let i=0;i<routeStopFractions.length-1;i++){
+    routeSegmentDistancesKm.push(Math.max(0,(routeStopFractions[i+1]-routeStopFractions[i])*routeTotalKm));
+  }
+}
+
+function formatRouteKm(km){
+  const n=Number(km)||0;
+  if(n<10) return n.toFixed(1).replace(/\.0$/,'');
+  return String(Math.round(n));
+}
+
+function setRouteScaleMessage(message){
+  const el=qs('#routeStops');
+  if(!el) return;
+  el.innerHTML=`<div class="route-scale-message">${escapeHtml(message)}</div>`;
+}
+
+function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTotalKm,{approx=false}={}){
+  const el=qs('#routeStops');
+  if(!el) return;
+  if(!Array.isArray(stops)||stops.length<2){
+    setRouteScaleMessage(stops?.length?'只有一個路線點':'沒有可用的路線點');
+    return;
+  }
+
+  let seg=Array.isArray(segments)?segments.map(Number):[];
+  if(seg.length!==stops.length-1||!seg.every(v=>Number.isFinite(v)&&v>=0)||seg.reduce((a,b)=>a+b,0)<=0){
+    seg=[];
+    for(let i=0;i<stops.length-1;i++){
+      seg.push(haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]));
+    }
+  }
+  const segTotal=seg.reduce((a,b)=>a+b,0)||1;
+  const displayTotal=Number.isFinite(Number(totalKm))&&Number(totalKm)>0?Number(totalKm):segTotal;
+  const positions=[0];
+  let acc=0;
+  for(const km of seg){acc+=km;positions.push(Math.min(100,(acc/segTotal)*100))}
+  positions[positions.length-1]=100;
+
+  const labels=seg.map((km,i)=>{
+    const left=(positions[i]+positions[i+1])/2;
+    const span=positions[i+1]-positions[i];
+    const tight=span<12;
+    const lane=tight?(i%2?' lane-down':' lane-up'):'';
+    const prefix=approx?'≈':'';
+    return `<span class="route-segment-label${tight?' tight':''}${lane}" style="left:${left.toFixed(3)}%">${prefix}${formatRouteKm(km)} km</span>`;
+  }).join('');
+
+  const nodes=positions.map((p,i)=>{
+    const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i}`);
+    return `<span class="route-node${i===0?' current':''}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" style="left:${p.toFixed(3)}%" title="${title}"></span>`;
+  }).join('');
+
+  el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}">
+    <span class="route-origin-label">0</span>
+    <div class="route-track-area">
+      <div class="route-track"><div class="route-track-progress"></div></div>
+      ${labels}
+      ${nodes}
+    </div>
+    <span class="route-total-label">${approx?'≈':''}${formatRouteKm(displayTotal)} km</span>
+  </div>`;
+  updateRouteScaleProgress(+qs('#routeSlider')?.value||0);
+}
+
+function updateRouteScaleProgress(v){
+  const pct=Math.max(0,Math.min(100,Number(v)||0));
+  const progress=qs('.route-track-progress');
+  if(progress) progress.style.width=`${pct}%`;
+  const nodes=qsa('.route-node');
+  let current=-1;
+  nodes.forEach((node,i)=>{
+    const p=Number(node.dataset.routeProgress||0);
+    const passed=p<=pct+0.001;
+    node.classList.toggle('passed',passed);
+    if(passed) current=i;
+    node.classList.remove('current');
+  });
+  if(current>=0) nodes[current]?.classList.add('current');
 }
 
 function positionAlongRoute(t){
@@ -676,7 +778,7 @@ async function renderMapDay(){
   if(!TRIP.days?.length){
     qs('#mapDayLabel').textContent='—';
     qs('#mapDayName').textContent='尚未建立行程';
-    qs('#routeStops').textContent='請先由 Owner / Editor 新增行程日。';
+    setRouteScaleMessage('請先由 Owner / Editor 新增行程日。');
     return;
   }
   const token=++routeRenderToken;
@@ -698,7 +800,7 @@ async function renderMapDay(){
   qs('#routeDistance').textContent='0';
   qs('#routeDistanceSuffix').innerHTML=isMulti?' km':` / <span id="routeTotal">${Math.round(singleDay.km)}</span> km`;
   updateMapRangeText(indices,fallbackTotals.km,fallbackTotals.sec);
-  routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeTotalKm=0;
+  routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeTotalKm=0;
 
   const bounds=L.latLngBounds([]);
   const fallbackLayers=new Map();
@@ -733,9 +835,10 @@ async function renderMapDay(){
     qs('#routeCurrent').textContent=`已選 ${indices.length} 天`;
     qs('#routeMeta').textContent=indices.map(i=>TRIP.days[i].label).join(' · ');
     qs('#routeDistance').textContent=fallbackTotals.km.toFixed(1);
-    qs('#routeStops').textContent=`合計估算 · ${fallbackTotals.km.toFixed(1)} km · ${formatDriveTime(fallbackTotals.sec)} · 正在更新道路路線…`;
+    setRouteScaleMessage(`合計估算 · ${fallbackTotals.km.toFixed(1)} km · ${formatDriveTime(fallbackTotals.sec)} · 正在更新道路路線…`);
   }else{
-    qs('#routeStops').textContent='道路路線計算中…';
+    const stops=getRouteStops(singleDay);
+    renderRouteScale(stops,routeSegmentDistancesKm,routeTotalKm,{approx:true});
     updateRouteAt(0);
   }
 
@@ -755,9 +858,14 @@ async function renderMapDay(){
       road.points.forEach(pt=>bounds.extend(pt));
       if(!isMulti){
         routeLine=line;
-        setRouteGeometry(road.points,road.distanceKm,road.snapped.length?road.snapped:stops.map(e=>[e.lat,e.lng]));
+        setRouteGeometry(
+          road.points,
+          road.distanceKm,
+          road.snapped.length?road.snapped:stops.map(e=>[e.lat,e.lng]),
+          road.segmentDistancesKm
+        );
         qs('#routeTotal').textContent=Math.round(routeTotalKm);
-        qs('#routeStops').textContent=`道路路線 · 約 ${routeTotalKm.toFixed(1)} km · ${formatDriveTime(road.durationSec)} · `+stops.map(e=>e.title.split('\n')[0]).join(' · ');
+        renderRouteScale(stops,road.segmentDistancesKm,road.distanceKm);
         updateRouteAt(+qs('#routeSlider').value);
       }
     }catch(err){
@@ -776,11 +884,12 @@ async function renderMapDay(){
       else{totalKm+=Number(TRIP.days[dayIndex].km)||0;totalSec+=parseDriveSeconds(TRIP.days[dayIndex].drive)}
     }
     qs('#routeDistance').textContent=totalKm.toFixed(1);
-    qs('#routeStops').textContent=`${indices.length} 天合計 · 約 ${totalKm.toFixed(1)} km · ${formatDriveTime(totalSec)} · `+indices.map(i=>TRIP.days[i].label).join(' + ');
+    setRouteScaleMessage(`${indices.length} 天合計 · 約 ${totalKm.toFixed(1)} km · ${formatDriveTime(totalSec)} · `+indices.map(i=>TRIP.days[i].label).join(' + '));
     updateMapRangeText(indices,totalKm,totalSec);
   }else if(!results[0]?.road){
     const d=singleDay,stops=getRouteStops(d);
-    qs('#routeStops').textContent='道路路線暫時無法取得 · 已顯示離線備援線 · '+stops.map(e=>e.title.split('\n')[0]).join(' · ');
+    renderRouteScale(stops,routeSegmentDistancesKm,routeTotalKm,{approx:true});
+    qs('#routeMeta').textContent=`${d.label} · 離線備援距離`;
   }
 }
 
@@ -794,6 +903,7 @@ function updateRouteAt(v){
   qs('#routeMeta').textContent=`${d.label} · ${stop?.time||''}`;
   qs('#routeDistance').textContent=(routeTotalKm*t<10?(routeTotalKm*t).toFixed(1):Math.round(routeTotalKm*t));
   qs('#routeSlider').value=v;
+  updateRouteScaleProgress(v);
 }
 
 function clearRouteTimer(){
