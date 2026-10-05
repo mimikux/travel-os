@@ -900,6 +900,7 @@ qs('#mapMultiToggle').onclick=toggleMapMultiMode;
 const openTripSheet=()=>{qs('#tripSheet').classList.add('show');qs('#sheetBackdrop').classList.add('show')};
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
+qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
 function closeSheet(){qs('#tripSheet').classList.remove('show');qs('#sheetBackdrop').classList.remove('show')}
 qs('#closeSheet').onclick=closeSheet;
 qs('#sheetBackdrop').onclick=closeSheet;
