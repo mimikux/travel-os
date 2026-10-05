@@ -342,3 +342,5 @@ Later:
 - [x] 2026-10-05 Route ruler r110ab: stop tooltip changed to dark text on a light card; tapping a stop now jumps the slider/playback/car directly to that stop and makes the tapped node current. Real route progress is kept separate from readability-adjusted ruler positions so the progress fill stays aligned.
 
 - [x] 2026-10-05 Flexible itinerary drag r110ac: floating card now preserves the exact finger/handle grab offset instead of snapping the finger to the card edge; long-press suppresses text selection; live insertion placeholder physically opens a card-sized gap so surrounding flexible cards move aside before drop.
+
+- [x] 2026-10-05 Drag/navigation r110ad: flexible cards may now use fixed-time cards as insertion anchors, so surrounding cards can visibly open a drop gap anywhere in the timeline while fixed-time cards themselves remain non-draggable. Navigation buttons now render for manually added/edited places whenever nav query, address, Google Maps URL/resolved URL, or coordinates exist; navigation uses nav query -> address -> coordinates -> title fallback.
