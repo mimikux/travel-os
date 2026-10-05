@@ -182,3 +182,28 @@
 .booking-tip-list{margin:0;padding-left:19px;display:grid;gap:6px}
 .booking-tip-list li{font-size:14px;line-height:1.58;color:#4e5b56}
 .booking-detail-source{margin-top:13px;padding-top:10px;border-top:1px solid #e1d7c5;font-size:10px;color:#969993}
+
+
+/* v0.17 layout polish 2026-10-05 */
+/* Hero aligns with the same content frame as day strip / itinerary. */
+.hero-card{
+  margin:0 0 14px!important;
+  border-radius:27px!important;
+}
+.hero-card.hero-compact{
+  border-radius:0 0 27px 27px!important;
+}
+/* The trip/date line should read lighter than the day title. */
+.hero-meta-line{
+  font-weight:600!important;
+}
+/* Keep Leaflet/MapLibre panes inside the map stacking context so they cannot sit over the fixed tab bar. */
+#map{
+  position:relative;
+  z-index:0;
+  isolation:isolate;
+}
+/* Extra breathing room before the persistent bottom tabs on map/booking pages. */
+#mapView,#bookingView{
+  padding-bottom:24px;
+}
