@@ -423,6 +423,12 @@ function toggleEventDetails(dayIndex,eventIndex,button){
   if(label) label.textContent=opening?'收起詳細資訊':'景點介紹與注意事項';
 }
 
+function eventClosedWarning(event,dateString){
+  if(!event||!dateString||!Array.isArray(event.closedWeekdays)||!event.closedWeekdays.length)return '';
+  const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'));
+  return event.closedWeekdays.includes(weekday)?`⚠️ ${dateString}（${weekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
+}
+
 function handleTimelineCardClick(ev,dayIndex,eventIndex){
   if(ev.target.closest('button,a,input')) return;
   const button=ev.currentTarget.querySelector('.detail-toggle');
@@ -453,7 +459,7 @@ function renderToday(){
   qs('#weatherLabel').textContent='讀取中';
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${validCoord(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${validCoord(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div><div class="code-pill">已確認</div></div><p style="margin-top:10px">${stay.note||''}</p></div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -1219,7 +1225,75 @@ function updateEditAvailability(){
     btn.onclick=()=>{closeSheet();toggleEditMode();};
   }
   if(btn) btn.hidden=!canEditTrip();
+
+  let audit=qs('#placeAuditBtn');
+  if(!audit&&qs('#membersBtn')){
+    audit=document.createElement('button');
+    audit.id='placeAuditBtn';audit.type='button';audit.className='sheet-action-card';
+    audit.innerHTML='<span><small>PLACE CHECK</small><strong>檢查營業時間 / 公休日</strong><em id="placeAuditStatus">檢查已補 Google Maps 連結的行程</em></span><span>→</span>';
+    qs('#membersBtn').before(audit);
+    audit.onclick=auditTripPlaceHours;
+  }
+  if(audit) audit.hidden=!canEditTrip();
   syncTripLabels();
+}
+
+async function auditTripPlaceHours(){
+  if(!canEditTrip())return;
+  const btn=qs('#placeAuditBtn'),status=qs('#placeAuditStatus');
+  const eligible=new Set(['spot','food','shop','stay','car','tour']);
+  const all=[];
+  TRIP.days.forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
+    if(event?.id&&eligible.has(event.type)) all.push({day,dayIndex,event,eventIndex});
+  }));
+  const linked=all.filter(x=>x.event.googleMapsUrl);
+  const missing=all.filter(x=>!x.event.googleMapsUrl);
+
+  if(!linked.length){
+    status.textContent=`尚無可檢查資料 · ${missing.length} 筆待補 Google Maps 連結`;
+    alert(`目前有 ${missing.length} 筆地點型行程尚未補 Google Maps 連結。\n\n為避免用名稱/GPS 模糊搜尋配錯地點，系統暫時不自動猜測；請先在編輯活動中逐筆貼上正確 Google Maps 連結。`);
+    return;
+  }
+
+  if(!confirm(`將重新檢查 ${linked.length} 筆已有 Google Maps 來源的行程。\n另有 ${missing.length} 筆尚未補連結，本次會略過。\n\n是否開始？`))return;
+
+  btn.disabled=true;
+  let done=0,withHours=0,warnings=0,failed=0;
+  const issues=[];
+  for(const row of linked){
+    const {day,event}=row;
+    try{
+      const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl});
+      const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
+      const closed=Array.isArray(data.closedDays)?data.closedDays:[];
+      await travelEditor('save_place_hours',{
+        id:event.id,
+        googleMapsUrl:data.finalUrl||event.googleMapsUrl,
+        openingHours:hours,
+        closedWeekdays:closed,
+        hoursSource:data.hoursSource||null
+      });
+      if(hours.length) withHours++;
+      const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(day.date+'T00:00:00Z'));
+      if(closed.includes(weekday)){
+        warnings++;
+        issues.push(`${day.label} · ${event.title}：${weekday} 公休`);
+      }
+    }catch(err){
+      failed++;
+      issues.push(`${day.label} · ${event.title}：檢查失敗（${err.code||err.message}）`);
+    }finally{
+      done++;
+      status.textContent=`檢查中 ${done}/${linked.length} · 有營業資料 ${withHours} · 警示 ${warnings}`;
+    }
+  }
+
+  await hydratePrivateCloudData();
+  btn.disabled=false;
+  status.textContent=`完成 · 已檢查 ${linked.length} · 警示 ${warnings} · 待補連結 ${missing.length}`;
+  let msg=`行程完整檢查完成\n\n已檢查：${linked.length}\n抓到營業時間：${withHours}\n公休日警示：${warnings}\n檢查失敗：${failed}\n待補 Google Maps 連結：${missing.length}`;
+  if(issues.length) msg+='\n\n'+issues.slice(0,12).join('\n')+(issues.length>12?`\n…另有 ${issues.length-12} 項`:'');
+  alert(msg);
 }
 
 function syncEditModeChrome(){
@@ -1328,8 +1402,13 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemTips').value=(event?.details?.tips||[]).join('\n');
   qs('#editItemLat').value=Number.isFinite(event?.lat)?event.lat:'';
   qs('#editItemLng').value=Number.isFinite(event?.lng)?event.lng:'';
-  qs('#editItemMapUrl').value='';
-  qs('#mapImportStatus').textContent='';
+  qs('#editItemMapUrl').value=event?.googleMapsUrl||'';
+  qs('#editItemMapUrl').dataset.openingHours=JSON.stringify(event?.openingHours||[]);
+  qs('#editItemMapUrl').dataset.closedWeekdays=JSON.stringify(event?.closedWeekdays||[]);
+  qs('#editItemMapUrl').dataset.hoursSource=event?.hoursSource||'';
+  qs('#editItemMapUrl').dataset.hoursCheckedAt=event?.hoursCheckedAt||'';
+  qs('#mapImportStatus').textContent=event?.hoursCheckedAt?'上次營業時間檢查：'+new Date(event.hoursCheckedAt).toLocaleString():'';
+
   qs('#editItemNav').value=event?.navQuery||'';
   qs('#deleteItemBtn').hidden=!event;
   qs('#itemEditStatus').textContent='';
@@ -1356,6 +1435,11 @@ async function importGoogleMapIntoEditor(){
     const visitDate=TRIP.days?.[dayIndex]?.date||'';
     const visitWeekday=visitDate?new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(visitDate+'T00:00:00Z')):'';
     const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
+    const mapInput=qs('#editItemMapUrl');
+    mapInput.dataset.openingHours=JSON.stringify(hours);
+    mapInput.dataset.closedWeekdays=JSON.stringify(Array.isArray(data.closedDays)?data.closedDays:[]);
+    mapInput.dataset.hoursSource=data.hoursSource||'';
+    mapInput.dataset.hoursCheckedAt=new Date().toISOString();
     const hoursText=hours.length?'營業時間：'+hours.map(x=>`${x.day} ${x.hours}`).join('；'):'';
     const closedToday=visitWeekday&&Array.isArray(data.closedDays)&&data.closedDays.includes(visitWeekday);
     const warning=closedToday?`⚠️ 行程日期 ${visitDate}（${visitWeekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
@@ -1383,7 +1467,12 @@ async function saveItemEditor(e){
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
     lat:qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value),
-    lng:qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value),navQuery:qs('#editItemNav').value.trim()
+    lng:qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value),navQuery:qs('#editItemNav').value.trim(),
+    googleMapsUrl:qs('#editItemMapUrl').value.trim(),
+    openingHours:JSON.parse(qs('#editItemMapUrl').dataset.openingHours||'[]'),
+    closedWeekdays:JSON.parse(qs('#editItemMapUrl').dataset.closedWeekdays||'[]'),
+    hoursSource:qs('#editItemMapUrl').dataset.hoursSource||null,
+    hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null
   };
   qs('#itemEditStatus').textContent='儲存中…';
   try{
