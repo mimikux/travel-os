@@ -3,7 +3,21 @@
   let client=null;
   let currentSession=null;
   let state='loading';
+  let manualSignOut=false;
+  const IDLE_MS=30*60*1000;
+  const LAST_ACTIVE_KEY='travel-os-last-active';
   const listeners=new Set();
+
+  function readLastActive(){
+    try{return Number(localStorage.getItem(LAST_ACTIVE_KEY)||0)}catch(_){return 0}
+  }
+  function markActive(){
+    try{localStorage.setItem(LAST_ACTIVE_KEY,String(Date.now()))}catch(_){}
+  }
+  function withinIdleWindow(){
+    const t=readLastActive();
+    return !t || Date.now()-t<IDLE_MS;
+  }
 
   function emit(){ for(const fn of listeners){ try{fn(snapshot())}catch(_){ } } }
   function snapshot(){ return {state,session:currentSession,user:currentSession?.user||null}; }
@@ -20,6 +34,7 @@
       gate.style.display=ready?'none':'';
       gate.setAttribute('aria-hidden',String(ready));
     }
+    if(next==='ready') markActive();
     if(form){
       const showForm=['signed_out','link_sent','device_error','sdk_error'].includes(next);
       form.hidden=!showForm;
@@ -63,10 +78,23 @@
         setState('ready');
       }
     }else if(state!=='ready') setState('signed_out');
-    client.auth.onAuthStateChange(async (_event,session)=>{
+    client.auth.onAuthStateChange(async (event,session)=>{
       currentSession=session||null;
-      if(currentSession){ setState('registering_device'); await registerTrustedDevice(); }
-      else setState('signed_out');
+      if(currentSession){
+        if(state==='ready'){
+          // Token refresh / tab resume: keep the app visible and re-check the trusted device silently.
+          registerTrustedDevice({silent:true}).catch(()=>{});
+        }else{
+          setState('registering_device');
+          await registerTrustedDevice();
+        }
+      }else if(manualSignOut || !withinIdleWindow()){
+        setState('signed_out');
+      }else if(event==='SIGNED_OUT'){
+        // Avoid a misleading login flash during browser background/foreground transitions.
+        // A real missing session will be resolved by resumeSessionCheck below.
+        resumeSessionCheck().catch(()=>{});
+      }
     });
     return snapshot();
     })().catch(err=>{
@@ -96,7 +124,7 @@
     setState('link_sent');
   }
 
-  async function registerTrustedDevice(){
+  async function registerTrustedDevice({silent=false}={}){
     try{
       const device=await window.TravelStore.getDevice();
       const {data,error}=await client.functions.invoke('travel-bootstrap',{
@@ -110,20 +138,39 @@
       if(error) throw error;
       if(!data?.ok) throw new Error(data?.error||'Device registration failed');
       await window.TravelStore.setCloudState('trusted_device');
-      setState('ready');
+      if(!silent || state!=='ready') setState('ready');
       window.dispatchEvent(new CustomEvent('travel-auth-ready',{detail:data}));
       return data;
     }catch(err){
       console.error('Trusted device bootstrap failed',err);
-      setState('device_error');
+      if(!silent) setState('device_error');
       throw err;
     }
   }
 
   async function signOut(){
-    if(client) await client.auth.signOut();
+    manualSignOut=true;
+    if(client) await client.auth.signOut({scope:'local'});
     currentSession=null;
     setState('signed_out');
+  }
+
+  async function resumeSessionCheck(){
+    if(!client) return snapshot();
+    if(!withinIdleWindow()){
+      await signOut();
+      return snapshot();
+    }
+    const {data,error}=await client.auth.getSession();
+    if(error) throw error;
+    currentSession=data.session||null;
+    if(currentSession){
+      setState('ready');
+      registerTrustedDevice({silent:true}).catch(()=>{});
+    }else{
+      setState('signed_out');
+    }
+    return snapshot();
   }
 
   function bindLoginForm(){
@@ -145,9 +192,32 @@
   }
 
   window.TravelAuth={
-    init,sendMagicLink,signOut,getClient:()=>client,
+    init,sendMagicLink,signOut,resumeSessionCheck,getClient:()=>client,
     onChange(fn){listeners.add(fn);return()=>listeners.delete(fn)},snapshot
   };
+
+  ['pointerdown','keydown','touchstart','scroll'].forEach(type=>{
+    window.addEventListener(type,()=>{if(state==='ready')markActive()},{passive:true});
+  });
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden'){
+      if(state==='ready') markActive();
+      return;
+    }
+    if(state==='ready' && withinIdleWindow()){
+      // Keep the trusted app visible; refresh auth silently in the background.
+      markActive();
+      resumeSessionCheck().catch(()=>{});
+    }else if(!withinIdleWindow()){
+      signOut().catch(()=>{});
+    }else{
+      resumeSessionCheck().catch(()=>{});
+    }
+  });
+  window.addEventListener('pageshow',()=>{ if(state!=='loading') resumeSessionCheck().catch(()=>{}); });
+  window.addEventListener('focus',()=>{ if(state==='ready') resumeSessionCheck().catch(()=>{}); });
+  setInterval(()=>{ if(state==='ready' && !withinIdleWindow()) signOut().catch(()=>{}); },60000);
+
   const boot=()=>{
     bindLoginForm();
     init().catch(err=>console.error('Auth boot failed',err));
