@@ -14,7 +14,7 @@ let cloudLoaded=false;
 let editMode=false;
 let authorizedTrips=[];
 
-const titles={today:'今天',map:'旅程地圖',booking:'預訂'};
+const titles={today:'行程',map:'旅程地圖',booking:'預訂'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
 
 const DAY_UI={
@@ -244,7 +244,7 @@ function iconSVG(name,cls=''){
     clock:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5l3 2"></path></svg>`,
     sunrise:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 18h16"></path><path d="M7 18a5 5 0 0 1 10 0"></path><path d="M12 6v3"></path><path d="M8 9.5 6.5 8"></path><path d="M16 9.5 17.5 8"></path><path d="M12 15l-2.2-2.2"></path><path d="M12 15l2.2-2.2"></path><path d="M5 21h14"></path></svg>`,
     sunset:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 18h16"></path><path d="M7 15a5 5 0 0 0 10 0"></path><path d="M12 6v3"></path><path d="M8 9.5 6.5 8"></path><path d="M16 9.5 17.5 8"></path><path d="M7 21h10"></path><path d="M5 20h2"></path><path d="M17 20h2"></path></svg>`,
-    today:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>`,
+    today:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M12 21s6-5.2 6-11a6 6 0 1 0-12 0c0 5.8 6 11 6 11z"></path><circle cx="12" cy="10" r="2.2"></circle></svg>`,
     map:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 6.5 9 4l6 2.5 5-2v13L15 20l-6-2.5-5 2z"></path><path d="M9 4v13.5"></path><path d="M15 6.5V20"></path></svg>`,
     booking:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 7h14a2 2 0 0 1 2 2v2a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2v0a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 2-2 2 2 0 0 0-2-2V9a2 2 0 0 1 2-2z"></path><path d="M8 10h8"></path><path d="M8 14h5"></path></svg>`,
     expense:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4z"></path><path d="M16 12h.01"></path><path d="M7 10h5"></path><path d="M7 14h3"></path></svg>`,
@@ -472,7 +472,13 @@ function renderToday(){
   qs('#weatherLabel').textContent='讀取中';
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
+  const prevStay=dayIndex>0?[...(TRIP.days[dayIndex-1]?.events||[])].reverse().find(e=>e.type==='stay'&&validCoord(e)):null;
+  const firstEvent=d.events[0]||null;
+  const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
+  const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
+    ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time"></div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
+    : '';
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p></div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
