@@ -21,6 +21,12 @@
   }
 
   function emit(){ for(const fn of listeners){ try{fn(snapshot())}catch(_){ } } }
+  function withTimeout(promise,ms,label='timeout'){
+    return Promise.race([
+      promise,
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error(label)),ms))
+    ]);
+  }
   function snapshot(){ return {state,session:currentSession,user:currentSession?.user||null}; }
   function setState(next){
     state=next;
@@ -69,7 +75,15 @@
     client=window.supabase.createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{
       auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
     });
-    const {data}=await client.auth.getSession();
+    let sessionResult;
+    try{
+      sessionResult=await withTimeout(client.auth.getSession(),8000,'auth_session_timeout');
+    }catch(err){
+      console.warn('Initial auth session check timed out',err);
+      setState('signed_out');
+      return snapshot();
+    }
+    const {data}=sessionResult;
     currentSession=data.session||null;
     if(currentSession){
       if(!cfg.tripSlug){
