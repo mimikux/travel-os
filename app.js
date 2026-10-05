@@ -1091,19 +1091,6 @@ async function initCloudShell(){
   }catch(err){console.warn('Local store init failed',err)}
   renderAll();
 
-  const form=qs('#magicLinkForm');
-  if(form) form.onsubmit=async e=>{
-    e.preventDefault();
-    const email=qs('#authEmail')?.value||'';
-    try{
-      await window.TravelAuth.sendMagicLink(email);
-    }catch(err){
-      const msg=qs('#authMessage');
-      if(msg) msg.textContent='這個 Email 目前沒有此旅程的登入權限，或登入服務暫時無法使用。';
-      console.warn('Magic link request failed',err);
-    }
-  };
-
   if(window.TravelAuth){
     window.TravelAuth.onChange(s=>{
       setAuthGateState(s.state);
