@@ -297,3 +297,26 @@
     inset:3px!important;
   }
 }
+
+
+/* Weather source links */
+.weather-sources{margin-top:16px;padding-top:14px;border-top:1px solid #e8e1d6}
+.weather-source-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.weather-source-btn{display:flex;align-items:center;justify-content:center;min-height:42px;padding:10px 12px;border:1px solid #ded5c6;border-radius:13px;background:#faf7f0;color:var(--green);font-size:12px;font-weight:900;text-decoration:none;text-align:center}
+.weather-source-note{margin:0 0 9px;padding:9px 11px;border-radius:11px;background:#fff5db;color:#7b6028;font-size:11px;line-height:1.5;font-weight:800}
+@media(max-width:420px){.weather-source-actions{grid-template-columns:1fr}}
+
+
+/* Mobile marker centering + ellipsis containment */
+@media(max-width:699px){
+  /* Keep the rail fixed; nudge only the marker until its center sits on the rail. */
+  .timeline-dot{transform:translateX(-5px)!important}
+
+  /* Keep the ellipsis glyph fully inside the circular subview menu button. */
+  .subview-trip-header .round-btn{
+    width:42px!important;min-width:42px!important;max-width:42px!important;height:42px!important;
+    flex:0 0 42px!important;padding:0!important;display:grid!important;place-items:center!important;
+    overflow:hidden!important;white-space:nowrap!important;font-size:13px!important;line-height:1!important;
+    letter-spacing:-.18em!important;text-indent:-.08em;
+  }
+}
