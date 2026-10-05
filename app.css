@@ -1035,3 +1035,16 @@ body.timeline-dragging *{
 
 /* inline tonight booking r110ak */
 .stay-booking-inline{margin-top:14px;border-top:1px solid #ded4c2;padding-top:10px}.stay-booking-toggle{width:100%;padding:10px 0!important;background:transparent!important}.stay-booking-panel{margin-top:8px;background:#fffdf8;border:1px solid #ded4c2;border-radius:16px;padding:14px}.stay-booking-summary{display:grid;gap:3px;margin-bottom:12px;color:var(--muted);font-size:13px}.stay-booking-summary strong{color:var(--gold);font-size:12px;letter-spacing:.05em}
+
+
+/* departure time editor r110am */
+.departure-time-sheet .edit-form{gap:14px}
+.departure-time-sheet .edit-help{
+  margin:0;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.55;
+}
+.departure-time-sheet .departure-clear{
+  min-width:88px;
+}
