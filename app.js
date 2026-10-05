@@ -1371,7 +1371,7 @@ qs('#playRoute').onclick=togglePlay;
 if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
 updateRouteMetricToggle();
 qs('#mapMultiToggle').onclick=toggleMapMultiMode;
-const openTripSheet=()=>{qs('#tripSheet').classList.add('show');qs('#sheetBackdrop').classList.add('show')};
+const openTripSheet=()=>{updateEditAvailability();qs('#tripSheet').classList.add('show');qs('#sheetBackdrop').classList.add('show')};
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
 qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
@@ -2387,6 +2387,7 @@ async function initCloudShell(){
       selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
       syncTripLabels();
       renderAll();
+      updateEditAvailability();
     }
   }catch(err){console.warn('Local store init failed',err)}
 
@@ -2419,6 +2420,11 @@ if(window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'){
   qs('.app-shell').style.visibility='hidden';
 }
 initCloudShell().finally(()=>{if(qs('.app-shell'))qs('.app-shell').style.visibility=''});
+window.addEventListener('online',()=>{
+  if(window.TRAVEL_CONFIG?.tripSlug){
+    hydratePrivateCloudData().then(()=>updateEditAvailability()).catch(()=>{});
+  }
+});
 lastObservedIcelandDate=icelandTodayISO();
 setInterval(()=>{
   if(demoMode) return;
