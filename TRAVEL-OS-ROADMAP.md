@@ -17,6 +17,7 @@ Build a PWA Travel OS that is good enough to use as the primary travel interface
 - [x] Today page with hero, date/day switching, timeline, weather summary, stay card.
 - [x] Hero collapse behavior and v0.17 visual parity fixes.
 - [x] Map page with per-day route, route animation/playback, markers, route range selection, mileage/drive summary.
+- [x] Map route panel proportional distance ruler: stop positions follow cumulative road distance and each segment shows its own km label; playback fills the same ruler.
 - [x] Google Maps-style navigation links from itinerary items.
 - [x] Booking Center with private reservation data, reveal controls, detail panels.
 - [x] Supabase project and core schema.
