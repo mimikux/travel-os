@@ -336,3 +336,5 @@ Later:
 - [ ] User verification on phone for route ruler, short-link sample, and drag reorder after r110x reaches GitHub Pages.
 
 - [x] Route ruler readable scaling: every leg gets a minimum visual width while longer legs still receive proportional extra space; stop nodes no longer overlap; desktop hover/mobile tap shows destination name.
+
+- [x] 2026-10-05 Route ruler r110aa: symmetric start/end node margins; all per-leg labels share one horizontal baseline; KM formatting is <100 => one decimal and >=100 => integer; minimum leg width now reserves label space; added one-button KM/MIN switch using OSRM per-leg distance + duration data, with itinerary day totals as the temporary fallback before routing resolves.
