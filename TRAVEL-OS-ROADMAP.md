@@ -298,3 +298,5 @@ Later:
 - Do not introduce biometric prompts; approved-device flow is the chosen access model.
 
 - [x] 2026-10-05 Mobile Today polish: live Hero relative label explicitly uses N天後 / N天前 (今天 on the date itself); timeline heading is at least as large as 看地圖; hero distance keeps value + km on one line and responsively shrinks when needed.
+
+- [x] 2026-10-05 Today Hero meta shows a three-letter English weekday after the date, e.g. D1 · 11/21 SAT.
