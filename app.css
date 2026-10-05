@@ -995,3 +995,16 @@ body.timeline-dragging *{
 .timeline-item.drag-over.drop-after:after{
   display:none!important;
 }
+
+
+/* drag drop anchors r110ad */
+.timeline-drop-placeholder{
+  min-height:92px!important;
+  margin-top:10px!important;
+  margin-bottom:10px!important;
+  border-width:2px!important;
+  opacity:1!important;
+}
+.timeline-drop-placeholder:before{
+  content:"插入到這裡"!important;
+}
