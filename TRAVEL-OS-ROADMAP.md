@@ -1,6 +1,6 @@
 # Travel OS Roadmap
 
-Last updated: 2026-10-05
+Last updated: 2026-10-05 · online release line v1.1.0
 
 This file is the persistent source of truth for product scope and implementation order. Update it whenever a feature is completed, changed, or newly agreed.
 
@@ -43,6 +43,19 @@ Build a PWA Travel OS that is good enough to use as the primary travel interface
 - [~] Role model exists, but itinerary/reservation write APIs and edit UI do not yet exist.
 - [~] Expense table exists, but Money UI, splits, receipts, FX, and settlement are not implemented.
 - [~] Change-log/sync tables exist, but full user-facing history/version workflow is not implemented.
+
+## Release versioning
+
+The public online app reached **v1.0**. Prototype numbers such as v0.17/v0.18 are historical and must not be used for new online releases.
+
+Current naming:
+- **v1.0** — first online Travel OS baseline.
+- **v1.1A** — Supabase becomes the authoritative trip data source.
+- **v1.1B** — Multi-Trip shell, trip routing, My Trips, trip-scoped authorization.
+- **v1.1C** — Owner/Editor itinerary and booking editor.
+- **v1.1.0** — cumulative online release containing 1.1A + 1.1B + 1.1C after smoke-test signoff.
+- **v1.2** — Excel/CSV import.
+- **v1.3** — Travel Inbox / forwarded-email ingestion.
 
 ## Agreed new architecture
 
@@ -96,43 +109,55 @@ Supabase becomes authoritative for:
 
 data.js becomes demo/emergency fallback only.
 
-## Next implementation block: v0.18
+## Current online implementation block: v1.1.0
 
-Do this before Excel/email import.
+### v1.1A — Supabase authoritative data source
 
-### 1. Consolidate Iceland data into Supabase
+- [x] Reconciled Iceland UI D0-D7 into Supabase.
+- [x] Supabase now contains 8 trip days, 35 itinerary items, and 8 reservations for Iceland 2026.
+- [x] Current day names, distances, drive times, events, notes, coordinates, hero images, sunrise/sunset values copied into Supabase.
+- [x] travel-data now returns trip + role + days + itinerary + reservations.
+- [x] Frontend cloud hydration replaces the in-memory trip with normalized Supabase data.
+- [x] IndexedDB cache can store the full normalized cloud trip, not only bookings.
+- [x] data.js is now Iceland-only fallback/demo seed instead of the intended production authority.
+- [ ] Production smoke test: open Iceland online, verify D0-D7/Map/Booking after cloud hydration.
+- [ ] Offline smoke test: load once online, disconnect network, reopen and verify cached itinerary + bookings.
 
-- [ ] Reconcile current UI D0-D7 against Supabase D0-D5.
-- [ ] Copy current correct day names, distances, drive times, events, notes, coordinates into Supabase.
-- [ ] Verify all 8 reservations and sensitive fields.
-- [ ] Make travel-data return trip + days + itinerary + reservations.
-- [ ] Change frontend rendering to use cloud/local normalized data instead of data.js.
-- [ ] Keep data.js only as demo/emergency fallback.
-- [ ] Verify offline reopen still works after cloud hydration.
+### v1.1B — Multi-Trip
 
-### 2. Multi-trip shell
+- [x] Dynamic trip slug routing added.
+- [x] Pretty routes supported: /travel-os/:tripSlug (GitHub Pages 404 fallback included).
+- [x] /travel-os/ My Trips shell added.
+- [x] travel-trips endpoint lists only trips authorized for the current signed-in email/user.
+- [x] Roles remain trip-scoped: same user may be Editor in one trip, Viewer in another, or have no access.
+- [x] Direct trip data requests still require active trip membership + Trusted Device.
+- [x] Hero trip title acts as a trip switcher.
+- [x] Owner can create a new trip from My Trips.
+- [x] New trip gets its own Trusted Device registration and optional D0 when a start date is supplied.
+- [x] Root Travel OS login works without requiring a specific trip first.
+- [x] Login form no longer exposes the owner's email as a prefilled value.
+- [ ] Production smoke test with a second test trip and at least one user who has access to only one of the two trips.
+- [ ] Verify guessed unauthorized URL returns no trip data and cannot edit.
 
-- [ ] Add /travel-os/ "My Trips" screen.
-- [ ] Add trip slug routing.
-- [ ] Add server-side authorized-trip listing endpoint.
-- [ ] Add Hero trip switcher.
-- [ ] Prevent unauthorized trip discovery/data access.
-- [ ] Add New Trip flow for Owner.
+### v1.1C — Owner / Editor
 
-### 3. Manual itinerary editor
-
-Editor and Owner can edit; Viewer cannot.
-
-- [ ] Enter/exit Edit Mode.
-- [ ] Add itinerary item.
-- [ ] Edit itinerary item.
-- [ ] Delete/soft-delete itinerary item.
-- [ ] Reorder items.
-- [ ] Edit trip day title/date/notes.
-- [ ] Add/edit reservations.
-- [ ] Backend role check for every write.
-- [ ] Change log for edits.
-- [ ] Conflict/version handling for concurrent edits.
+- [x] travel-editor authenticated Edge Function added.
+- [x] Every write checks trip membership role and Trusted Device server-side.
+- [x] Viewer writes are rejected.
+- [x] Add itinerary item.
+- [x] Edit itinerary item.
+- [x] Soft-delete itinerary item.
+- [x] Reorder itinerary items.
+- [x] Edit current trip day metadata.
+- [x] Add reservation.
+- [x] Edit reservation.
+- [x] Soft-delete reservation.
+- [x] Optimistic version checks return version_conflict instead of silently overwriting newer data.
+- [x] Writes append entity_change_log records.
+- [x] Owner/Editor Edit Mode UI added; Viewer does not get edit controls.
+- [ ] Production smoke test: add/edit/delete/reorder on a temporary itinerary item.
+- [ ] Production smoke test: add/edit/delete a temporary reservation.
+- [ ] UX polish after real use: replace temporary prompt-based day editing with the same form-sheet UX as itinerary/booking editing.
 
 ## Import roadmap
 
@@ -234,13 +259,11 @@ Later:
 
 ## Order of work
 
-1. v0.18A — Supabase becomes the single source of truth for Iceland.
-2. v0.18B — Multi-trip routing + My Trips + trip-scoped authorization/switcher.
-3. v0.18C — Owner/Editor manual add/edit/delete + change log.
-4. v0.19 — Official Excel template + deterministic import preview.
-5. v0.19.1 — AI-assisted non-template Excel/CSV normalization.
-6. v0.20 — Dedicated Travel Inbox + forwarded email parsing.
-7. v0.20.1 — Reservation change detection/history.
+1. v1.1.0 — Smoke-test and sign off Supabase authority + Multi-Trip + Editor.
+2. v1.2 — Official Excel template + deterministic import preview.
+3. v1.2.1 — AI-assisted non-template Excel/CSV normalization.
+4. v1.3 — Dedicated Travel Inbox + forwarded email parsing.
+5. v1.3.1 — Reservation change detection/history.
 8. Complete Offline/Push/Plan B.
 9. Money/expense split/receipt OCR.
 10. Packing/documents/remaining More features.
