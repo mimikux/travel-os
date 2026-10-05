@@ -4,7 +4,6 @@
   let currentSession=null;
   let state='loading';
   let manualSignOut=false;
-  const IDLE_MS=30*60*1000;
   const LAST_ACTIVE_KEY='travel-os-last-active';
   const listeners=new Set();
   let magicLinkPromise=null;
@@ -16,8 +15,9 @@
     try{localStorage.setItem(LAST_ACTIVE_KEY,String(Date.now()))}catch(_){}
   }
   function withinIdleWindow(){
-    const t=readLastActive();
-    return !t || Date.now()-t<IDLE_MS;
+    // Kept for compatibility with older callers. Trusted-device sessions no longer
+    // expire because the app has been idle or backgrounded.
+    return true;
   }
 
   function emit(){ for(const fn of listeners){ try{fn(snapshot())}catch(_){ } } }
@@ -68,7 +68,7 @@
     try{
       const device=await window.TravelStore.getDevice();
       const cloudState=await window.TravelStore.getCloudState?.();
-      if(device?.device_public_id && withinIdleWindow() && (cloudState==="trusted_device" || cloudState?.state==="trusted_device")){
+      if(device?.device_public_id && (cloudState==="trusted_device" || cloudState?.state==="trusted_device")){
         setState('ready');
       }
     }catch(_){ }
@@ -83,8 +83,16 @@
       setState('signed_out');
       return snapshot();
     }
-    const {data}=sessionResult;
+    let {data}=sessionResult;
     currentSession=data.session||null;
+    if(!currentSession){
+      try{
+        const refreshed=await withTimeout(client.auth.refreshSession(),8000,'auth_refresh_timeout');
+        currentSession=refreshed?.data?.session||null;
+      }catch(err){
+        console.warn('Persisted auth refresh unavailable',err);
+      }
+    }
     if(currentSession){
       if(!cfg.tripSlug){
         setState('ready');
@@ -110,10 +118,12 @@
             registerTrustedDevice({silent}).catch(()=>{});
           },0);
         }
-      }else if(manualSignOut || !withinIdleWindow()){
+      }else if(manualSignOut){
         setState('signed_out');
       }else if(event==='SIGNED_OUT'){
-        setTimeout(()=>{resumeSessionCheck().catch(()=>{})},0);
+        // Token rotation/background resume can briefly emit SIGNED_OUT on some mobile
+        // PWA/browser paths. Keep trusted content visible and reconcile silently.
+        setTimeout(()=>{resumeSessionCheck({keepReady:true}).catch(()=>{})},0);
       }
     });
     return snapshot();
@@ -180,20 +190,29 @@
     setState('signed_out');
   }
 
-  async function resumeSessionCheck(){
+  async function resumeSessionCheck({keepReady=false}={}){
     if(!client) return snapshot();
-    if(!withinIdleWindow()){
-      await signOut();
-      return snapshot();
+    const wasReady=state==='ready';
+    let session=null;
+    try{
+      const {data,error}=await client.auth.getSession();
+      if(error) throw error;
+      session=data.session||null;
+      if(!session){
+        const refreshed=await client.auth.refreshSession();
+        session=refreshed?.data?.session||null;
+      }
+    }catch(err){
+      console.warn('Background auth refresh failed',err);
+      if((keepReady||wasReady) && !manualSignOut) return snapshot();
+      throw err;
     }
-    const {data,error}=await client.auth.getSession();
-    if(error) throw error;
-    currentSession=data.session||null;
+    currentSession=session;
     if(currentSession){
       manualSignOut=false;
       setState('ready');
       if(cfg.tripSlug) registerTrustedDevice({silent:true}).catch(()=>{});
-    }else{
+    }else if(!(keepReady||wasReady) || manualSignOut){
       setState('signed_out');
     }
     return snapshot();
@@ -236,19 +255,11 @@
       if(state==='ready') markActive();
       return;
     }
-    if(state==='ready' && withinIdleWindow()){
-      // Keep the trusted app visible; refresh auth silently in the background.
-      markActive();
-      resumeSessionCheck().catch(()=>{});
-    }else if(!withinIdleWindow()){
-      signOut().catch(()=>{});
-    }else{
-      resumeSessionCheck().catch(()=>{});
-    }
+    if(state==='ready') markActive();
+    resumeSessionCheck({keepReady:state==='ready'}).catch(()=>{});
   });
-  window.addEventListener('pageshow',()=>{ if(state!=='loading') resumeSessionCheck().catch(()=>{}); });
-  window.addEventListener('focus',()=>{ if(state==='ready') resumeSessionCheck().catch(()=>{}); });
-  setInterval(()=>{ if(state==='ready' && !withinIdleWindow()) signOut().catch(()=>{}); },60000);
+  window.addEventListener('pageshow',()=>{ if(state!=='loading') resumeSessionCheck({keepReady:state==='ready'}).catch(()=>{}); });
+  window.addEventListener('focus',()=>{ if(state==='ready') resumeSessionCheck({keepReady:true}).catch(()=>{}); });
 
   const boot=()=>{
     bindLoginForm();
