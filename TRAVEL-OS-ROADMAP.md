@@ -300,3 +300,7 @@ Later:
 - [x] 2026-10-05 Mobile Today polish: live Hero relative label explicitly uses N天後 / N天前 (今天 on the date itself); timeline heading is at least as large as 看地圖; hero distance keeps value + km on one line and responsively shrinks when needed.
 
 - [x] 2026-10-05 Today Hero meta shows a three-letter English weekday after the date, e.g. D1 · 11/21 SAT.
+
+- [x] 2026-10-05 Editor save UX: inspect Supabase non-2xx responses, reconcile from cloud after ambiguous Edge Function errors, and avoid false failure when the write actually landed.
+- [x] 2026-10-05 Editor mobile readability: editor labels, controls, status text and action buttons are at least 15px; form controls are 16px.
+- [x] 2026-10-05 Itinerary ordering UX: fixed-time activities are not manually movable; flexible no-time activities use long-press drag ordering instead of up/down arrows.
