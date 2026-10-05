@@ -7,6 +7,10 @@ let routeRenderToken=0;
 const roadRouteCache=new Map();
 let todayRouteToken=0;
 let lastObservedIcelandDate=null;
+let currentTripRole='viewer';
+let cloudLoaded=false;
+let editMode=false;
+let authorizedTrips=[];
 
 const titles={today:'今天',map:'旅程地圖',booking:'預訂'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -237,7 +241,28 @@ function iconSVG(name,cls=''){
   return icons[name]||'';
 }
 
-function dayUi(d){return DAY_UI[d.label]||DAY_UI.D0}
+function dayUi(d){
+  const fallback=DAY_UI[d.label]||DAY_UI.D0;
+  return {
+    ...fallback,
+    photo:d?.heroImageUrl?`url('${d.heroImageUrl}')`:fallback.photo,
+    sunrise:d?.sunrise||fallback.sunrise,
+    sunset:d?.sunset||fallback.sunset
+  };
+}
+function driveText(day){
+  if(day?.drive) return day.drive;
+  const mins=Number(day?.driveMinutes)||0;
+  const h=Math.floor(mins/60),m=mins%60;
+  return h?`${h}h ${String(m).padStart(2,'0')}m`:`${m}m`;
+}
+function currentTripTitle(){return TRIP?.title||'Travel OS'}
+function syncTripLabels(){
+  const title=currentTripTitle();
+  qsa('[data-trip-title]').forEach(el=>el.textContent=title);
+  const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripSlug?title:'Travel OS';
+  document.title=window.TRAVEL_CONFIG?.tripSlug?`${title} · Travel OS`:'Travel OS';
+}
 
 function renderBottomNavIcons(){
   qsa('.nav-icon[data-icon]').forEach(el=>{el.innerHTML=iconSVG(el.dataset.icon)})
@@ -394,7 +419,7 @@ function renderToday(){
   hero.style.setProperty('--hero-photo',ui.photo);
   hero.style.backgroundImage=ui.photo;
   qs('#todayKm').textContent=`${d.km} km`;
-  qs('#todayDrive').textContent=d.drive;
+  qs('#todayDrive').textContent=driveText(d);
   qs('#todaySunrise').textContent=ui.sunrise;
   qs('#todaySunset').textContent=ui.sunset;
   qs('#weatherTemp').textContent='--°';
@@ -594,7 +619,7 @@ function selectionFallbackTotals(indices){
   return indices.reduce((acc,i)=>{
     const d=TRIP.days[i];
     acc.km+=Number(d.km)||0;
-    acc.sec+=parseDriveSeconds(d.drive);
+    acc.sec+=Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive);
     return acc;
   },{km:0,sec:0});
 }
