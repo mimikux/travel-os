@@ -933,6 +933,9 @@ qs('#weatherBtn').onclick=openWeatherSheet;
 qs('#closeWeather').onclick=closeWeatherSheet;
 qs('#weatherBackdrop').onclick=closeWeatherSheet;
 qs('#demoModeToggle').onclick=toggleDemoMode;
+if(qs('#newTripBtn')) qs('#newTripBtn').onclick=createNewTrip;
+if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
+if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=async e=>{e.stopPropagation();openTripSheet();await renderTripSwitchList();};
 
 function setAuthGateState(state){
   const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
@@ -947,10 +950,60 @@ function setAuthGateState(state){
   }
 }
 
+function normalizeReservation(row){
+  if(row?.type&&row?.provider&&row?.title) return row;
+  const d=row?.details&&typeof row.details==='object'?row.details:{};
+  const nested=d.details&&typeof d.details==='object'?d.details:d;
+  const rows=Array.isArray(nested.rows)?[...nested.rows]:[];
+  if(row?.public_price_text&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('費用'))) rows.push(['費用',row.public_price_text]);
+  if(row?.cancellation_policy&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('取消'))) rows.push(['取消條款',row.cancellation_policy]);
+  return {
+    id:row?.id,
+    version:row?.version||1,
+    type:d.type||row?.reservation_type||'other',
+    provider:d.provider||row?.provider||'',
+    title:d.title||row?.title||'預訂',
+    dates:d.dates||row?.public_summary||'',
+    meta:d.meta||row?.location_name||row?.public_summary||'',
+    code:row?.confirmation_code||d.code||'',
+    secret:row?.pin_code||d.secret||'',
+    status:d.status||row?.status||'confirmed',
+    alert:d.alert||'',
+    notice:d.notice||row?.private_notes||'',
+    details:{
+      rows,
+      amenities:Array.isArray(nested.amenities)?nested.amenities:[],
+      tips:Array.isArray(nested.tips)?nested.tips:[],
+      source:nested.source||d.source||row?.source_type||'Supabase 私人預訂資料'
+    },
+    _raw:row
+  };
+}
+
+function cloudTripToUi(data){
+  const days=(data.days||[]).map(day=>({
+    ...day,
+    drive:driveText(day),
+    events:(day.events||[]).map(e=>({...e}))
+  }));
+  return {
+    id:data.trip?.id,
+    slug:data.trip?.slug,
+    title:data.trip?.title||'Travel OS',
+    timezone:data.trip?.timezone||'UTC',
+    startDate:data.trip?.startDate,
+    endDate:data.trip?.endDate,
+    version:data.trip?.version||1,
+    role:data.role||'viewer',
+    days,
+    bookings:(data.reservations||[]).map(normalizeReservation)
+  };
+}
+
 async function hydratePrivateCloudData(){
   const client=window.TravelAuth?.getClient?.();
   const user=window.TravelAuth?.snapshot?.().user;
-  if(!client||!user||!navigator.onLine) return;
+  if(!client||!user||!window.TRAVEL_CONFIG?.tripSlug||!navigator.onLine) return;
   try{
     const device=await window.TravelStore.getDevice();
     const {data,error}=await client.functions.invoke('travel-data',{body:{
@@ -959,53 +1012,96 @@ async function hydratePrivateCloudData(){
       deviceSecret:device.device_secret
     }});
     if(error) throw error;
-    const sourceRows=Array.isArray(data?.bookings)?data.bookings:(Array.isArray(data?.reservations)?data.reservations:[]);
-    if(sourceRows.length){
-      const bookings=sourceRows.map(row=>{
-        if(row?.type&&row?.provider&&row?.title) return row;
-        const d=row?.details&&typeof row.details==='object'?row.details:{};
-        const nested=d.details&&typeof d.details==='object'?d.details:{};
-        const rows=Array.isArray(nested.rows)?[...nested.rows]:[];
-        if(row?.public_price_text&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('費用'))) rows.push(['費用',row.public_price_text]);
-        if(row?.cancellation_policy&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('取消'))) rows.push(['取消條款',row.cancellation_policy]);
-        return {
-          id:row?.id,
-          type:d.type||row?.reservation_type||'other',
-          provider:d.provider||row?.provider||'',
-          title:d.title||row?.title||'預訂',
-          dates:d.dates||row?.public_summary||'',
-          meta:d.meta||row?.public_summary||'',
-          code:row?.confirmation_code||d.code||'',
-          secret:row?.pin_code||d.secret||'',
-          status:d.status||row?.status||'confirmed',
-          alert:d.alert||'',
-          notice:d.notice||row?.private_notes||'',
-          details:{
-            rows,
-            amenities:Array.isArray(nested.amenities)?nested.amenities:[],
-            tips:Array.isArray(nested.tips)?nested.tips:[],
-            source:nested.source||d.source||'Supabase 私人預訂資料'
-          }
-        };
-      });
-      TRIP.bookings=bookings;
-      await window.TravelStore?.replaceBookings?.(bookings);
-      renderBookings();
-      renderToday();
-    }
+    if(data?.error) throw new Error(data.error);
+    const normalized=cloudTripToUi(data);
+    currentTripRole=normalized.role||'viewer';
+    TRIP=normalized;
+    cloudLoaded=true;
+    selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
+    mapPrimaryDay=selectedDay;
+    mapSelectedDays=new Set(TRIP.days.length?[selectedDay]:[]);
+    await window.TravelStore?.replaceTrip?.({...data,bookings:normalized.bookings});
+    syncTripLabels();
+    renderAll();
+    updateEditAvailability();
   }catch(err){
-    console.warn('Private cloud data unavailable; using trusted local cache.',err);
+    console.warn('Cloud trip data unavailable; using trusted local cache.',err);
     try{
       const cached=await window.TravelStore?.getTrip?.();
-      if(Array.isArray(cached?.bookings)&&cached.bookings.length){
-        TRIP.bookings=cached.bookings;
-        renderBookings();
-        renderToday();
+      if(cached?.days?.length){
+        TRIP=cached;
+        currentTripRole=cached.role||'viewer';
+        syncTripLabels();
+        renderAll();
+        updateEditAvailability();
       }
     }catch(_){}
   }
 }
 
+function tripHref(slug){
+  return `${window.TRAVEL_CONFIG?.appBasePath||'/travel-os/'}${encodeURIComponent(slug)}`;
+}
+
+async function fetchAuthorizedTrips(){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) return [];
+  const {data,error}=await client.functions.invoke('travel-trips',{body:{action:'list'}});
+  if(error) throw error;
+  authorizedTrips=Array.isArray(data?.trips)?data.trips:[];
+  return authorizedTrips;
+}
+
+async function renderTripChooser(){
+  const chooser=qs('#tripChooser'),shell=qs('.app-shell');
+  if(!chooser)return;
+  chooser.hidden=false;
+  if(shell)shell.hidden=true;
+  const list=qs('#tripList'),status=qs('#chooserStatus');
+  status.textContent='讀取旅程中…';
+  try{
+    const trips=await fetchAuthorizedTrips();
+    list.innerHTML=trips.length?trips.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join(''):`<div class="booking-empty">目前沒有可使用的旅程。</div>`;
+    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=tripHref(btn.dataset.tripSlug)});
+    const canCreate=trips.some(t=>t.role==='owner');
+    const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
+    status.textContent='';
+  }catch(err){
+    console.warn(err);status.textContent='無法讀取旅程清單。';
+  }
+}
+
+async function createNewTrip(){
+  const title=prompt('新旅程名稱，例如 Kumamoto 2027');
+  if(!title)return;
+  const suggested=title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'new-trip';
+  const slug=prompt('網址名稱（英文/數字/連字號）',suggested);
+  if(!slug)return;
+  const startDate=prompt('開始日期 YYYY-MM-DD（可留空）','')||null;
+  const endDate=prompt('結束日期 YYYY-MM-DD（可留空）','')||null;
+  const device=await window.TravelStore.getDevice();
+  const client=window.TravelAuth?.getClient?.();
+  const {data,error}=await client.functions.invoke('travel-trips',{body:{
+    action:'create',title,slug,startDate,endDate,timezone:'UTC',
+    devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label
+  }});
+  if(error||data?.error){alert('建立旅程失敗：'+(data?.error||error?.message||'unknown'));return;}
+  location.href=tripHref(data.trip.slug);
+}
+
+async function renderTripSwitchList(){
+  let host=qs('#tripSwitchList');
+  if(!host){
+    host=document.createElement('div');host.id='tripSwitchList';host.className='trip-switch-list';
+    qs('#tripSheet')?.append(host);
+  }
+  host.innerHTML='<p class="member-status">讀取旅程中…</p>';
+  try{
+    const trips=await fetchAuthorizedTrips();
+    host.innerHTML='<div class="section-kicker">SWITCH TRIP</div>'+trips.map(t=>`<button class="sheet-action-card" data-switch-trip="${escapeHtml(t.slug)}"><span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong></span><span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'✓':'→'}</span></button>`).join('');
+    host.querySelectorAll('[data-switch-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.switchTrip!==window.TRAVEL_CONFIG.tripSlug)location.href=tripHref(btn.dataset.switchTrip)});
+  }catch(err){host.innerHTML='<p class="member-status">無法讀取旅程清單。</p>'}
+}
 
 async function tripAdmin(action='list',payload={}){
   const client=window.TravelAuth?.getClient?.();
@@ -1111,19 +1207,30 @@ qs('#inviteMemberForm').onsubmit=async e=>{
 
 async function initCloudShell(){
   try{
-    const local=await window.TravelStore?.init?.(TRIP);
-    if(local?.trip?.bookings?.length) TRIP.bookings=local.trip.bookings;
+    const local=await window.TravelStore?.init?.(window.TRAVEL_CONFIG?.tripSlug?TRIP:null);
+    if(window.TRAVEL_CONFIG?.tripSlug&&local?.trip?.days?.length){
+      TRIP=local.trip;
+      currentTripRole=local.trip.role||'viewer';
+      selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
+      syncTripLabels();
+      renderAll();
+    }
   }catch(err){console.warn('Local store init failed',err)}
-  renderAll();
 
   if(window.TravelAuth){
     window.TravelAuth.onChange(s=>{
       setAuthGateState(s.state);
-      if(s.state==='ready') hydratePrivateCloudData();
+      if(s.state==='ready'){
+        if(window.TRAVEL_CONFIG?.tripSlug) hydratePrivateCloudData();
+        else renderTripChooser();
+      }
     });
     const authState=await window.TravelAuth.init();
     setAuthGateState(authState.state);
-    if(authState.state==='ready') hydratePrivateCloudData();
+    if(authState.state==='ready'){
+      if(window.TRAVEL_CONFIG?.tripSlug) await hydratePrivateCloudData();
+      else await renderTripChooser();
+    }
   }
 }
 
