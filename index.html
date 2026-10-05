@@ -20,7 +20,7 @@
       <p id="authMessage">正在確認這台裝置的登入狀態…</p>
       <form id="magicLinkForm" class="auth-form" hidden>
         <label for="authEmail">Email</label>
-        <input id="authEmail" type="email" autocomplete="email" value="anching.ho@gmail.com" required>
+        <input id="authEmail" type="email" autocomplete="email" required>
         <button type="submit" id="magicLinkBtn">寄送登入連結</button>
       </form>
       <p class="auth-foot" id="authFoot">已有權限的裝置會自動進入，不需要重新寄信。</p>
@@ -167,12 +167,12 @@
     <div class="sheet-handle"></div>
     <div class="sheet-title"><div><span class="section-kicker">TRIP</span><h2 data-trip-title>Iceland 2026</h2></div><button class="round-btn" id="closeSheet">×</button></div>
     <div class="sheet-grid">
-      <div><small>旅行日期</small><strong>11/19–11/29</strong></div>
-      <div><small>旅伴</small><strong>3 人</strong></div>
+      <div><small>旅行日期</small><strong id="tripDateSummary">—</strong></div>
+      <div><small>我的權限</small><strong id="tripRoleSummary">—</strong></div>
       <button class="sheet-toggle-card" id="demoModeToggle" type="button" aria-pressed="false">
         <small>DEMO 模式</small><strong id="demoModeState">關閉</strong>
       </button>
-      <div><small>租車</small><strong>Defender</strong></div>
+      <div><small>同步狀態</small><strong id="tripSyncSummary">Cloud</strong></div>
     </div>
     <button class="sheet-action-card" id="membersBtn" type="button">
   <span><small>TRIP ACCESS</small><strong>成員與裝置</strong></span><span>→</span>
