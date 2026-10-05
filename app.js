@@ -456,6 +456,10 @@ function normalizedStayName(value){
 
 function findStayBooking(stay){
   if(!stay) return null;
+  if(stay.reservationId){
+    const idx=(TRIP.bookings||[]).findIndex(b=>b?.type==='stay'&&String(b.id||'')===String(stay.reservationId));
+    if(idx>=0) return {b:TRIP.bookings[idx],idx};
+  }
   const stayRaw=String(stay.title||'').normalize('NFKD').toLowerCase();
   const stayKey=normalizedStayName(stay.title);
   let best=null,bestScore=-1;
