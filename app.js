@@ -241,6 +241,7 @@ function validCoord(e){return Number.isFinite(e.lat)&&Number.isFinite(e.lng)}
 function iconSVG(name,cls=''){
   const icons={
     road:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M9 3h6l3 18h-4l-2-12-2 12H6z"></path><path d="M12 6v2.5"></path><path d="M12 11v2.5"></path><path d="M12 16v2"></path></svg>`,
+    dayNote:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M6 4h9l3 3v13H6z"></path><path d="M15 4v4h4"></path><path d="M9 12h6"></path><path d="M9 16h5"></path></svg>`,
     clock:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5l3 2"></path></svg>`,
     sunrise:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 18h16"></path><path d="M7 18a5 5 0 0 1 10 0"></path><path d="M12 6v3"></path><path d="M8 9.5 6.5 8"></path><path d="M16 9.5 17.5 8"></path><path d="M12 15l-2.2-2.2"></path><path d="M12 15l2.2-2.2"></path><path d="M5 21h14"></path></svg>`,
     sunset:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 18h16"></path><path d="M7 15a5 5 0 0 0 10 0"></path><path d="M12 6v3"></path><path d="M8 9.5 6.5 8"></path><path d="M16 9.5 17.5 8"></path><path d="M7 21h10"></path><path d="M5 20h2"></path><path d="M17 20h2"></path></svg>`,
@@ -503,6 +504,116 @@ function toggleTodayCode(idx){
   const masked=maskCode(b.code,b.secret);
   el.textContent=el.textContent===masked?(b.secret?`${b.code} · PIN ${b.secret}`:b.code):masked;
 }
+function renderDayNote(d){
+  const wrap=qs('#dayNoteWrap'),toggle=qs('#dayNoteToggle'),body=qs('#dayNoteBody');
+  if(!wrap||!toggle||!body) return;
+  const note=String(d?.short||'').trim();
+  const visible=Boolean(note)||(editMode&&canEditTrip());
+  wrap.hidden=!visible;
+  if(!visible) return;
+
+  const icon=qs('#dayNoteIcon');
+  if(icon) icon.innerHTML=iconSVG('dayNote');
+  const preview=qs('#dayNotePreview');
+  const text=qs('#dayNoteText');
+  const editBtn=qs('#dayNoteEditBtn');
+  if(preview) preview.textContent=note?note.replace(/\s+/g,' ').trim():'尚未新增今日備註';
+  if(text) text.textContent=note||'尚未新增今日備註。';
+  if(editBtn) editBtn.hidden=!(editMode&&canEditTrip());
+
+  toggle.setAttribute('aria-expanded','false');
+  wrap.classList.remove('open');
+  body.hidden=true;
+}
+
+function toggleDayNote(){
+  const wrap=qs('#dayNoteWrap'),toggle=qs('#dayNoteToggle'),body=qs('#dayNoteBody');
+  if(!wrap||!toggle||!body) return;
+  const open=toggle.getAttribute('aria-expanded')!=='true';
+  toggle.setAttribute('aria-expanded',String(open));
+  wrap.classList.toggle('open',open);
+  body.hidden=!open;
+}
+
+function ensureDayNoteEditor(){
+  let sheet=qs('#dayNoteEditSheet');
+  if(sheet) return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='dayNoteEditBackdrop';
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet day-note-edit-sheet';
+  sheet.id='dayNoteEditSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">DAY NOTE</span><h2>編輯今日備註</h2></div>
+      <button class="round-btn" id="closeDayNoteEdit">×</button>
+    </div>
+    <form class="edit-form" id="dayNoteEditForm">
+      <input type="hidden" id="dayNoteEditDayIndex">
+      <label><span>整日備註</span><textarea id="dayNoteEditText" rows="9" placeholder="例如：整天路線、備案、今天可能需要捨棄的景點、行車時間提醒…"></textarea></label>
+      <div class="edit-form-actions">
+        <button type="button" class="edit-delete" id="clearDayNote">清除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="dayNoteEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeDayNoteEdit').onclick=close;
+  backdrop.onclick=close;
+  qs('#clearDayNote').onclick=()=>{qs('#dayNoteEditText').value=''};
+  qs('#dayNoteEditForm').onsubmit=saveDayNoteEditor;
+  return sheet;
+}
+
+function openDayNoteEditor(dayIndex=selectedDay){
+  if(!canEditTrip()) return;
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const sheet=ensureDayNoteEditor();
+  qs('#dayNoteEditDayIndex').value=String(dayIndex);
+  qs('#dayNoteEditText').value=d.short||'';
+  qs('#dayNoteEditStatus').textContent='';
+  qs('#dayNoteEditBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>qs('#dayNoteEditText')?.focus(),60);
+}
+
+async function saveDayNoteEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#dayNoteEditDayIndex').value);
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const short=qs('#dayNoteEditText').value.trim();
+  const status=qs('#dayNoteEditStatus');
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_day',{day:{
+      id:d.id,baseVersion:d.version,date:d.date,label:d.label,name:d.name,short,
+      heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,
+      departureTime:d.departureTime||'',sunrise:d.sunrise,sunset:d.sunset
+    }});
+    qs('#dayNoteEditSheet').classList.remove('show');
+    qs('#dayNoteEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    if(err.code==='version_conflict'){
+      status.textContent='本日資料已被其他裝置更新，正在重新載入…';
+      await hydratePrivateCloudData();
+      return;
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message);
+  }
+}
+
 function renderToday(){
   const d=currentDay();
   const dayIndex=selectedDay;
@@ -525,6 +636,7 @@ function renderToday(){
   qs('#todaySunset').textContent=ui.sunset;
   qs('#weatherTemp').textContent='--°';
   qs('#weatherLabel').textContent='讀取中';
+  renderDayNote(d);
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
   const prevStay=dayIndex>0?[...(TRIP.days[dayIndex-1]?.events||[])].reverse().find(e=>e.type==='stay'&&!e.uncertain&&validCoord(e)):null;
@@ -2206,7 +2318,7 @@ async function editCurrentDay(){
   const name=prompt('當日標題',d.name);if(name===null)return;
   const date=prompt('日期 YYYY-MM-DD',d.date);if(date===null)return;
   const departureTime=prompt('當日出發時間 HH:MM（可留空）',d.departureTime||'');if(departureTime===null)return;
-  const short=prompt('摘要 / 路線',d.short||'');if(short===null)return;
+  const short=prompt('今日備註',d.short||'');if(short===null)return;
   const normalizedDeparture=String(departureTime||'').trim();
   if(normalizedDeparture&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(normalizedDeparture)){
     alert('出發時間格式請使用 HH:MM，例如 08:30。');
@@ -2430,6 +2542,8 @@ qs('#membersBtn').onclick=async()=>{
 };
 qs('#closeMembers').onclick=closeMembersSheet;
 qs('#membersBackdrop').onclick=closeMembersSheet;
+qs('#dayNoteToggle').onclick=toggleDayNote;
+qs('#dayNoteEditBtn').onclick=e=>{e.stopPropagation();openDayNoteEditor(selectedDay)};
 qs('#inviteMemberForm').onsubmit=async e=>{
   e.preventDefault();
   const email=qs('#inviteEmail').value.trim(),role=qs('#inviteRole').value;
