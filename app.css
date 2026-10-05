@@ -1222,3 +1222,44 @@ body.timeline-dragging *{
   .map-control-actions{gap:6px}
   .google-route-btn,.play-btn{padding:9px 10px;font-size:12px}
 }
+
+
+/* Today vertical density r110ax
+   - Day buttons are 20% shorter with exactly the same width.
+   - Hero -> day buttons gap is 40% tighter.
+   - Day buttons -> Day Note uses the same compact gap. */
+#todayView .hero-card{
+  margin-bottom:8px!important;
+}
+#todayView .day-strip{
+  padding-top:3px!important;
+  padding-bottom:0!important;
+}
+#todayView .day-btn{
+  min-height:66px!important;
+  height:66px!important;
+  padding-top:7px!important;
+  padding-bottom:7px!important;
+}
+#todayView .day-note-wrap{
+  margin-top:11px!important;
+}
+
+@media(max-width:699px){
+  #todayView .hero-card{
+    margin-bottom:8px!important;
+  }
+  #todayView .day-strip{
+    padding:3px 0 0!important;
+  }
+  #todayView .day-btn{
+    /* 72px -> 58px = 19.4% shorter; width rules above remain untouched. */
+    min-height:58px!important;
+    height:58px!important;
+    padding:6px 5px!important;
+  }
+  #todayView .day-note-wrap{
+    /* 8px hero margin + 3px strip padding = 11px on the top side too. */
+    margin:11px 0 20px!important;
+  }
+}
