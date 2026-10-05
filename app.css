@@ -421,3 +421,58 @@
   font-size:16px!important;
   line-height:1.08!important;
 }
+
+
+/* Persistent edit-mode chrome: visible on phone and desktop */
+.hero-menu-group,.subview-header-actions{display:flex;align-items:center;gap:8px}
+.hero-edit-entry,.subview-edit-entry{
+  border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:8px 13px;
+  background:rgba(255,253,248,.94);color:var(--green);font-size:14px;font-weight:950;
+  box-shadow:0 5px 16px rgba(0,0,0,.08)
+}
+.subview-edit-entry{border-color:var(--line);background:var(--paper)}
+.global-edit-toolbar[hidden]{display:none!important}
+.global-edit-toolbar{
+  position:fixed;left:50%;top:max(8px,env(safe-area-inset-top));transform:translateX(-50%);
+  z-index:1500;width:min(720px,calc(100% - 24px));min-height:58px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:9px 11px 9px 15px;border:1px solid rgba(185,145,73,.45);border-radius:18px;
+  background:rgba(255,248,219,.97);box-shadow:0 10px 30px rgba(34,51,47,.2);
+  backdrop-filter:blur(16px)
+}
+.global-edit-status{display:flex;align-items:center;gap:7px;color:#705720;white-space:nowrap}
+.global-edit-status strong{font-size:15px}.global-edit-status small{font-size:11px;font-weight:900;letter-spacing:.08em}
+.edit-live-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 4px rgba(185,145,73,.17)}
+.global-edit-actions{display:flex;align-items:center;gap:6px}
+.global-edit-actions button{
+  border:1px solid #d9ccb1;border-radius:12px;background:#fffdf8;color:var(--green);
+  min-height:38px;padding:7px 11px;font-size:14px;font-weight:950
+}
+.global-edit-actions .done{background:var(--green);border-color:var(--green);color:#fff}
+html.editing-trip .hero-card{padding-top:72px}
+html.editing-trip .subview-trip-header{padding-top:72px!important}
+
+/* Pointer-based long-press sorting. The handle owns the gesture so page scrolling
+   remains normal everywhere else. */
+.drag-handle{touch-action:none!important;user-select:none;-webkit-user-select:none}
+body.timeline-dragging{user-select:none;-webkit-user-select:none;overscroll-behavior:none}
+body.timeline-dragging .timeline-item.dragging{
+  opacity:.78;position:relative;z-index:40;transform:scale(1.012)
+}
+body.timeline-dragging .timeline-item.dragging .timeline-card{
+  box-shadow:0 14px 38px rgba(34,51,47,.22);outline:2px solid rgba(185,145,73,.55)
+}
+.timeline-item.drag-over .timeline-card{
+  transform:translateY(5px)!important;
+  box-shadow:0 0 0 3px rgba(185,145,73,.34),var(--shadow)!important
+}
+
+@media(max-width:699px){
+  .global-edit-toolbar{top:max(6px,env(safe-area-inset-top));width:calc(100% - 20px);padding:8px 9px 8px 12px}
+  .global-edit-status small{display:none}
+  .global-edit-actions button{padding:7px 9px;font-size:13px}
+  html.editing-trip .hero-card{padding-top:70px}
+}
+@media(min-width:700px){
+  .hero-edit-entry,.subview-edit-entry{display:inline-flex!important;align-items:center;justify-content:center}
+}
