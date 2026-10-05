@@ -478,7 +478,7 @@ function renderToday(){
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time"></div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p></div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -1630,14 +1630,16 @@ function toggleEditMode(force){
 function decorateTimelineEditor(){
   const old=qs('#editModeBanner');if(old)old.remove();
   if(editMode&&canEditTrip()){
-    qsa('#timeline .timeline-card').forEach((card,eventIndex)=>{
+    qsa('#timeline .timeline-item[data-event-index]').forEach(timelineItem=>{
+      const eventIndex=Number(timelineItem.dataset.eventIndex);
+      if(!Number.isInteger(eventIndex)) return;
       const item=currentDay().events[eventIndex];
-      const timelineItem=card.closest('.timeline-item');
-      if(timelineItem) timelineItem.dataset.eventIndex=String(eventIndex);
+      const card=timelineItem.querySelector('.timeline-card');
+      if(!item||!card) return;
       const actions=document.createElement('div');actions.className='edit-inline-actions';
       const edit=document.createElement('button');edit.className='edit-chip';edit.textContent='✎ 編輯';edit.onclick=e=>{e.stopPropagation();openItemEditor(selectedDay,eventIndex)};
       actions.append(edit);
-      if(!item?.time){
+      if(!item.time){
         const drag=document.createElement('button');
         drag.type='button';drag.className='edit-chip drag-handle';drag.textContent='☰ 長按拖曳';
         drag.title='無固定時間，可長按拖曳排序';
