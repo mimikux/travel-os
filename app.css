@@ -1048,3 +1048,24 @@ body.timeline-dragging *{
 .departure-time-sheet .departure-clear{
   min-width:88px;
 }
+
+
+/* dynamic dates + uncertain itinerary r110ao */
+.uncertain-row{
+  display:grid!important;
+  grid-template-columns:auto auto 1fr;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  border:1px solid #ddd5c7;
+  border-radius:14px;
+  background:#fffdf8;
+}
+.uncertain-row input{width:18px;height:18px}
+.uncertain-row span{font-weight:900}
+.uncertain-row small{color:var(--muted);font-size:12px}
+.timeline-card.uncertain-item{
+  border:2px dashed rgba(185,145,73,.78)!important;
+  box-shadow:none!important;
+}
+.timeline-card.uncertain-item .type:after{content:" · 不確定"}
