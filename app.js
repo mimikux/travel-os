@@ -119,7 +119,7 @@ function wmoLabel(code){
 
 async function fetchWeatherForDay(dayIndex){
   const d=TRIP.days[dayIndex];
-  const loc=WEATHER_LOCATIONS[d.label];
+  const loc=weatherLocationForDay(dayIndex);
   if(!loc) throw new Error('Missing weather location');
   const cacheKey=`${d.date}:${loc.lat},${loc.lng}`;
   if(weatherCache.has(cacheKey)) return weatherCache.get(cacheKey);
@@ -828,11 +828,46 @@ function toggleBookingDetails(idx){
 function maskCode(code,secret){if(!code)return '—';return secret?`${code} · PIN ••••`:`${code.length>4?'••••'+code.slice(-4):code}`}
 function toggleCode(i,code,secret){const el=qs('#code-'+i);const masked=maskCode(code,secret);el.textContent=el.textContent===masked?(secret?`${code} · PIN ${secret}`:code):masked}
 
+function weatherLocationForDay(dayIndex){
+  const d=TRIP.days?.[dayIndex];
+  if(!d) return null;
+  const fallback=(d.events||[]).find(validCoord);
+  return WEATHER_LOCATIONS[d.label]||(fallback?{name:d.name||d.label,lat:fallback.lat,lng:fallback.lng}:null);
+}
+
+function weatherSourceLinks(dayIndex){
+  const d=TRIP.days?.[dayIndex];
+  const loc=weatherLocationForDay(dayIndex);
+  if(!d||!loc) return {openMeteo:'#',google:'#',locationName:d?.name||'weather'};
+  const api=new URL('https://api.open-meteo.com/v1/forecast');
+  api.searchParams.set('latitude',loc.lat);
+  api.searchParams.set('longitude',loc.lng);
+  api.searchParams.set('hourly','temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m');
+  api.searchParams.set('daily','sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max');
+  api.searchParams.set('timezone',TRIP.timezone||'UTC');
+  api.searchParams.set('wind_speed_unit','ms');
+  api.searchParams.set('forecast_days','16');
+  const google='https://www.google.com/search?q='+encodeURIComponent((loc.name||d.name||'')+' weather');
+  return {openMeteo:api.toString(),google,locationName:loc.name||d.name||'weather'};
+}
+
+function renderWeatherSources(dayIndex){
+  const host=qs('#weatherSources');
+  if(!host) return;
+  const links=weatherSourceLinks(dayIndex);
+  const demoNote=demoMode?'<p class="weather-source-note">目前為 DEMO 示意資料，不代表 Open-Meteo 或 Google 的實際預報。</p>':'';
+  host.innerHTML=`${demoNote}<div class="weather-source-actions">
+    <a class="weather-source-btn" href="${links.openMeteo}" target="_blank" rel="noopener">Open-Meteo 原始預報 ↗</a>
+    <a class="weather-source-btn" href="${links.google}" target="_blank" rel="noopener">Google 天氣 ↗</a>
+  </div>`;
+}
+
 async function renderWeatherSheet(){
   const dayIndex=selectedDay;
   const d=TRIP.days[dayIndex];
-  const loc=WEATHER_LOCATIONS[d.label];
+  const loc=weatherLocationForDay(dayIndex);
   qs('#weatherSheetTitle').textContent=`${d.label} · ${d.name}`;
+  renderWeatherSources(dayIndex);
   qs('#weatherSheetSubtitle').textContent=`${loc?.name||'今日路線'} · ${demoMode?'DEMO 示意預報':'Open-Meteo 真實預報'}`;
   qs('#weatherSummary').innerHTML=`<div class="weather-loading">正在讀取天氣資料…</div>`;
   qs('#weatherHourly').innerHTML='';
