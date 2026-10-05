@@ -665,15 +665,30 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
   }
   const segTotal=seg.reduce((a,b)=>a+b,0)||1;
   const displayTotal=Number.isFinite(Number(totalKm))&&Number(totalKm)>0?Number(totalKm):segTotal;
+
+  // Readability scale: keep real distance as the weight, but reserve a minimum
+  // visual width for every leg. Very short legs therefore remain separate and
+  // their marker + km label never collapse on top of the next stop.
+  const wrapWidth=Math.max(240,Number(qs('#routeScaleWrap')?.clientWidth||el.clientWidth||360));
+  const trackWidth=Math.max(180,wrapWidth-(window.innerWidth<=420?72:80));
+  const maxEqualGap=trackWidth/Math.max(1,seg.length);
+  const minGapPx=Math.min(66,maxEqualGap,Math.max(24,maxEqualGap*.72));
+  const reserved=minGapPx*seg.length;
+  const flexible=Math.max(0,trackWidth-reserved);
+  const displaySegPx=seg.map(km=>minGapPx+flexible*(Math.max(0,km)/segTotal));
+
   const positions=[0];
-  let acc=0;
-  for(const km of seg){acc+=km;positions.push(Math.min(100,(acc/segTotal)*100))}
+  let displayAcc=0;
+  for(const px of displaySegPx){
+    displayAcc+=px;
+    positions.push(Math.min(100,(displayAcc/trackWidth)*100));
+  }
   positions[positions.length-1]=100;
 
   const labels=seg.map((km,i)=>{
     const left=(positions[i]+positions[i+1])/2;
-    const span=positions[i+1]-positions[i];
-    const tight=span<13;
+    const px=displaySegPx[i]||0;
+    const tight=px<72;
     const lane=tight?(i%2?' lane-b':' lane-a'):'';
     const prefix=approx?'≈':'';
     return `<span class="route-segment-label${tight?' tight':''}${lane}" style="left:${left.toFixed(3)}%">${prefix}${formatRouteKm(km)} km</span>`;
@@ -681,7 +696,8 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
 
   const nodes=positions.map((p,i)=>{
     const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i+1}`);
-    return `<span class="route-node${i===0?' current':''}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" style="left:${p.toFixed(3)}%" title="${title}"><b>${i+1}</b></span>`;
+    const edge=i===0?' edge-start':(i===positions.length-1?' edge-end':'');
+    return `<button type="button" class="route-node${i===0?' current':''}${edge}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
   }).join('');
 
   el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}">
@@ -692,6 +708,18 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     </div>
     <span class="route-total-label">${approx?'≈':''}${formatRouteKm(displayTotal)} km</span>
   </div>`;
+
+  qsa('.route-node').forEach(node=>{
+    node.addEventListener('click',e=>{
+      e.preventDefault();e.stopPropagation();
+      const willShow=!node.classList.contains('show-name');
+      qsa('.route-node.show-name').forEach(other=>other.classList.remove('show-name'));
+      node.classList.toggle('show-name',willShow);
+    });
+    node.addEventListener('focus',()=>node.classList.add('show-name'));
+    node.addEventListener('blur',()=>node.classList.remove('show-name'));
+  });
+
   updateRouteScaleProgress(+qs('#routeSlider')?.value||0);
 }
 
