@@ -940,3 +940,58 @@ body.timeline-dragging{touch-action:none!important}
   box-shadow:0 8px 24px rgba(20,45,39,.18)!important;
 }
 .route-node:focus{outline:none!important}
+
+
+/* drag reorder anchored ghost r110ac */
+.drag-handle{
+  user-select:none!important;
+  -webkit-user-select:none!important;
+  -webkit-touch-callout:none!important;
+  touch-action:none!important;
+}
+.timeline-drag-ghost{
+  position:fixed!important;
+  left:0!important;
+  top:0!important;
+  max-width:none!important;
+  margin:0!important;
+  pointer-events:none!important;
+  user-select:none!important;
+  -webkit-user-select:none!important;
+  opacity:.97!important;
+  transform-origin:0 0!important;
+  box-shadow:0 18px 48px rgba(20,45,39,.26)!important;
+  outline:2px solid rgba(185,145,73,.58)!important;
+}
+.timeline-item.drag-source-hidden{
+  display:none!important;
+}
+.timeline-drop-placeholder{
+  position:relative;
+  box-sizing:border-box;
+  margin:0 0 10px 34px;
+  border:2px dashed rgba(185,145,73,.55);
+  border-radius:18px;
+  background:rgba(185,145,73,.08);
+  transition:height .12s ease,margin .12s ease,opacity .12s ease;
+}
+.timeline-drop-placeholder:before{
+  content:"放到這裡";
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  color:var(--gold);
+  font-size:11px;
+  font-weight:900;
+  white-space:nowrap;
+}
+body.timeline-dragging,
+body.timeline-dragging *{
+  -webkit-user-select:none!important;
+  user-select:none!important;
+}
+.timeline-item.drag-over.drop-before:before,
+.timeline-item.drag-over.drop-after:after{
+  display:none!important;
+}
