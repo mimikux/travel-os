@@ -508,9 +508,8 @@ function renderDayNote(d){
   const wrap=qs('#dayNoteWrap'),toggle=qs('#dayNoteToggle'),body=qs('#dayNoteBody');
   if(!wrap||!toggle||!body) return;
   const note=String(d?.short||'').trim();
-  const visible=Boolean(note)||(editMode&&canEditTrip());
-  wrap.hidden=!visible;
-  if(!visible) return;
+  const visible=true;
+  wrap.hidden=false;
 
   const icon=qs('#dayNoteIcon');
   if(icon) icon.innerHTML=iconSVG('dayNote');
@@ -519,7 +518,10 @@ function renderDayNote(d){
   const editBtn=qs('#dayNoteEditBtn');
   if(preview) preview.textContent=note?note.replace(/\s+/g,' ').trim():'尚未新增今日備註';
   if(text) text.textContent=note||'尚未新增今日備註。';
-  if(editBtn) editBtn.hidden=!(editMode&&canEditTrip());
+  if(editBtn){
+    editBtn.hidden=!(editMode&&canEditTrip());
+    editBtn.textContent='✎ 編輯本日';
+  }
 
   toggle.setAttribute('aria-expanded','false');
   wrap.classList.remove('open');
@@ -2313,26 +2315,101 @@ async function reorderFlexibleItem(dayIndex,sourceId,targetId,after=false){
   }
 }
 
-async function editCurrentDay(){
-  const d=currentDay();if(!d?.id)return;
-  const name=prompt('當日標題',d.name);if(name===null)return;
-  const date=prompt('日期 YYYY-MM-DD',d.date);if(date===null)return;
-  const departureTime=prompt('當日出發時間 HH:MM（可留空）',d.departureTime||'');if(departureTime===null)return;
-  const short=prompt('今日備註',d.short||'');if(short===null)return;
-  const normalizedDeparture=String(departureTime||'').trim();
-  if(normalizedDeparture&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(normalizedDeparture)){
-    alert('出發時間格式請使用 HH:MM，例如 08:30。');
-    return;
-  }
+function ensureDayEditor(){
+  let sheet=qs('#dayEditSheet');
+  if(sheet) return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='dayEditBackdrop';
+
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet day-edit-sheet';
+  sheet.id='dayEditSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">DAY EDITOR</span><h2>編輯本日</h2></div>
+      <button class="round-btn" id="closeDayEdit">×</button>
+    </div>
+    <form class="edit-form" id="dayEditForm">
+      <input type="hidden" id="dayEditIndex">
+      <div class="edit-form-grid">
+        <label><span>日期</span><input id="dayEditDate" type="date" readonly></label>
+        <label><span>出發時間</span><input id="dayEditDeparture" type="time"></label>
+      </div>
+      <p class="edit-help">日期由當天行程資料自動決定；若新增更早或更晚日期的行程，D0～Dn 會自動重排。</p>
+      <label><span>當日標題</span><input id="dayEditName" required placeholder="例如：斯奈山半島"></label>
+      <label><span>今日備註</span><textarea id="dayEditNote" rows="9" placeholder="整天路線、取捨策略、備案、行車提醒…"></textarea></label>
+      <div class="edit-form-actions">
+        <button type="button" class="edit-delete" id="clearDayEditNote">清除備註</button>
+        <button type="submit" class="edit-save">儲存本日</button>
+      </div>
+      <p class="edit-status" id="dayEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeDayEdit').onclick=close;
+  backdrop.onclick=close;
+  qs('#clearDayEditNote').onclick=()=>{qs('#dayEditNote').value=''};
+  qs('#dayEditForm').onsubmit=saveDayEditor;
+  return sheet;
+}
+
+function openDayEditor(dayIndex=selectedDay){
+  if(!canEditTrip()) return;
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const sheet=ensureDayEditor();
+  qs('#dayEditIndex').value=String(dayIndex);
+  qs('#dayEditDate').value=d.date||'';
+  qs('#dayEditDeparture').value=d.departureTime||'';
+  qs('#dayEditName').value=d.name||'';
+  qs('#dayEditNote').value=d.short||'';
+  qs('#dayEditStatus').textContent='';
+  qs('#dayEditBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>qs('#dayEditName')?.focus(),60);
+}
+
+async function saveDayEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#dayEditIndex').value);
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const name=qs('#dayEditName').value.trim();
+  const departureTime=qs('#dayEditDeparture').value||'';
+  const short=qs('#dayEditNote').value.trim();
+  const status=qs('#dayEditStatus');
+  if(!name){status.textContent='請輸入當日標題。';return}
+  status.textContent='儲存中…';
   try{
     await travelEditor('save_day',{day:{
-      id:d.id,baseVersion:d.version,date,label:d.label,name,short,
+      id:d.id,baseVersion:d.version,date:d.date,label:d.label,name,short,
       heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,
-      departureTime:normalizedDeparture,
-      sunrise:d.sunrise,sunset:d.sunset
+      departureTime,sunrise:d.sunrise,sunset:d.sunset
     }});
+    qs('#dayEditSheet').classList.remove('show');
+    qs('#dayEditBackdrop').classList.remove('show');
     await hydratePrivateCloudData();
-  }catch(err){alert(err.code==='version_conflict'?'本日資料已被其他人更新，請再試一次。':'更新失敗：'+err.message)}
+  }catch(err){
+    if(err.code==='version_conflict'){
+      status.textContent='本日資料已被其他裝置更新，正在重新載入…';
+      await hydratePrivateCloudData();
+      return;
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message);
+  }
+}
+
+function editCurrentDay(){
+  openDayEditor(selectedDay);
 }
 
 function decorateBookingEditor(list){
@@ -2543,7 +2620,7 @@ qs('#membersBtn').onclick=async()=>{
 qs('#closeMembers').onclick=closeMembersSheet;
 qs('#membersBackdrop').onclick=closeMembersSheet;
 qs('#dayNoteToggle').onclick=toggleDayNote;
-qs('#dayNoteEditBtn').onclick=e=>{e.stopPropagation();openDayNoteEditor(selectedDay)};
+qs('#dayNoteEditBtn').onclick=e=>{e.stopPropagation();openDayEditor(selectedDay)};
 qs('#inviteMemberForm').onsubmit=async e=>{
   e.preventDefault();
   const email=qs('#inviteEmail').value.trim(),role=qs('#inviteRole').value;
