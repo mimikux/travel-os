@@ -1008,3 +1008,26 @@ body.timeline-dragging *{
 .timeline-drop-placeholder:before{
   content:"插入到這裡"!important;
 }
+
+
+/* Today page minimum text size r110ag
+   Keep existing colors/weights; only raise undersized text to the 看地圖/08:15 baseline. */
+@media(max-width:699px){
+  #todayView .hero-meta-line,
+  #todayView .hero-today-word,
+  #todayView .demo-badge,
+  #todayView .weather-inline small,
+  #todayView .hero-stat small,
+  #todayView .day-btn small,
+  #todayView .section-kicker,
+  #todayView .timeline-card .type,
+  #todayView .timeline-card .sub,
+  #todayView .timeline-card .note,
+  #todayView .detail-toggle,
+  #todayView .event-details,
+  #todayView .detail-source,
+  #todayView .mini-btn,
+  #todayView .nav-link{
+    font-size:14px!important;
+  }
+}
