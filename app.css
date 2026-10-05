@@ -354,3 +354,23 @@
 }
 /* Map/Booking are utility pages: keep the compact sticky header from first paint,
    rather than spending vertical space on a second large hero animation. */
+
+
+/* Mobile readability: itinerary heading + hero distance */
+@media(max-width:699px){
+  /* At least the same visual size as the adjacent "看地圖" action. */
+  .section-head h2#timelineHeading{
+    font-size:15px!important;
+    line-height:1.2!important;
+    font-weight:900!important;
+    white-space:nowrap;
+  }
+
+  /* Never wrap the unit. Long values scale down to fit the four-column stat card. */
+  .hero-stat strong#todayKm{
+    display:block!important;
+    white-space:nowrap!important;
+    font-size:clamp(11px,3.7vw,15px)!important;
+    letter-spacing:-.04em!important;
+  }
+}
