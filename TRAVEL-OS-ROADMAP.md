@@ -332,3 +332,5 @@ Later:
 - [x] Google Maps resolver hardened: prefer coordinates from the expanded URL and avoid arbitrary viewport coordinates from the whole Google HTML.
 - [x] Mobile flexible-item drag reorder: pointer-following drag ghost, explicit before/after insertion marker, document-level pointer tracking, backend reorder persistence.
 - [ ] User verification on phone for route ruler, short-link sample, and drag reorder after r110x reaches GitHub Pages.
+
+- [x] Route ruler readable scaling: every leg gets a minimum visual width while longer legs still receive proportional extra space; stop nodes no longer overlap; desktop hover/mobile tap shows destination name.
