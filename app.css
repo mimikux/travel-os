@@ -1196,3 +1196,29 @@ body.timeline-dragging *{
 .day-note-wrap:not(.open) .day-note-preview{
   opacity:.92;
 }
+
+
+/* google route export r110au */
+.map-control-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.google-route-btn{
+  border:1px solid rgba(183,145,77,.34);
+  border-radius:12px;
+  padding:10px 12px;
+  background:#fffdf8;
+  color:var(--green);
+  font-weight:900;
+  white-space:nowrap;
+}
+.google-route-btn:disabled{
+  opacity:.42;
+  cursor:not-allowed;
+}
+@media(max-width:699px){
+  .map-controls{align-items:flex-start}
+  .map-control-actions{gap:6px}
+  .google-route-btn,.play-btn{padding:9px 10px;font-size:12px}
+}
