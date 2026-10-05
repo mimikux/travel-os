@@ -673,23 +673,22 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
   const labels=seg.map((km,i)=>{
     const left=(positions[i]+positions[i+1])/2;
     const span=positions[i+1]-positions[i];
-    const tight=span<12;
-    const lane=tight?(i%2?' lane-down':' lane-up'):'';
+    const tight=span<13;
+    const lane=tight?(i%2?' lane-b':' lane-a'):'';
     const prefix=approx?'≈':'';
     return `<span class="route-segment-label${tight?' tight':''}${lane}" style="left:${left.toFixed(3)}%">${prefix}${formatRouteKm(km)} km</span>`;
   }).join('');
 
   const nodes=positions.map((p,i)=>{
-    const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i}`);
-    return `<span class="route-node${i===0?' current':''}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" style="left:${p.toFixed(3)}%" title="${title}"></span>`;
+    const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i+1}`);
+    return `<span class="route-node${i===0?' current':''}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" style="left:${p.toFixed(3)}%" title="${title}"><b>${i+1}</b></span>`;
   }).join('');
 
   el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}">
-    <span class="route-origin-label">0</span>
     <div class="route-track-area">
       <div class="route-track"><div class="route-track-progress"></div></div>
-      ${labels}
       ${nodes}
+      ${labels}
     </div>
     <span class="route-total-label">${approx?'≈':''}${formatRouteKm(displayTotal)} km</span>
   </div>`;
@@ -1379,7 +1378,8 @@ async function auditTripPlaceHours(){
       const closed=Array.isArray(data.closedDays)?data.closedDays:[];
       await travelEditor('save_place_hours',{
         id:event.id,
-        googleMapsUrl:data.finalUrl||event.googleMapsUrl,
+        googleMapsUrl:event.googleMapsUrl,
+        googleMapsResolvedUrl:data.finalUrl||event.googleMapsResolvedUrl||'',
         openingHours:hours,
         closedWeekdays:closed,
         hoursSource:data.hoursSource||null
@@ -1468,6 +1468,7 @@ function ensureItemEditor(){
       <label><span>備註</span><textarea id="editItemNote"></textarea></label>
       <label><span>景點介紹</span><textarea id="editItemIntro"></textarea></label>
       <label><span>注意事項（每行一項）</span><textarea id="editItemTips"></textarea></label>
+      <label><span>地址</span><input id="editItemAddress" autocomplete="street-address" placeholder="有解析到地址時會保留；也可手動輸入"></label>
       <div class="edit-form-grid">
         <label><span>Latitude</span><input id="editItemLat" type="number" step="any"></label>
         <label><span>Longitude</span><input id="editItemLng" type="number" step="any"></label>
@@ -1502,9 +1503,11 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemNote').value=event?.note||'';
   qs('#editItemIntro').value=event?.details?.intro||'';
   qs('#editItemTips').value=(event?.details?.tips||[]).join('\n');
+  qs('#editItemAddress').value=event?.address||'';
   qs('#editItemLat').value=Number.isFinite(event?.lat)?event.lat:'';
   qs('#editItemLng').value=Number.isFinite(event?.lng)?event.lng:'';
   qs('#editItemMapUrl').value=event?.googleMapsUrl||'';
+  qs('#editItemMapUrl').dataset.resolvedUrl=event?.googleMapsResolvedUrl||'';
   qs('#editItemMapUrl').dataset.openingHours=JSON.stringify(event?.openingHours||[]);
   qs('#editItemMapUrl').dataset.closedWeekdays=JSON.stringify(event?.closedWeekdays||[]);
   qs('#editItemMapUrl').dataset.hoursSource=event?.hoursSource||'';
@@ -1518,45 +1521,66 @@ function openItemEditor(dayIndex,eventIndex){
 }
 
 async function importGoogleMapIntoEditor(){
-  const url=qs('#editItemMapUrl')?.value.trim();
+  const input=qs('#editItemMapUrl');
+  const url=input?.value.trim();
   const status=qs('#mapImportStatus');
   if(!url){status.textContent='請先貼上 Google Maps 連結。';return}
   status.textContent='解析 Google Maps 連結中…';
   try{
     const data=await travelEditor('resolve_google_map',{url});
     if(!data?.ok) throw new Error(data?.error||'map_resolve_failed');
-    if(data.name) qs('#editItemName').value=data.name;
+
+    const nameInput=qs('#editItemName');
+    const typeInput=qs('#editItemType');
+    const addressInput=qs('#editItemAddress');
+    const existingTitle=String(nameInput?.value||'').trim();
+    const existingType=String(typeInput?.value||'').trim();
+    const isNew=!String(qs('#editItemId')?.value||'').trim();
+
+    // Never replace a name the traveler already entered.
+    if(!existingTitle&&data.name) nameInput.value=data.name;
+    if(data.address) addressInput.value=data.address;
     if(Number.isFinite(data.lat)) qs('#editItemLat').value=data.lat;
     if(Number.isFinite(data.lng)) qs('#editItemLng').value=data.lng;
     if(data.navQuery) qs('#editItemNav').value=data.navQuery;
-    if(data.suggestedType && qs('#editItemType')?.querySelector(`option[value="${data.suggestedType}"]`)){
-      qs('#editItemType').value=data.suggestedType;
+
+    // Type suggestion is only safe for a brand-new item that still has the default/blank type.
+    if(isNew&&data.suggestedType&&(!existingType||existingType==='spot')&&typeInput?.querySelector(`option[value="${data.suggestedType}"]`)){
+      typeInput.value=data.suggestedType;
     }
+
+    // Preserve what the user pasted. Store the expanded URL separately for audit/debugging.
+    input.dataset.resolvedUrl=data.finalUrl||'';
 
     const dayIndex=Number(qs('#editItemDay')?.value||0);
     const visitDate=TRIP.days?.[dayIndex]?.date||'';
     const visitWeekday=visitDate?new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(visitDate+'T00:00:00Z')):'';
     const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
-    const mapInput=qs('#editItemMapUrl');
-    mapInput.dataset.openingHours=JSON.stringify(hours);
-    mapInput.dataset.closedWeekdays=JSON.stringify(Array.isArray(data.closedDays)?data.closedDays:[]);
-    mapInput.dataset.hoursSource=data.hoursSource||'';
-    mapInput.dataset.hoursCheckedAt=new Date().toISOString();
+    input.dataset.openingHours=JSON.stringify(hours);
+    input.dataset.closedWeekdays=JSON.stringify(Array.isArray(data.closedDays)?data.closedDays:[]);
+    input.dataset.hoursSource=data.hoursSource||'';
+    input.dataset.hoursCheckedAt=new Date().toISOString();
+
     const hoursText=hours.length?'營業時間：'+hours.map(x=>`${x.day} ${x.hours}`).join('；'):'';
     const closedToday=visitWeekday&&Array.isArray(data.closedDays)&&data.closedDays.includes(visitWeekday);
     const warning=closedToday?`⚠️ 行程日期 ${visitDate}（${visitWeekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
-    const noteParts=[qs('#editItemNote').value.trim(),hoursText,warning].filter(Boolean);
-    qs('#editItemNote').value=noteParts.join('\n');
+    const currentNote=qs('#editItemNote').value.trim();
+    const noteParts=[currentNote];
+    if(hoursText&&!currentNote.includes(hoursText)) noteParts.push(hoursText);
+    if(warning&&!currentNote.includes(warning)) noteParts.push(warning);
+    qs('#editItemNote').value=noteParts.filter(Boolean).join('\n');
 
     const filled=[
-      data.name?'店名/地名':'',
+      (!existingTitle&&data.name)?'店名/地名':'',
+      data.address?'地址':'',
       Number.isFinite(data.lat)&&Number.isFinite(data.lng)?'GPS':'',
-      data.suggestedType?'類型':'',
+      (isNew&&data.suggestedType)?'類型建議':'',
       hours.length?'營業時間':''
     ].filter(Boolean).join('、');
-    status.textContent=warning?warning:(filled?`已帶入：${filled}`:'已解析連結，但找不到可自動帶入的欄位。');
+    const kept=existingTitle?'；已保留你原本輸入的名稱':'';
+    status.textContent=warning?warning:(filled?`已帶入：${filled}${kept}`:`連結已展開並保留原始網址${kept}。`);
   }catch(err){
-    status.textContent='解析失敗：'+(err.code||err.message||'unknown');
+    status.textContent='解析失敗，已保留你貼上的原始連結，不會覆蓋現有資料：'+(err.code||err.message||'unknown');
   }
 }
 
@@ -1568,9 +1592,11 @@ async function saveItemEditor(e){
     time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
+    address:qs('#editItemAddress').value.trim(),
     lat:qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value),
     lng:qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value),navQuery:qs('#editItemNav').value.trim(),
     googleMapsUrl:qs('#editItemMapUrl').value.trim(),
+    googleMapsResolvedUrl:qs('#editItemMapUrl').dataset.resolvedUrl||'',
     openingHours:JSON.parse(qs('#editItemMapUrl').dataset.openingHours||'[]'),
     closedWeekdays:JSON.parse(qs('#editItemMapUrl').dataset.closedWeekdays||'[]'),
     hoursSource:qs('#editItemMapUrl').dataset.hoursSource||null,
@@ -1615,68 +1641,107 @@ async function deleteCurrentItem(){
 
 function enableFlexibleDrag(card,handle,eventIndex){
   const itemEl=card.closest('.timeline-item');
-  let timer=null,active=false,pointerId=null,startY=0,currentTarget=null;
+  const source=()=>currentDay().events[eventIndex];
+  let timer=null,active=false,pointerId=null,startY=0,targetEl=null,dropAfter=false,ghost=null,lastX=0,lastY=0;
 
-  const flexibleItems=()=>qsa('#timeline .timeline-item').filter((el,i)=>!currentDay().events[i]?.time);
-  const clearTargets=()=>qsa('#timeline .timeline-item').forEach(x=>x.classList.remove('drag-over'));
-  const reset=()=>{
+  const clearTargets=()=>qsa('#timeline .timeline-item').forEach(x=>x.classList.remove('drag-over','drop-before','drop-after'));
+  const eligibleTarget=(el)=>{
+    if(!el||!el.closest('#timeline')||el===itemEl)return null;
+    const all=qsa('#timeline .timeline-item'),idx=all.indexOf(el);
+    return idx>=0&&!currentDay().events[idx]?.time?el:null;
+  };
+  const targetAt=(x,y)=>{
+    if(ghost) ghost.style.display='none';
+    const el=document.elementFromPoint(x,y)?.closest('.timeline-item');
+    if(ghost) ghost.style.display='';
+    return eligibleTarget(el);
+  };
+  const moveGhost=(x,y)=>{
+    if(!ghost)return;
+    ghost.style.transform=`translate3d(${x+12}px,${y-24}px,0)`;
+  };
+  const cleanup=()=>{
     if(timer){clearTimeout(timer);timer=null}
-    active=false;pointerId=null;currentTarget=null;
+    window.removeEventListener('pointermove',onMove,{capture:true});
+    window.removeEventListener('pointerup',onUp,{capture:true});
+    window.removeEventListener('pointercancel',onCancel,{capture:true});
+    active=false;pointerId=null;targetEl=null;dropAfter=false;
     itemEl.classList.remove('dragging','drag-ready');
     clearTargets();
     document.body.classList.remove('timeline-dragging');
-  };
-  const targetAt=(x,y)=>{
-    const el=document.elementFromPoint(x,y)?.closest('.timeline-item');
-    if(!el||!el.closest('#timeline'))return null;
-    const idx=qsa('#timeline .timeline-item').indexOf(el);
-    return currentDay().events[idx]?.time?null:el;
+    if(ghost){ghost.remove();ghost=null}
   };
   const begin=e=>{
-    active=true;pointerId=e.pointerId;startY=e.clientY;
+    const s=source();if(!s||s.time)return;
+    active=true;pointerId=e.pointerId;lastX=e.clientX;lastY=e.clientY;
     itemEl.classList.add('drag-ready','dragging');
     document.body.classList.add('timeline-dragging');
-    try{handle.setPointerCapture(pointerId)}catch(_){}
+    ghost=card.cloneNode(true);
+    ghost.className='timeline-card timeline-drag-ghost';
+    ghost.querySelectorAll('button').forEach(x=>x.remove());
+    document.body.append(ghost);
+    moveGhost(lastX,lastY);
+    window.addEventListener('pointermove',onMove,{capture:true,passive:false});
+    window.addEventListener('pointerup',onUp,{capture:true,passive:false});
+    window.addEventListener('pointercancel',onCancel,{capture:true,passive:false});
     if(navigator.vibrate) navigator.vibrate(18);
   };
+  const onMove=e=>{
+    if(!active||e.pointerId!==pointerId)return;
+    e.preventDefault();e.stopPropagation();
+    lastX=e.clientX;lastY=e.clientY;moveGhost(lastX,lastY);
+    clearTargets();
+    targetEl=targetAt(lastX,lastY);
+    if(targetEl){
+      const r=targetEl.getBoundingClientRect();
+      dropAfter=lastY>r.top+r.height/2;
+      targetEl.classList.add('drag-over',dropAfter?'drop-after':'drop-before');
+    }
+    const edge=82;
+    if(lastY<edge) window.scrollBy(0,-16);
+    else if(lastY>window.innerHeight-edge) window.scrollBy(0,16);
+  };
+  const onUp=async e=>{
+    if(!active||e.pointerId!==pointerId){cleanup();return}
+    e.preventDefault();e.stopPropagation();
+    const sourceId=source()?.id;
+    const all=qsa('#timeline .timeline-item');
+    const targetIndex=targetEl?all.indexOf(targetEl):-1;
+    const targetId=targetIndex>=0?currentDay().events[targetIndex]?.id:null;
+    const after=dropAfter;
+    cleanup();
+    if(sourceId&&targetId&&sourceId!==targetId) await reorderFlexibleItem(selectedDay,sourceId,targetId,after);
+  };
+  const onCancel=()=>cleanup();
+
   handle.addEventListener('pointerdown',e=>{
     e.stopPropagation();
     if(e.button!==undefined&&e.button!==0)return;
     startY=e.clientY;pointerId=e.pointerId;
-    timer=setTimeout(()=>begin(e),360);
-  });
+    itemEl.classList.add('drag-ready');
+    timer=setTimeout(()=>begin(e),320);
+  },{passive:true});
   handle.addEventListener('pointermove',e=>{
-    if(timer&&!active&&Math.abs(e.clientY-startY)>10){clearTimeout(timer);timer=null}
-    if(!active||e.pointerId!==pointerId)return;
-    e.preventDefault();e.stopPropagation();
-    clearTargets();
-    currentTarget=targetAt(e.clientX,e.clientY);
-    if(currentTarget&&currentTarget!==itemEl) currentTarget.classList.add('drag-over');
-    const edge=70;
-    if(e.clientY<edge) window.scrollBy(0,-14);
-    else if(e.clientY>window.innerHeight-edge) window.scrollBy(0,14);
-  },{passive:false});
-  const finish=async e=>{
-    if(timer){clearTimeout(timer);timer=null}
-    if(!active){reset();return}
-    e.preventDefault();e.stopPropagation();
-    const target=currentTarget||targetAt(e.clientX,e.clientY);
-    const all=qsa('#timeline .timeline-item');
-    const from=all.indexOf(itemEl),to=target?all.indexOf(target):-1;
-    reset();
-    if(from>=0&&to>=0&&from!==to) await reorderFlexibleItem(selectedDay,from,to);
-  };
-  handle.addEventListener('pointerup',finish,{passive:false});
-  handle.addEventListener('pointercancel',reset);
+    if(timer&&!active&&Math.abs(e.clientY-startY)>10){clearTimeout(timer);timer=null;itemEl.classList.remove('drag-ready')}
+  },{passive:true});
+  handle.addEventListener('pointerup',()=>{if(timer){clearTimeout(timer);timer=null;itemEl.classList.remove('drag-ready')}},{passive:true});
+  handle.addEventListener('pointercancel',cleanup,{passive:true});
 }
 
-async function reorderFlexibleItem(dayIndex,from,to){
-  const day=TRIP.days[dayIndex],source=day?.events?.[from],target=day?.events?.[to];
-  if(!day?.id||!source||!target||source.time||target.time)return;
+async function reorderFlexibleItem(dayIndex,sourceId,targetId,after=false){
+  const day=TRIP.days[dayIndex];
+  if(!day?.id||!sourceId||!targetId||sourceId===targetId)return;
+  const source=day.events.find(e=>e.id===sourceId),target=day.events.find(e=>e.id===targetId);
+  if(!source||!target||source.time||target.time)return;
   const ids=day.events.map(e=>e.id);if(ids.some(id=>!id))return;
-  const [moved]=ids.splice(from,1);ids.splice(to,0,moved);
-  try{await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});await hydratePrivateCloudData()}
-  catch(err){alert('排序失敗：'+(err.code||err.message))}
+  const from=ids.indexOf(sourceId);if(from<0)return;
+  ids.splice(from,1);
+  const targetPos=ids.indexOf(targetId);if(targetPos<0)return;
+  ids.splice(targetPos+(after?1:0),0,sourceId);
+  try{
+    await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});
+    await hydratePrivateCloudData();
+  }catch(err){alert('排序失敗：'+(err.code||err.message))}
 }
 
 async function editCurrentDay(){
