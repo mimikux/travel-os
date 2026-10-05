@@ -929,3 +929,14 @@ body.timeline-dragging{touch-action:none!important}
   .route-distance{min-width:62px;font-size:10px}
   .route-distance strong{font-size:16px}
 }
+
+
+/* route node jump tooltip r110ab */
+.route-stops .route-node-tooltip{
+  background:rgba(248,245,238,.98)!important;
+  color:#17231f!important;
+  border:1px solid rgba(23,35,31,.10)!important;
+  text-shadow:none!important;
+  box-shadow:0 8px 24px rgba(20,45,39,.18)!important;
+}
+.route-node:focus{outline:none!important}
