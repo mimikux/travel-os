@@ -125,6 +125,9 @@ data.js becomes demo/emergency fallback only.
 
 ### v1.1B — Multi-Trip
 
+- [x] 2026-10-05 UX polish: Today uses relative day labels (e.g. 3天前 / 前天 / 昨天 / 今天 / 明天 / 後天 / 3天後) to avoid repeating the date already shown in the hero metadata.
+- [x] 2026-10-05 UX polish: Map and Booking use a permanently compact sticky header matching the collapsed Today hero height, instead of a second large header animation.
+
 - [x] 2026-10-05 hotfix: desktop auth callback deadlock fixed by deferring Supabase API calls outside onAuthStateChange.
 - [x] 2026-10-05 hotfix: IndexedDB open/upgrade now has a fail-safe and no longer blocks login indefinitely.
 - [x] 2026-10-05 UI hotfix: timeline dots restored to ring + center-dot style and aligned exactly to the vertical rail.
