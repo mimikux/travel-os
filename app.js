@@ -738,6 +738,50 @@ function getRouteStops(d){
   return out;
 }
 
+function googleRoutePoint(stop){
+  if(!stop) return '';
+  // Coordinates are the most deterministic cross-device representation.
+  if(Number.isFinite(stop.lat)&&Number.isFinite(stop.lng)) return `${stop.lat},${stop.lng}`;
+  return String(stop.navQuery||stop.address||stop.title||'').trim();
+}
+
+function buildGoogleMapsDayRouteUrl(dayIndex){
+  const d=TRIP.days?.[dayIndex];
+  if(!d) return '';
+  const stops=getRouteStops(d).filter(s=>googleRoutePoint(s));
+  if(stops.length<2) return '';
+
+  const origin=googleRoutePoint(stops[0]);
+  const destination=googleRoutePoint(stops[stops.length-1]);
+  const waypoints=stops.slice(1,-1).map(googleRoutePoint).filter(Boolean);
+
+  const params=new URLSearchParams({
+    api:'1',
+    origin,
+    destination,
+    travelmode:'driving'
+  });
+  if(waypoints.length) params.set('waypoints',waypoints.join('|'));
+  return 'https://www.google.com/maps/dir/?'+params.toString();
+}
+
+function openGoogleDayRoute(){
+  const indices=sortedMapDays().length?sortedMapDays():[selectedDay];
+  if(indices.length!==1){
+    alert('Google 路線一次匯出一天。請先切回單日模式。');
+    return;
+  }
+  const dayIndex=indices[0];
+  const stops=getRouteStops(TRIP.days[dayIndex]);
+  if(stops.length<2){
+    alert('這一天至少需要 2 個有座標的地點才能建立 Google 路線。');
+    return;
+  }
+  const url=buildGoogleMapsDayRouteUrl(dayIndex);
+  if(!url) return;
+  window.open(url,'_blank','noopener');
+}
+
 async function fetchRoadRoute(stops){
   if(stops.length<2) return null;
   const coordString=stops.map(e=>`${e.lng},${e.lat}`).join(';');
@@ -1160,6 +1204,11 @@ async function renderMapDay(){
 
   qs('#playRoute').disabled=isMulti;
   qs('#playRoute').textContent=isMulti?'多日總覽':'▶ 跟著走';
+  const googleRouteBtn=qs('#exportGoogleRoute');
+  if(googleRouteBtn){
+    googleRouteBtn.disabled=isMulti;
+    googleRouteBtn.title=isMulti?'請先切回單日模式':'用今天所有地圖點建立 Google Maps 路線';
+  }
   qs('#routePanel').classList.toggle('multi-mode',isMulti);
   qs('#routeSlider').disabled=isMulti;
   qs('#routeSlider').value=0;
@@ -1486,6 +1535,7 @@ qsa('[data-nav]').forEach(b=>b.onclick=()=>showView(b.dataset.nav));
 qs('#routeSlider').oninput=e=>{clearRouteTimer();updateRouteAt(+e.target.value)};
 qs('#routePlayCircle').onclick=togglePlay;
 qs('#playRoute').onclick=togglePlay;
+if(qs('#exportGoogleRoute')) qs('#exportGoogleRoute').onclick=openGoogleDayRoute;
 if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
 updateRouteMetricToggle();
 qs('#mapMultiToggle').onclick=toggleMapMultiMode;
