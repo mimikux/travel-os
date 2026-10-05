@@ -354,3 +354,5 @@ Later:
 - [x] 2026-10-05 Overnight route continuity r110ah: each D1+ map route automatically prepends the previous day's final geocoded stay as its route origin, without duplicating the stay in the next day's timeline/database. The carry-over stay is also rendered as map point 1 and participates in OSRM KM/MIN calculations. D0 first-night Bakkastaðir coordinates were repaired in Supabase.
 
 - [x] 2026-10-05 Tonight card r110ai: removed the redundant white '已確認' status pill from the Today-page accommodation card. Booking status remains available on the dedicated Reservations page where confirmed/planned/cancelled can be meaningful.
+
+- [x] 2026-10-05 Itinerary origin + bottom nav r110aj: D1+ Today timeline now prepends the previous night's accommodation as a virtual '住宿名 出發' route-origin card when the day does not already contain an explicit drive-from-stay item; this matches the map continuity without duplicating database itinerary rows. Bottom nav '今天' renamed to '行程' and its icon changed to an outline map-pin matching the map marker visual language.
