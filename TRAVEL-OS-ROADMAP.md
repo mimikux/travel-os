@@ -384,3 +384,5 @@ Later:
 - [x] 2026-10-06 Google route placeholder guard r110aw: route/map calculations now ignore legacy `drive` cards that only contain a rough coordinate and no real navigation source. This fixes D6 `前往 Snæfellsnes` (64.750000,-23.000000), which was a prototype region point in the sea and was being exported to Google Maps as a destination/waypoint. Real route stops, linked accommodations, Google Maps-derived places, and explicit nav-query/address points are unchanged. No Supabase production rows were modified.
 
 - [x] 2026-10-06 Today spacing density r110ax: reduced Today D0–Dn selector height by ~20% while preserving button widths; tightened Hero→day-selector spacing by ~40%, and made day-selector→Day Note use the same compact 11px gap. No itinerary / reservation / Supabase production data changed.
+
+- [x] 2026-10-06 Day Note→Timeline spacing r110ay: reduced the gap after Day Note to 14px, roughly 30% tighter than before while intentionally keeping it slightly larger than the 11px Hero→days and days→Day Note gaps. Layout-only change; no Supabase data changed.
