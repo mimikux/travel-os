@@ -539,7 +539,22 @@ function markerIcon(label,car=false){
 }
 
 function getRouteStops(d){
+  const dayIndex=TRIP.days.indexOf(d);
   const raw=d.events.filter(validCoord);
+
+  // Overnight continuity: the previous day's final accommodation is the
+  // next day's route origin, without duplicating it in the next day's timeline.
+  if(dayIndex>0){
+    const prev=TRIP.days[dayIndex-1];
+    const overnight=[...(prev?.events||[])].reverse().find(e=>e.type==='stay'&&validCoord(e));
+    if(overnight){
+      const first=raw[0];
+      if(!first||Math.abs(first.lat-overnight.lat)>1e-6||Math.abs(first.lng-overnight.lng)>1e-6){
+        raw.unshift({...overnight,_routeCarryover:true,_routeCarryoverFrom:prev.label});
+      }
+    }
+  }
+
   const out=[];
   for(const e of raw){
     const last=out[out.length-1];
@@ -983,13 +998,17 @@ async function renderMapDay(){
 
   indices.forEach(dayIndex=>{
     const d=TRIP.days[dayIndex];
-    const allEvents=d.events.filter(validCoord);
     const stops=getRouteStops(d);
-    allEvents.forEach((e,i)=>{
+    stops.forEach((e,i)=>{
       const eventIndex=d.events.indexOf(e);
       const label=isMulti?`${dayIndex}·${i+1}`:`${i+1}`;
       const m=L.marker([e.lat,e.lng],{icon:markerIcon(label),tripMarker:true}).addTo(map);
-      m.bindPopup(`<b>${d.label} · ${e.time||''} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br><button class="popup-nav" onclick="openMapsEvent(${dayIndex},${eventIndex})">Google 導航</button>`);
+      const carry=e._routeCarryover===true;
+      const navButton=carry
+        ? `<button class="popup-nav" onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(e.navQuery||e.address||`${e.lat},${e.lng}`)}&travelmode=driving','_blank','noopener')">Google 導航</button>`
+        : `<button class="popup-nav" onclick="openMapsEvent(${dayIndex},${eventIndex})">Google 導航</button>`;
+      const meta=carry?`${d.label} 起點 · 前晚住宿`:`${d.label} · ${e.time||''}`;
+      m.bindPopup(`<b>${meta} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
       bounds.extend([e.lat,e.lng]);
     });
     const fallbackPoints=stops.map(e=>[e.lat,e.lng]);
