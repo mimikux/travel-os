@@ -1962,7 +1962,7 @@ async function reorderFlexibleItem(dayIndex,sourceId,targetId,after=false){
   const day=TRIP.days[dayIndex];
   if(!day?.id||!sourceId||!targetId||sourceId===targetId)return;
   const source=day.events.find(e=>e.id===sourceId),target=day.events.find(e=>e.id===targetId);
-  if(!source||!target||source.time||target.time)return;
+  if(!source||!target||source.time)return;
   const ids=day.events.map(e=>e.id);if(ids.some(id=>!id))return;
   const from=ids.indexOf(sourceId);if(from<0)return;
   ids.splice(from,1);
