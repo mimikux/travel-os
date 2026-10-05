@@ -10,9 +10,6 @@
     return part.charAt(0).toUpperCase()+part.slice(1);
   }).join(' '):'Travel OS';
 
-  if(querySlug && history.replaceState){
-    history.replaceState(null,'',basePath+encodeURIComponent(querySlug));
-  }
 
   window.TRAVEL_CONFIG = Object.freeze({
     supabaseUrl: 'https://nmrgfpbccvhqenuvcjkj.supabase.co',
