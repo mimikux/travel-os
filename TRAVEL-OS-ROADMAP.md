@@ -304,3 +304,6 @@ Later:
 - [x] 2026-10-05 Editor save UX: inspect Supabase non-2xx responses, reconcile from cloud after ambiguous Edge Function errors, and avoid false failure when the write actually landed.
 - [x] 2026-10-05 Editor mobile readability: editor labels, controls, status text and action buttons are at least 15px; form controls are 16px.
 - [x] 2026-10-05 Itinerary ordering UX: fixed-time activities are not manually movable; flexible no-time activities use long-press drag ordering instead of up/down arrows.
+
+- [x] 2026-10-05 Editor UX: paste a Google Maps / maps.app.goo.gl link and press 帶入 to resolve place/store name, GPS coordinates, navigation target, and a best-effort activity type.
+- [x] 2026-10-05 Today UI: D0-D7 selector locked back to the larger v0.17 button and font proportions; Map date buttons remain unchanged.
