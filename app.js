@@ -11,6 +11,8 @@ let todayRouteToken=0;
 let lastObservedIcelandDate=null;
 let currentTripRole='viewer';
 let cloudLoaded=false;
+let cloudSyncState='cache';
+let cloudLastError='';
 let editMode=false;
 let authorizedTrips=[];
 
@@ -289,7 +291,12 @@ function syncTripLabels(){
   const dateSummary=qs('#tripDateSummary');
   if(dateSummary) dateSummary.textContent=[TRIP?.startDate||TRIP?.days?.[0]?.date,TRIP?.endDate||TRIP?.days?.at(-1)?.date].filter(Boolean).join(' → ')||'—';
   const roleSummary=qs('#tripRoleSummary'); if(roleSummary) roleSummary.textContent=String(currentTripRole||TRIP?.role||'viewer').toUpperCase();
-  const syncSummary=qs('#tripSyncSummary'); if(syncSummary) syncSummary.textContent=cloudLoaded?'Cloud synced':'Offline cache';
+  const syncSummary=qs('#tripSyncSummary');
+  if(syncSummary){
+    const labels={synced:'Cloud synced',syncing:'正在同步…',auth:'需要重新登入',error:'同步失敗',cache:'Offline cache'};
+    syncSummary.textContent=labels[cloudSyncState]||'Offline cache';
+    syncSummary.title=cloudLastError||'';
+  }
   document.title=window.TRAVEL_CONFIG?.tripSlug?`${title} · Travel OS`:'Travel OS';
 }
 
@@ -1539,7 +1546,16 @@ if(qs('#exportGoogleRoute')) qs('#exportGoogleRoute').onclick=openGoogleDayRoute
 if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
 updateRouteMetricToggle();
 qs('#mapMultiToggle').onclick=toggleMapMultiMode;
-const openTripSheet=()=>{updateEditAvailability();qs('#tripSheet').classList.add('show');qs('#sheetBackdrop').classList.add('show')};
+const openTripSheet=()=>{
+  updateEditAvailability();
+  qs('#tripSheet').classList.add('show');
+  qs('#sheetBackdrop').classList.add('show');
+  if(cloudSyncState!=='synced'){
+    window.TravelAuth?.resumeSessionCheck?.({keepReady:true})
+      .then(()=>hydratePrivateCloudData())
+      .catch(()=>{});
+  }
+};
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
 qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
@@ -1622,8 +1638,18 @@ function cloudTripToUi(data){
 
 async function hydratePrivateCloudData(){
   const client=window.TravelAuth?.getClient?.();
-  const user=window.TravelAuth?.snapshot?.().user;
-  if(!client||!user||!window.TRAVEL_CONFIG?.tripSlug||!navigator.onLine) return;
+  const authSnapshot=window.TravelAuth?.snapshot?.()||{};
+  const user=authSnapshot.user;
+  if(!window.TRAVEL_CONFIG?.tripSlug) return false;
+  if(!client||!user){
+    cloudLoaded=false;
+    cloudSyncState=authSnapshot.state==='reauth_required'?'auth':'cache';
+    syncTripLabels();
+    return false;
+  }
+  cloudSyncState='syncing';
+  cloudLastError='';
+  syncTripLabels();
   try{
     const device=await window.TravelStore.getDevice();
     const {data,error}=await client.functions.invoke('travel-data',{body:{
@@ -1637,6 +1663,8 @@ async function hydratePrivateCloudData(){
     currentTripRole=normalized.role||'viewer';
     TRIP=normalized;
     cloudLoaded=true;
+    cloudSyncState='synced';
+    cloudLastError='';
     selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
     mapPrimaryDay=selectedDay;
     mapSelectedDays=new Set(TRIP.days.length?[selectedDay]:[]);
@@ -1645,7 +1673,11 @@ async function hydratePrivateCloudData(){
     updateDemoModeUI();
     renderAll();
     updateEditAvailability();
+    return true;
   }catch(err){
+    cloudLoaded=false;
+    cloudSyncState='error';
+    cloudLastError=String(err?.message||err||'Cloud sync failed');
     console.warn('Cloud trip data unavailable; using trusted local cache.',err);
     try{
       const cached=await window.TravelStore?.getTrip?.();
@@ -1657,6 +1689,8 @@ async function hydratePrivateCloudData(){
         updateEditAvailability();
       }
     }catch(_){}
+    syncTripLabels();
+    return false;
   }
 }
 
@@ -2703,7 +2737,15 @@ async function initCloudShell(){
   if(window.TravelAuth){
     window.TravelAuth.onChange(s=>{
       setAuthGateState(s.state);
-      if(s.state==='ready'){
+      if(s.state==='reauth_required'){
+        cloudLoaded=false;
+        cloudSyncState='auth';
+        syncTripLabels();
+      }else if(s.state==='offline_ready'){
+        cloudLoaded=false;
+        cloudSyncState='cache';
+        syncTripLabels();
+      }else if(s.state==='ready'){
         if(window.TRAVEL_CONFIG?.tripSlug) hydratePrivateCloudData();
         else renderTripChooser();
       }
@@ -2729,9 +2771,19 @@ if(window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'){
   qs('.app-shell').style.visibility='hidden';
 }
 initCloudShell().finally(()=>{if(qs('.app-shell'))qs('.app-shell').style.visibility=''});
-window.addEventListener('online',()=>{
-  if(window.TRAVEL_CONFIG?.tripSlug){
-    hydratePrivateCloudData().then(()=>updateEditAvailability()).catch(()=>{});
+window.addEventListener('online',async()=>{
+  if(!window.TRAVEL_CONFIG?.tripSlug) return;
+  cloudSyncState='syncing';
+  syncTripLabels();
+  try{
+    await window.TravelAuth?.resumeSessionCheck?.({keepReady:true});
+    await hydratePrivateCloudData();
+    updateEditAvailability();
+  }catch(err){
+    cloudLoaded=false;
+    cloudSyncState='error';
+    cloudLastError=String(err?.message||err||'Reconnect failed');
+    syncTripLabels();
   }
 });
 lastObservedIcelandDate=icelandTodayISO();
