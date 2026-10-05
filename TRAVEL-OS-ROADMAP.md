@@ -307,3 +307,6 @@ Later:
 
 - [x] 2026-10-05 Editor UX: paste a Google Maps / maps.app.goo.gl link and press 帶入 to resolve place/store name, GPS coordinates, navigation target, and a best-effort activity type.
 - [x] 2026-10-05 Today UI: D0-D7 selector locked back to the larger v0.17 button and font proportions; Map date buttons remain unchanged.
+
+- [x] 2026-10-05 Flexible itinerary drag v2: replace HTML5 drag/drop with Pointer Events so long-press sorting works on touch screens and mouse; fixed-time items remain locked to automatic time ordering.
+- [x] 2026-10-05 Edit-mode visibility: Owner/Editor gets an explicit header Edit entry plus a persistent high-contrast edit toolbar with 編輯本日 / ＋新增 / 完成 on both mobile and desktop.
