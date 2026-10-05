@@ -720,9 +720,33 @@ function markerIcon(label,car=false){
   return L.divIcon({className:'',html:`<div class="custom-marker ${car?'car':''}"><div></div><span>${markerContent}</span></div>`,iconSize:[34,42],iconAnchor:[17,38]});
 }
 
+function hasExplicitRouteLocation(e){
+  if(!e) return false;
+  return Boolean(
+    String(e.navQuery||'').trim() ||
+    String(e.address||'').trim() ||
+    String(e.googleMapsUrl||'').trim() ||
+    String(e.googleMapsResolvedUrl||'').trim() ||
+    String(e.reservationId||'').trim()
+  );
+}
+
+function isRouteStop(e){
+  if(!e||e.uncertain||!validCoord(e)) return false;
+
+  // "drive" cards imported from the old spreadsheet sometimes carried only
+  // a rough region coordinate so the prototype map had something to draw.
+  // They are movement notes, not real destinations.  Never send those coarse
+  // placeholder coordinates to OSRM / Google Maps unless the item has an
+  // explicit navigation source (Maps link, address, nav query or reservation).
+  if(e.type==='drive'&&!hasExplicitRouteLocation(e)) return false;
+
+  return true;
+}
+
 function getRouteStops(d){
   const dayIndex=TRIP.days.indexOf(d);
-  const raw=d.events.filter(e=>!e.uncertain&&validCoord(e));
+  const raw=d.events.filter(isRouteStop);
 
   // Overnight continuity: the previous day's final accommodation is the
   // next day's route origin, without duplicating it in the next day's timeline.
