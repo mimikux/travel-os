@@ -527,7 +527,7 @@ function renderToday(){
   const firstEvent=d.events[0]||null;
   const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
-    ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time"></div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
+    ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
   qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
@@ -1681,6 +1681,19 @@ function toggleEditMode(force){
 function decorateTimelineEditor(){
   const old=qs('#editModeBanner');if(old)old.remove();
   if(editMode&&canEditTrip()){
+    const originCard=qs('#timeline .timeline-route-origin .timeline-card');
+    if(originCard){
+      const originActions=document.createElement('div');
+      originActions.className='edit-inline-actions';
+      const timeEdit=document.createElement('button');
+      timeEdit.type='button';
+      timeEdit.className='edit-chip';
+      timeEdit.textContent='◷ 編輯出發時間';
+      timeEdit.onclick=e=>{e.stopPropagation();openDepartureTimeEditor(selectedDay)};
+      originActions.append(timeEdit);
+      originCard.append(originActions);
+    }
+
     qsa('#timeline .timeline-item[data-event-index]').forEach(timelineItem=>{
       const eventIndex=Number(timelineItem.dataset.eventIndex);
       if(!Number.isInteger(eventIndex)) return;
@@ -1704,6 +1717,100 @@ function decorateTimelineEditor(){
     });
   }
   syncEditModeChrome();
+}
+
+function ensureDepartureTimeEditor(){
+  let sheet=qs('#departureTimeSheet');
+  if(sheet) return sheet;
+
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='departureTimeBackdrop';
+
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet departure-time-sheet';
+  sheet.id='departureTimeSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">DAY ROUTE</span><h2>編輯出發時間</h2></div>
+      <button class="round-btn" id="closeDepartureTimeEdit">×</button>
+    </div>
+    <form class="edit-form" id="departureTimeForm">
+      <input type="hidden" id="departureDayIndex">
+      <label><span>出發時間</span><input id="departureTimeInput" type="time"></label>
+      <p class="edit-help">這個時間只屬於當天路線起點，不會新增一筆假的行程。</p>
+      <div class="edit-form-actions">
+        <button type="button" class="edit-delete departure-clear" id="clearDepartureTime">清除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="departureTimeStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeDepartureTimeEdit').onclick=close;
+  backdrop.onclick=close;
+  qs('#departureTimeForm').onsubmit=saveDepartureTimeEditor;
+  qs('#clearDepartureTime').onclick=()=>{
+    qs('#departureTimeInput').value='';
+  };
+  return sheet;
+}
+
+function openDepartureTimeEditor(dayIndex){
+  if(!canEditTrip()) return;
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const sheet=ensureDepartureTimeEditor();
+  qs('#departureDayIndex').value=String(dayIndex);
+  qs('#departureTimeInput').value=d.departureTime||'';
+  qs('#departureTimeStatus').textContent='';
+  qs('#departureTimeBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>qs('#departureTimeInput')?.focus(),60);
+}
+
+async function saveDepartureTimeEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#departureDayIndex').value);
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const departureTime=qs('#departureTimeInput').value||'';
+  const status=qs('#departureTimeStatus');
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_day',{day:{
+      id:d.id,
+      baseVersion:d.version,
+      date:d.date,
+      label:d.label,
+      name:d.name,
+      short:d.short||'',
+      heroImageUrl:d.heroImageUrl,
+      km:d.km,
+      driveMinutes:d.driveMinutes,
+      departureTime,
+      sunrise:d.sunrise,
+      sunset:d.sunset
+    }});
+    qs('#departureTimeSheet').classList.remove('show');
+    qs('#departureTimeBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    if(err.code==='version_conflict'){
+      status.textContent='本日資料已被其他裝置更新，正在重新載入…';
+      await hydratePrivateCloudData();
+      return;
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message);
+  }
 }
 
 function ensureItemEditor(){
@@ -2075,9 +2182,20 @@ async function editCurrentDay(){
   const d=currentDay();if(!d?.id)return;
   const name=prompt('當日標題',d.name);if(name===null)return;
   const date=prompt('日期 YYYY-MM-DD',d.date);if(date===null)return;
+  const departureTime=prompt('當日出發時間 HH:MM（可留空）',d.departureTime||'');if(departureTime===null)return;
   const short=prompt('摘要 / 路線',d.short||'');if(short===null)return;
+  const normalizedDeparture=String(departureTime||'').trim();
+  if(normalizedDeparture&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(normalizedDeparture)){
+    alert('出發時間格式請使用 HH:MM，例如 08:30。');
+    return;
+  }
   try{
-    await travelEditor('save_day',{day:{id:d.id,baseVersion:d.version,date,label:d.label,name,short,heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,sunrise:d.sunrise,sunset:d.sunset}});
+    await travelEditor('save_day',{day:{
+      id:d.id,baseVersion:d.version,date,label:d.label,name,short,
+      heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,
+      departureTime:normalizedDeparture,
+      sunrise:d.sunrise,sunset:d.sunset
+    }});
     await hydratePrivateCloudData();
   }catch(err){alert(err.code==='version_conflict'?'本日資料已被其他人更新，請再試一次。':'更新失敗：'+err.message)}
 }
