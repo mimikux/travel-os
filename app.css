@@ -333,3 +333,24 @@
     letter-spacing:-.18em!important;text-indent:-.08em;
   }
 }
+
+
+/* Compact utility headers like collapsed Today hero */
+.subview-trip-header{
+  min-height:82px!important;
+  padding:12px 8px 10px!important;
+  align-items:center!important;
+}
+.subview-trip-header .eyebrow{
+  font-size:9px!important;
+  letter-spacing:.16em!important;
+  line-height:1.15!important;
+  margin-bottom:3px!important;
+}
+.subview-trip-header h1{
+  font-size:20px!important;
+  line-height:1.05!important;
+  margin:0!important;
+}
+/* Map/Booking are utility pages: keep the compact sticky header from first paint,
+   rather than spending vertical space on a second large hero animation. */
