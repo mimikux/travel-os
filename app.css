@@ -207,3 +207,32 @@
 #mapView,#bookingView{
   padding-bottom:24px;
 }
+
+
+/* Travel OS 1.1 multi-trip + editor */
+.hero-trip-switch{border:0;background:transparent;padding:0;color:inherit;font:inherit;font-weight:600;letter-spacing:.1em;cursor:pointer}
+.trip-chooser{min-height:100dvh;background:var(--cream);padding:26px 16px 40px}
+.trip-chooser-inner{width:min(720px,100%);margin:0 auto}
+.trip-chooser-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.trip-chooser-head h1{margin:5px 0 5px;font-size:32px}
+.trip-chooser-head p{margin:0;color:var(--muted);font-size:13px}
+.chooser-signout{background:var(--paper);color:var(--ink);border:1px solid #e2ded5}
+.trip-list{display:grid;gap:12px}
+.trip-choice{width:100%;border:0;background:var(--paper);border-radius:22px;padding:18px;text-align:left;box-shadow:var(--shadow);display:grid;grid-template-columns:1fr auto;gap:12px;color:var(--ink)}
+.trip-choice h2{margin:0 0 6px;font-size:21px}.trip-choice p{margin:0;color:var(--muted);font-size:12px}
+.trip-role{align-self:start;border-radius:999px;padding:6px 9px;background:#eee8df;color:var(--green);font-size:10px;font-weight:900;text-transform:uppercase}
+.new-trip-btn{width:100%;margin-top:14px;border:1px dashed #cfc6b8;border-radius:18px;background:transparent;padding:14px;color:var(--green);font-weight:900}
+.chooser-status{font-size:12px;color:var(--muted);text-align:center}
+.edit-mode-banner{position:sticky;top:0;z-index:70;margin:0 0 10px;padding:9px 12px;border-radius:14px;background:#fff7df;border:1px solid #ead8a2;color:#795d22;font-size:12px;font-weight:900;display:flex;justify-content:space-between;align-items:center}
+.edit-inline-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.edit-chip{border:1px solid #d9d0c3;background:#fffdf8;border-radius:10px;padding:6px 8px;color:var(--green);font-size:10px;font-weight:900}
+.edit-sheet{position:fixed;z-index:140;left:50%;bottom:0;transform:translate(-50%,105%);width:min(100%,680px);max-height:90dvh;overflow:auto;background:#f7f3eb;border-radius:24px 24px 0 0;padding:14px 18px calc(24px + env(safe-area-inset-bottom));transition:transform .24s ease}
+.edit-sheet.show{transform:translate(-50%,0)}
+.edit-form{display:grid;gap:10px}.edit-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.edit-form label span{display:block;font-size:9px;letter-spacing:.08em;font-weight:900;color:var(--muted);margin-bottom:5px}
+.edit-form input,.edit-form select,.edit-form textarea{width:100%;border:1px solid #dcd5ca;border-radius:11px;padding:10px;background:#fff;font:inherit;color:var(--ink)}
+.edit-form textarea{min-height:78px;resize:vertical}
+.edit-form-actions{display:flex;gap:8px;margin-top:4px}.edit-form-actions button{flex:1;border:0;border-radius:12px;padding:12px;font-weight:900}
+.edit-save{background:var(--green);color:#fff}.edit-delete{background:#eee2df;color:#8d3f35}
+.edit-status{min-height:18px;color:var(--muted);font-size:11px}
+@media(max-width:520px){.edit-form-grid{grid-template-columns:1fr}}
