@@ -324,3 +324,11 @@ Later:
 - [x] 2026-10-05 Edit entry cleanup: remove direct Edit buttons from Today/Map headers; Owner/Editor enters edit mode only from the trip (...) menu, while the in-edit persistent toolbar remains.
 
 - [x] 2026-10-05 Hero collapse flicker fix: remove the mid-scroll 82% layout switch; Hero height, title font size, spacing, stats and weather now interpolate continuously, with compact class applied only at the final state.
+
+## 2026-10-05 editor/map follow-up
+
+- [x] Route distance ruler: numbered destination nodes above the route line, km labels below; tight labels use two fixed lower lanes.
+- [x] Google Maps short-link import: preserve the pasted/original URL, store expanded URL separately, keep an existing user-entered title, and retain address + GPS separately when available.
+- [x] Google Maps resolver hardened: prefer coordinates from the expanded URL and avoid arbitrary viewport coordinates from the whole Google HTML.
+- [x] Mobile flexible-item drag reorder: pointer-following drag ghost, explicit before/after insertion marker, document-level pointer tracking, backend reorder persistence.
+- [ ] User verification on phone for route ruler, short-link sample, and drag reorder after r110x reaches GitHub Pages.
