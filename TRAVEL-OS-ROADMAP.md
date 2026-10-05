@@ -126,6 +126,8 @@ data.js becomes demo/emergency fallback only.
 
 ### v1.1B — Multi-Trip
 
+- [x] 2026-10-05 PWA install hotfix: Edge-installed app no longer treats `/travel-os/index.html` as a trip slug; manifest launches at the Travel OS root, and legacy installed copies that still start at `index.html` are normalized to the root shell. This fixes the misleading `Index.html` device-authorization failure while preserving the existing authenticated session.
+
 - [x] 2026-10-05 UX polish: DEMO uses 3天前 / 前天 / 昨天 / 今天 / 明天 / 後天 / 3天後; live mode shows a numeric trip countdown in the hero (e.g. 46天) and directional wording in the timeline heading.
 - [x] 2026-10-05 UX polish: Map and Booking use a permanently compact sticky header matching the collapsed Today hero height, instead of a second large header animation.
 
