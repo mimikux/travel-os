@@ -425,12 +425,6 @@
 
 /* Persistent edit-mode chrome: visible on phone and desktop */
 .hero-menu-group,.subview-header-actions{display:flex;align-items:center;gap:8px}
-.hero-edit-entry,.subview-edit-entry{
-  border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:8px 13px;
-  background:rgba(255,253,248,.94);color:var(--green);font-size:14px;font-weight:950;
-  box-shadow:0 5px 16px rgba(0,0,0,.08)
-}
-.subview-edit-entry{border-color:var(--line);background:var(--paper)}
 .global-edit-toolbar[hidden]{display:none!important}
 .global-edit-toolbar{
   position:fixed;left:50%;top:max(8px,env(safe-area-inset-top));transform:translateX(-50%);
@@ -472,9 +466,6 @@ body.timeline-dragging .timeline-item.dragging .timeline-card{
   .global-edit-status small{display:none}
   .global-edit-actions button{padding:7px 9px;font-size:13px}
   html.editing-trip .hero-card{padding-top:70px}
-}
-@media(min-width:700px){
-  .hero-edit-entry,.subview-edit-entry{display:inline-flex!important;align-items:center;justify-content:center}
 }
 
 
