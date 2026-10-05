@@ -1007,8 +1007,6 @@ const openTripSheet=()=>{qs('#tripSheet').classList.add('show');qs('#sheetBackdr
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
 qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
-if(qs('#heroEditBtn')) qs('#heroEditBtn').onclick=e=>{e.stopPropagation();toggleEditMode(true)};
-qsa('.subview-edit-entry').forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleEditMode(true)});
 if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
 if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
 if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
@@ -1304,15 +1302,6 @@ function syncEditModeChrome(){
     toolbar.hidden=!active;
     qs('#globalEditRole').textContent=String(currentTripRole||'editor').toUpperCase();
   }
-  const heroEntry=qs('#heroEditBtn');
-  if(heroEntry){
-    heroEntry.hidden=!canEditTrip()||active;
-    heroEntry.textContent='編輯';
-  }
-  qsa('.subview-edit-entry').forEach(btn=>{
-    btn.hidden=!canEditTrip()||active;
-    btn.textContent='編輯';
-  });
 }
 function toggleEditMode(force){
   if(!canEditTrip())return;
