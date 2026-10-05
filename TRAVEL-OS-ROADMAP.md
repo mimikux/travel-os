@@ -310,3 +310,5 @@ Later:
 
 - [x] 2026-10-05 Flexible itinerary drag v2: replace HTML5 drag/drop with Pointer Events so long-press sorting works on touch screens and mouse; fixed-time items remain locked to automatic time ordering.
 - [x] 2026-10-05 Edit-mode visibility: Owner/Editor gets an explicit header Edit entry plus a persistent high-contrast edit toolbar with 編輯本日 / ＋新增 / 完成 on both mobile and desktop.
+
+- [x] 2026-10-05 Today day selector sizing refined: on mobile, exactly five D-day buttons fit across the same content width as the Hero while remaining horizontally scrollable for D5-D7.
