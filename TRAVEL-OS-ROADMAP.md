@@ -125,6 +125,11 @@ data.js becomes demo/emergency fallback only.
 
 ### v1.1B — Multi-Trip
 
+- [x] 2026-10-05 hotfix: fixed GitHub Pages deep-link redirect syntax that caused a blank white page on /travel-os/:tripSlug.
+- [x] 2026-10-05 hotfix: trip navigation now uses stable /travel-os/?trip=:slug internally; pretty URLs remain supported through 404 redirect.
+- [x] 2026-10-05 hotfix: auth startup now has an 8-second fail-safe so the loading gate cannot hang forever.
+
+
 - [x] Dynamic trip slug routing added.
 - [x] Pretty routes supported: /travel-os/:tripSlug (GitHub Pages 404 fallback included).
 - [x] /travel-os/ My Trips shell added.
