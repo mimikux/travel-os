@@ -61,7 +61,7 @@
                 <span class="hero-topic" id="heroTitle">冰洞日</span>
               </div>
             </div>
-            <div class="hero-menu-group"><span class="demo-badge" id="heroDemoBadge" hidden>DEMO</span><button class="round-btn hero-menu-btn" id="heroMenuBtn" aria-label="旅程資訊">•••</button></div>
+            <div class="hero-menu-group"><span class="demo-badge" id="heroDemoBadge" hidden>DEMO</span><button class="hero-edit-entry" id="heroEditBtn" type="button" hidden>編輯</button><button class="round-btn hero-menu-btn" id="heroMenuBtn" aria-label="旅程資訊">•••</button></div>
           </div>
           <button class="weather-pill weather-inline" id="weatherBtn" type="button" aria-label="查看天氣預報">
             <span class="weather-icon" id="weatherIconWrap" aria-hidden="true"></span>
@@ -106,7 +106,7 @@
       <section class="view" id="mapView">
         <div class="subview-trip-header">
           <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>旅程地圖</h1></div>
-          <button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button>
+          <div class="subview-header-actions"><button class="subview-edit-entry" type="button" hidden>編輯</button><div class="subview-header-actions"><button class="subview-edit-entry" type="button" hidden>編輯</button><button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button></div></div>
         </div>
         <div class="map-controls">
           <div class="map-day-title"><span id="mapDayLabel">D3</span><strong id="mapDayName">冰洞日</strong></div>
@@ -160,6 +160,15 @@
       <button class="nav-item disabled" title="Coming soon"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
       <button class="nav-item disabled" title="Coming soon"><span class="nav-icon" data-icon="more"></span><small>更多</small></button>
     </nav>
+  </div>
+
+  <div class="global-edit-toolbar" id="globalEditToolbar" hidden>
+    <div class="global-edit-status"><span class="edit-live-dot"></span><strong>編輯模式</strong><small id="globalEditRole">OWNER</small></div>
+    <div class="global-edit-actions">
+      <button type="button" id="globalEditDay">編輯本日</button>
+      <button type="button" id="globalAddItem">＋ 新增</button>
+      <button type="button" class="done" id="globalDoneEdit">完成</button>
+    </div>
   </div>
 
   <div class="sheet-backdrop" id="sheetBackdrop"></div>
