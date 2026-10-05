@@ -437,6 +437,17 @@ function handleTimelineCardClick(ev,dayIndex,eventIndex){
   if(button) toggleEventDetails(dayIndex,eventIndex,button);
 }
 
+function hasNavigationTarget(e){
+  if(!e) return false;
+  return Boolean(
+    String(e.navQuery||'').trim() ||
+    String(e.address||'').trim() ||
+    String(e.googleMapsResolvedUrl||'').trim() ||
+    String(e.googleMapsUrl||'').trim() ||
+    validCoord(e)
+  );
+}
+
 function renderToday(){
   const d=currentDay();
   const dayIndex=selectedDay;
@@ -461,7 +472,7 @@ function renderToday(){
   qs('#weatherLabel').textContent='讀取中';
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${validCoord(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div><div class="code-pill">已確認</div></div><p style="margin-top:10px">${stay.note||''}</p></div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -500,7 +511,9 @@ async function refreshHeroWeather(dayIndex){
 function openMapsEvent(dayIndex,eventIndex){
   const e=TRIP.days[dayIndex]?.events[eventIndex];
   if(!e) return;
-  const destination=e.navQuery||`${e.lat},${e.lng}`;
+  const coord=validCoord(e)?`${e.lat},${e.lng}`:'';
+  const destination=String(e.navQuery||e.address||coord||e.title||'').trim();
+  if(!destination) return;
   const url=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
   window.open(url,'_blank','noopener');
 }
@@ -1819,7 +1832,7 @@ function enableFlexibleDrag(card,handle,eventIndex){
   const eligibleTarget=(el)=>{
     if(!el||!el.closest('#timeline')||el===itemEl)return null;
     const idx=itemIndex(el);
-    return Number.isInteger(idx)&&idx>=0&&!currentDay().events[idx]?.time?el:null;
+    return Number.isInteger(idx)&&idx>=0?el:null;
   };
   const eligibleItems=()=>qsa('#timeline .timeline-item').filter(el=>eligibleTarget(el));
 
