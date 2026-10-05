@@ -364,3 +364,5 @@ Later:
 - [x] 2026-10-05 Day departure time r110am: virtual previous-night accommodation origin cards now display the current day's `departure_time` at top-right. In edit mode the virtual card exposes only `編輯出發時間`, opening a one-field time editor that updates `trip_days.departure_time` without creating a fake itinerary row. `編輯本日` also supports the same departure time.
 
 - [x] 2026-10-05 PWA edit availability r110an: installed app now exposes Owner/Editor controls immediately from the trusted local cache instead of waiting for a successful cloud hydrate. Opening the trip sheet re-evaluates edit availability, and returning online automatically rehydrates cloud data so `Offline cache` can become `Cloud synced` without a reload.
+
+- [x] 2026-10-05 Dynamic dates + uncertain itinerary r110ao: item editor uses a calendar date field rather than an existing Dn/day-title dropdown. Saving to an earlier/later date lets the backend create and reindex the continuous trip-day range so earliest date becomes D0. Added `不確定`: dashed itinerary card, still fully editable/visible, but excluded from overnight origin, map markers, OSRM route, total km and drive time.
