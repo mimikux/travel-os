@@ -261,9 +261,10 @@ function showView(name){
 }
 
 function renderDayStrip(){
+  const dateLabel=d=>String(d.date||'').slice(5).replace('-','/');
   const html=TRIP.days.map((d,i)=>{
     const ctx=dayContext(d.date);
-    return `<button class="day-chip ${i===selectedDay?'active':''} ${ctx.isPast?'completed':''}" data-day="${i}"><strong>${d.label}</strong><small>${d.short}</small></button>`;
+    return `<button class="day-btn ${i===selectedDay?'active':''} ${ctx.isPast?'completed':''}" data-day="${i}"><strong>${d.label}</strong><small>${dateLabel(d)}</small></button>`;
   }).join('');
   qs('#dayStrip').innerHTML=html;
   qs('#dayStrip').querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{
@@ -274,8 +275,8 @@ function renderDayStrip(){
   });
 
   const allSelected=mapSelectedDays.size===TRIP.days.length;
-  const dayButtons=TRIP.days.map((d,i)=>`<button class="day-chip map-select-chip ${mapSelectedDays.has(i)?'active':''}" data-map-day="${i}"><strong>${d.label}</strong><small>${d.short}</small></button>`).join('');
-  const allButton=mapMultiSelectMode?`<button class="day-chip map-select-chip map-all-chip ${allSelected?'active':''}" data-map-all="1"><strong>全部</strong><small>${TRIP.days.length} 天</small></button>`:'';
+  const dayButtons=TRIP.days.map((d,i)=>`<button class="map-day-btn ${mapSelectedDays.has(i)?'active':''}" data-map-day="${i}"><strong>${d.label}</strong><small>${dateLabel(d)}</small></button>`).join('');
+  const allButton=mapMultiSelectMode?`<button class="map-day-btn map-all-chip ${allSelected?'active':''}" data-map-all="1"><strong>全部</strong><small>${TRIP.days.length} 天</small></button>`:'';
   qs('#mapDayStrip').innerHTML=allButton+dayButtons;
   qs('#mapDayStrip').querySelectorAll('[data-map-day]').forEach(b=>b.onclick=()=>handleMapDayClick(+b.dataset.mapDay));
   const allBtn=qs('#mapDayStrip [data-map-all]');
@@ -389,7 +390,9 @@ function renderToday(){
   const heading=qs('#timelineHeading');
   if(heading) heading.textContent=context.label==='行程'? '當日行程' : `${context.label}行程`;
   qs('#todayView').classList.toggle('past-day',context.isPast);
-  qs('#heroCard').style.setProperty('--hero-photo',ui.photo);
+  const hero=qs('#heroCard');
+  hero.style.setProperty('--hero-photo',ui.photo);
+  hero.style.backgroundImage=ui.photo;
   qs('#todayKm').textContent=`${d.km} km`;
   qs('#todayDrive').textContent=d.drive;
   qs('#todaySunrise').textContent=ui.sunrise;
@@ -398,7 +401,7 @@ function renderToday(){
   qs('#weatherLabel').textContent='讀取中';
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-rail" aria-hidden="true"><span class="timeline-dot"></span></div><div class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-head"><div class="timeline-type">${typeLabel[e.type]||e.type}</div><div class="timeline-time-inline">${e.time||''}</div></div><h3>${e.title}</h3><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${validCoord(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</div></div>`).join('');
+  qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${validCoord(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div><div class="code-pill">已確認</div></div><p style="margin-top:10px">${stay.note||''}</p></div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   refreshTodayRouteStats(dayIndex);
