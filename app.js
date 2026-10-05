@@ -2,7 +2,9 @@ let selectedDay=3, currentFilter='all', map, routeLine, routeCar, routeTimer=nul
 let mapSelectedDays=new Set([selectedDay]), mapPrimaryDay=selectedDay, mapRouteLayers=[];
 let mapMultiSelectMode=false;
 let demoMode=(()=>{try{return localStorage.getItem('icelandDemoMode')==='1'}catch(_){return false}})();
-let routeGeometry=[], routeCumulative=[], routeTotalKm=0, routeStopFractions=[], routeSegmentDistancesKm=[];
+let routeGeometry=[], routeCumulative=[], routeTotalKm=0, routeTotalDurationSec=0, routeStopFractions=[], routeSegmentDistancesKm=[], routeSegmentDurationsSec=[];
+let routeScaleState=null;
+let routeMetricMode=(()=>{try{return localStorage.getItem('travelRouteMetric')==='time'?'time':'distance'}catch(_){return 'distance'}})();
 let routeRenderToken=0;
 const roadRouteCache=new Map();
 let todayRouteToken=0;
@@ -591,7 +593,7 @@ function haversineKm(a,b){
   return 2*R*Math.asin(Math.sqrt(h));
 }
 
-function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=null){
+function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=null,segmentDurationsSec=null,totalDurationSec=null){
   routeGeometry=points||[];
   routeCumulative=[];
   let total=0;
@@ -602,8 +604,11 @@ function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=n
   routeTotalKm=Number.isFinite(totalKm)?totalKm:total;
   routeStopFractions=[];
   routeSegmentDistancesKm=[];
+  routeSegmentDurationsSec=[];
+  routeTotalDurationSec=Number.isFinite(Number(totalDurationSec))?Math.max(0,Number(totalDurationSec)):0;
 
   const supplied=Array.isArray(segmentDistancesKm)?segmentDistancesKm.map(Number):[];
+  const suppliedDurations=Array.isArray(segmentDurationsSec)?segmentDurationsSec.map(Number):[];
   const validSupplied=stopPoints.length>=2
     && supplied.length===stopPoints.length-1
     && supplied.every(v=>Number.isFinite(v)&&v>=0)
@@ -614,6 +619,10 @@ function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=n
     let acc=0;
     routeStopFractions=[0];
     routeSegmentDistancesKm=[...supplied];
+    if(suppliedDurations.length===supplied.length && suppliedDurations.every(v=>Number.isFinite(v)&&v>=0)){
+      routeSegmentDurationsSec=[...suppliedDurations];
+      if(!routeTotalDurationSec) routeTotalDurationSec=suppliedDurations.reduce((a,b)=>a+b,0);
+    }
     for(const km of supplied){
       acc+=km;
       routeStopFractions.push(Math.min(1,acc/legTotal));
@@ -637,9 +646,60 @@ function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=n
 }
 
 function formatRouteKm(km){
-  const n=Number(km)||0;
-  if(n<10) return n.toFixed(1).replace(/\.0$/,'');
-  return String(Math.round(n));
+  const n=Math.max(0,Number(km)||0);
+  return n>=100?String(Math.round(n)):n.toFixed(1);
+}
+
+function formatRouteMinutes(durationSec){
+  return `${Math.max(0,Math.round((Number(durationSec)||0)/60))} min`;
+}
+
+function updateRouteMetricToggle(){
+  const btn=qs('#routeMetricToggle');
+  if(!btn) return;
+  btn.dataset.mode=routeMetricMode;
+  btn.setAttribute('aria-label',routeMetricMode==='distance'?'目前顯示公里，點擊切換成分鐘':'目前顯示分鐘，點擊切換成公里');
+  qsa('#routeMetricToggle [data-route-metric]').forEach(el=>{
+    el.classList.toggle('active',el.dataset.routeMetric===routeMetricMode);
+  });
+}
+
+function updateRouteProgressMetric(t=0){
+  const progress=Math.max(0,Math.min(1,Number(t)||0));
+  const value=qs('#routeDistance');
+  const suffix=qs('#routeDistanceSuffix');
+  if(!value||!suffix) return;
+  if(routeMetricMode==='time' && routeTotalDurationSec>0){
+    value.textContent=String(Math.round(routeTotalDurationSec*progress/60));
+    suffix.innerHTML=` / <span id="routeTotal">${Math.round(routeTotalDurationSec/60)}</span> min`;
+  }else{
+    const km=routeTotalKm*progress;
+    value.textContent=km<100?km.toFixed(1):String(Math.round(km));
+    suffix.innerHTML=` / <span id="routeTotal">${routeTotalKm<100?routeTotalKm.toFixed(1):Math.round(routeTotalKm)}</span> km`;
+  }
+}
+
+function setRouteMetricMode(mode){
+  routeMetricMode=mode==='time'?'time':'distance';
+  try{localStorage.setItem('travelRouteMetric',routeMetricMode)}catch(_){}
+  updateRouteMetricToggle();
+  if(routeScaleState){
+    renderRouteScale(
+      routeScaleState.stops,
+      routeScaleState.segments,
+      routeScaleState.totalKm,
+      {
+        approx:routeScaleState.approx,
+        durations:routeScaleState.durations,
+        totalDurationSec:routeScaleState.totalDurationSec
+      }
+    );
+  }
+  updateRouteProgressMetric((+qs('#routeSlider')?.value||0)/100);
+}
+
+function toggleRouteMetric(){
+  setRouteMetricMode(routeMetricMode==='distance'?'time':'distance');
 }
 
 function setRouteScaleMessage(message){
@@ -648,10 +708,11 @@ function setRouteScaleMessage(message){
   el.innerHTML=`<div class="route-scale-message">${escapeHtml(message)}</div>`;
 }
 
-function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTotalKm,{approx=false}={}){
+function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTotalKm,{approx=false,durations=routeSegmentDurationsSec,totalDurationSec=routeTotalDurationSec}={}){
   const el=qs('#routeStops');
   if(!el) return;
   if(!Array.isArray(stops)||stops.length<2){
+    routeScaleState=null;
     setRouteScaleMessage(stops?.length?'只有一個路線點':'沒有可用的路線點');
     return;
   }
@@ -666,16 +727,51 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
   const segTotal=seg.reduce((a,b)=>a+b,0)||1;
   const displayTotal=Number.isFinite(Number(totalKm))&&Number(totalKm)>0?Number(totalKm):segTotal;
 
-  // Readability scale: keep real distance as the weight, but reserve a minimum
-  // visual width for every leg. Very short legs therefore remain separate and
-  // their marker + km label never collapse on top of the next stop.
+  let dur=Array.isArray(durations)?durations.map(Number):[];
+  let displayTotalDuration=Number.isFinite(Number(totalDurationSec))&&Number(totalDurationSec)>0?Number(totalDurationSec):0;
+  const validDurations=dur.length===seg.length && dur.every(v=>Number.isFinite(v)&&v>=0) && dur.reduce((a,b)=>a+b,0)>0;
+  if(validDurations){
+    if(!displayTotalDuration) displayTotalDuration=dur.reduce((a,b)=>a+b,0);
+  }else if(displayTotalDuration>0){
+    // Before the routing response arrives, keep the time view usable by distributing
+    // the day's known total drive time in proportion to the fallback leg distances.
+    dur=seg.map(km=>displayTotalDuration*(Math.max(0,km)/segTotal));
+  }else{
+    dur=seg.map(()=>0);
+  }
+
+  routeScaleState={
+    stops,
+    segments:[...seg],
+    totalKm:displayTotal,
+    approx:Boolean(approx),
+    durations:[...dur],
+    totalDurationSec:displayTotalDuration
+  };
+
+  const prefix=approx?'≈':'';
+  const kmLabels=seg.map(km=>`${prefix}${formatRouteKm(km)} km`);
+  const timeLabels=dur.map(sec=>`${prefix}${formatRouteMinutes(sec)}`);
+  const activeLabels=routeMetricMode==='time'?timeLabels:kmLabels;
+
+  // Readability scale: every leg reserves enough room for the longest label it can
+  // show (KM or MIN), then any remaining width is distributed proportionally.
+  // This keeps every label on one horizontal baseline without sacrificing the
+  // longer-leg visual relationship.
   const wrapWidth=Math.max(240,Number(qs('#routeScaleWrap')?.clientWidth||el.clientWidth||360));
-  const trackWidth=Math.max(180,wrapWidth-(window.innerWidth<=420?72:80));
-  const maxEqualGap=trackWidth/Math.max(1,seg.length);
-  const minGapPx=Math.min(66,maxEqualGap,Math.max(24,maxEqualGap*.72));
-  const reserved=minGapPx*seg.length;
+  const edgeInsetPx=window.innerWidth<=420?20:22;
+  const trackWidth=Math.max(180,wrapWidth-edgeInsetPx*2);
+  const charPx=window.innerWidth<=420?5.0:5.6;
+  const minWidths=seg.map((_,i)=>{
+    const longest=Math.max(kmLabels[i].length,timeLabels[i].length);
+    return Math.max(46,Math.ceil(longest*charPx+14));
+  });
+  const wanted=minWidths.reduce((a,b)=>a+b,0);
+  const fitScale=wanted>trackWidth?trackWidth/wanted:1;
+  const reservedWidths=minWidths.map(px=>px*fitScale);
+  const reserved=reservedWidths.reduce((a,b)=>a+b,0);
   const flexible=Math.max(0,trackWidth-reserved);
-  const displaySegPx=seg.map(km=>minGapPx+flexible*(Math.max(0,km)/segTotal));
+  const displaySegPx=seg.map((km,i)=>reservedWidths[i]+flexible*(Math.max(0,km)/segTotal));
 
   const positions=[0];
   let displayAcc=0;
@@ -685,13 +781,9 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
   }
   positions[positions.length-1]=100;
 
-  const labels=seg.map((km,i)=>{
+  const labels=activeLabels.map((label,i)=>{
     const left=(positions[i]+positions[i+1])/2;
-    const px=displaySegPx[i]||0;
-    const tight=px<72;
-    const lane=tight?(i%2?' lane-b':' lane-a'):'';
-    const prefix=approx?'≈':'';
-    return `<span class="route-segment-label${tight?' tight':''}${lane}" style="left:${left.toFixed(3)}%">${prefix}${formatRouteKm(km)} km</span>`;
+    return `<span class="route-segment-label" style="left:${left.toFixed(3)}%">${label}</span>`;
   }).join('');
 
   const nodes=positions.map((p,i)=>{
@@ -700,13 +792,12 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     return `<button type="button" class="route-node${i===0?' current':''}${edge}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
   }).join('');
 
-  el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}">
+  el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}" data-metric="${routeMetricMode}">
     <div class="route-track-area">
       <div class="route-track"><div class="route-track-progress"></div></div>
       ${nodes}
       ${labels}
     </div>
-    <span class="route-total-label">${approx?'≈':''}${formatRouteKm(displayTotal)} km</span>
   </div>`;
 
   qsa('.route-node').forEach(node=>{
@@ -720,6 +811,7 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     node.addEventListener('blur',()=>node.classList.remove('show-name'));
   });
 
+  updateRouteMetricToggle();
   updateRouteScaleProgress(+qs('#routeSlider')?.value||0);
 }
 
@@ -827,7 +919,7 @@ async function renderMapDay(){
   qs('#routeDistance').textContent='0';
   qs('#routeDistanceSuffix').innerHTML=isMulti?' km':` / <span id="routeTotal">${Math.round(singleDay.km)}</span> km`;
   updateMapRangeText(indices,fallbackTotals.km,fallbackTotals.sec);
-  routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeTotalKm=0;
+  routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeSegmentDurationsSec=[]; routeTotalKm=0; routeTotalDurationSec=0; routeScaleState=null;
 
   const bounds=L.latLngBounds([]);
   const fallbackLayers=new Map();
@@ -850,7 +942,7 @@ async function renderMapDay(){
       mapRouteLayers.push(layer);
       fallbackPoints.forEach(pt=>bounds.extend(pt));
       if(!isMulti){
-        setRouteGeometry(fallbackPoints,d.km,fallbackPoints);
+        setRouteGeometry(fallbackPoints,d.km,fallbackPoints,null,null,Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive));
         routeCar=L.marker(fallbackPoints[0],{icon:markerIcon('',true),zIndexOffset:1000}).addTo(map);
       }
     }
@@ -889,10 +981,11 @@ async function renderMapDay(){
           road.points,
           road.distanceKm,
           road.snapped.length?road.snapped:stops.map(e=>[e.lat,e.lng]),
-          road.segmentDistancesKm
+          road.segmentDistancesKm,
+          road.segmentDurationsSec,
+          road.durationSec
         );
-        qs('#routeTotal').textContent=Math.round(routeTotalKm);
-        renderRouteScale(stops,road.segmentDistancesKm,road.distanceKm);
+        renderRouteScale(stops,road.segmentDistancesKm,road.distanceKm,{durations:road.segmentDurationsSec,totalDurationSec:road.durationSec});
         updateRouteAt(+qs('#routeSlider').value);
       }
     }catch(err){
@@ -928,8 +1021,8 @@ function updateRouteAt(v){
   const idx=currentStopIndex(t,stops), stop=stops[idx]||stops[0];
   qs('#routeCurrent').textContent=stop?stop.title.split('\n')[0]:d.name;
   qs('#routeMeta').textContent=`${d.label} · ${stop?.time||''}`;
-  qs('#routeDistance').textContent=(routeTotalKm*t<10?(routeTotalKm*t).toFixed(1):Math.round(routeTotalKm*t));
   qs('#routeSlider').value=v;
+  updateRouteProgressMetric(t);
   updateRouteScaleProgress(v);
 }
 
@@ -1142,6 +1235,8 @@ qsa('[data-nav]').forEach(b=>b.onclick=()=>showView(b.dataset.nav));
 qs('#routeSlider').oninput=e=>{clearRouteTimer();updateRouteAt(+e.target.value)};
 qs('#routePlayCircle').onclick=togglePlay;
 qs('#playRoute').onclick=togglePlay;
+if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
+updateRouteMetricToggle();
 qs('#mapMultiToggle').onclick=toggleMapMultiMode;
 const openTripSheet=()=>{qs('#tripSheet').classList.add('show');qs('#sheetBackdrop').classList.add('show')};
 qs('#tripMenuBtn').onclick=openTripSheet;
