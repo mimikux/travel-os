@@ -1476,7 +1476,8 @@ qs('#inviteMemberForm').onsubmit=async e=>{
 
 async function initCloudShell(){
   try{
-    const local=await window.TravelStore?.init?.(window.TRAVEL_CONFIG?.tripSlug?TRIP:null);
+    const fallbackSeed=window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'?TRIP:null;
+    const local=await window.TravelStore?.init?.(fallbackSeed);
     if(window.TRAVEL_CONFIG?.tripSlug&&local?.trip?.days?.length){
       TRIP=local.trip;
       currentTripRole=local.trip.role||'viewer';
@@ -1504,11 +1505,17 @@ async function initCloudShell(){
 }
 
 qs('.app-shell')?.classList.add('today-mode');
-syncToReferenceTripDay();
-updateDemoModeUI();
-renderAll();
-updateHeroCollapse();
-initCloudShell();
+const authTitle=qs('#authTripTitle');
+if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripLabel||'Travel OS';
+if(window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'){
+  syncToReferenceTripDay();
+  updateDemoModeUI();
+  renderAll();
+  updateHeroCollapse();
+}else if(window.TRAVEL_CONFIG?.tripSlug){
+  qs('.app-shell').style.visibility='hidden';
+}
+initCloudShell().finally(()=>{if(qs('.app-shell'))qs('.app-shell').style.visibility=''});
 lastObservedIcelandDate=icelandTodayISO();
 setInterval(()=>{
   if(demoMode) return;
