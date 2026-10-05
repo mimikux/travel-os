@@ -509,3 +509,53 @@ body.timeline-dragging .timeline-item.dragging .timeline-card{
 .day-btn{
   border-radius:var(--travel-card-radius)!important;
 }
+
+
+/* Smooth Hero collapse: no mid-scroll layout switch */
+.hero-card{
+  height:calc(244px - (162px * var(--hero-progress,0)))!important;
+  min-height:82px!important;
+  contain:paint;
+  will-change:height;
+}
+.hero-card.hero-compact{
+  height:82px!important;
+}
+/* Shrink typography continuously with scroll instead of jumping 28px -> 19px. */
+.hero-card .hero-topic{
+  font-size:calc(28px - (9px * var(--hero-progress,0)))!important;
+  line-height:1.05!important;
+  transform:translateZ(0);
+  backface-visibility:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+.hero-card .hero-title-combined{
+  margin-top:calc(9px - (5px * var(--hero-progress,0)))!important;
+  transform:translateZ(0);
+}
+.hero-card .hero-meta-line{
+  font-size:calc(12px - (1px * var(--hero-progress,0)))!important;
+  transform:translateZ(0);
+}
+/* Fade secondary content all the way out; never switch display mid-scroll. */
+.hero-card .hero-stats,
+.hero-card .weather-inline{
+  display:grid!important;
+  opacity:calc(1 - var(--hero-progress,0))!important;
+  visibility:visible!important;
+  pointer-events:auto;
+  transform:translate3d(0,calc(-6px * var(--hero-progress,0)),0)!important;
+  transition:none!important;
+}
+.hero-card .weather-inline{display:flex!important}
+.hero-card.hero-compact .hero-stats,
+.hero-card.hero-compact .weather-inline{
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+/* Final compact state changes only corners/visibility; dimensions have already
+   reached the same values through --hero-progress, so scroll position does not jump. */
+.hero-card.hero-compact .hero-topic{
+  font-size:19px!important;
+}
