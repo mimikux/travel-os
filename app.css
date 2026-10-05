@@ -374,3 +374,22 @@
     letter-spacing:-.04em!important;
   }
 }
+
+
+/* Editor readability + flexible drag sorting */
+.edit-sheet .section-kicker,
+.edit-form label span,
+.edit-status,
+.edit-chip,
+.fixed-time-hint{
+  font-size:15px!important;
+  line-height:1.35!important;
+}
+.edit-sheet .sheet-title h2{font-size:24px!important;line-height:1.15!important}
+.edit-form input,.edit-form select,.edit-form textarea{font-size:16px!important;line-height:1.45!important}
+.edit-chip{min-height:40px;padding:8px 11px!important}
+.fixed-time-hint{display:inline-flex;align-items:center;color:var(--muted);font-weight:800;padding:7px 2px}
+.drag-handle{touch-action:none;cursor:grab}
+.timeline-item.drag-ready .timeline-card{outline:2px solid rgba(185,145,73,.38);outline-offset:2px}
+.timeline-item.dragging{opacity:.55}
+.timeline-item.drag-over .timeline-card{transform:translateY(3px);box-shadow:0 0 0 2px rgba(185,145,73,.35),var(--shadow)}
