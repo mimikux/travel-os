@@ -7,6 +7,7 @@
   const IDLE_MS=30*60*1000;
   const LAST_ACTIVE_KEY='travel-os-last-active';
   const listeners=new Set();
+  let magicLinkPromise=null;
 
   function readLastActive(){
     try{return Number(localStorage.getItem(LAST_ACTIVE_KEY)||0)}catch(_){return 0}
@@ -108,21 +109,25 @@
 
   async function sendMagicLink(email){
     if(!client) throw new Error('Auth not initialized');
-    setState('sending_link');
-    const redirectTo=location.origin+location.pathname;
-    const normalized=String(email||'').trim().toLowerCase();
-    const {data:gate,error:gateError}=await client.functions.invoke('request-travel-login',{
-      body:{email:normalized,tripSlug:cfg.tripSlug,redirectTo}
-    });
-    if(gateError){setState('signed_out');throw gateError;}
-    if(gate?.existing){
-      const {error}=await client.auth.signInWithOtp({
-        email:normalized,
-        options:{emailRedirectTo:redirectTo,shouldCreateUser:false}
+    if(magicLinkPromise) return magicLinkPromise;
+    magicLinkPromise=(async()=>{
+      setState('sending_link');
+      const redirectTo=location.origin+location.pathname;
+      const normalized=String(email||'').trim().toLowerCase();
+      const {data:gate,error:gateError}=await client.functions.invoke('request-travel-login',{
+        body:{email:normalized,tripSlug:cfg.tripSlug,redirectTo}
       });
-      if(error){setState('signed_out');throw error;}
-    }
-    setState('link_sent');
+      if(gateError){setState('signed_out');throw gateError;}
+      if(gate?.existing){
+        const {error}=await client.auth.signInWithOtp({
+          email:normalized,
+          options:{emailRedirectTo:redirectTo,shouldCreateUser:false}
+        });
+        if(error){setState('signed_out');throw error;}
+      }
+      setState('link_sent');
+    })().finally(()=>{magicLinkPromise=null;});
+    return magicLinkPromise;
   }
 
   async function registerTrustedDevice({silent=false}={}){
@@ -188,7 +193,13 @@
         await sendMagicLink(email);
       }catch(err){
         console.error('Magic Link failed',err);
-        if(msg) msg.textContent='登入連結寄送失敗，請稍後再試。';
+        const status=Number(err?.status||err?.context?.status||0);
+        const code=String(err?.code||err?.context?.code||'');
+        if(msg){
+          msg.textContent=(status===429||code.includes('rate_limit'))
+            ?'登入信寄送太頻繁，請稍後再試。若剛剛已收到登入信，可直接使用最新一封。'
+            :'登入連結寄送失敗，請稍後再試。';
+        }
       }
     });
   }
