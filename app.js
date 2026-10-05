@@ -190,13 +190,14 @@ function dayContext(dateString){
   const tripStarted=today>=first;
   const tripEnded=today>last;
   let label;
-  if(!tripStarted) label='行程';
-  else if(diff===-1) label='昨日';
-  else if(diff===0) label='今日';
-  else if(diff===1) label='明日';
-  else if(diff===2) label='後日';
-  else label=dateString.slice(5).replace('-','/');
-  return {label,diff,isPast:tripStarted&&diff<0,isToday:diff===0,isFuture:diff>0,tripStarted,tripEnded,today};
+  if(diff===-2) label='前天';
+  else if(diff===-1) label='昨天';
+  else if(diff===0) label='今天';
+  else if(diff===1) label='明天';
+  else if(diff===2) label='後天';
+  else if(diff<0) label=`${Math.abs(diff)}天前`;
+  else label=`${diff}天後`;
+  return {label,diff,isPast:diff<0,isToday:diff===0,isFuture:diff>0,tripStarted,tripEnded,today};
 }
 function syncToReferenceTripDay(forceDemo=false){
   const today=(demoMode||forceDemo)?DEMO_REFERENCE_DATE:icelandTodayISO();
@@ -423,7 +424,7 @@ function renderToday(){
   const rel=qs('#heroRelativeLabel');
   if(rel) rel.textContent=context.label;
   const heading=qs('#timelineHeading');
-  if(heading) heading.textContent=context.label==='行程'? '當日行程' : `${context.label}行程`;
+  if(heading) heading.textContent=`${context.label}行程`;
   qs('#todayView').classList.toggle('past-day',context.isPast);
   const hero=qs('#heroCard');
   hero.style.setProperty('--hero-photo',ui.photo);
