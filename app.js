@@ -1963,15 +1963,34 @@ async function reorderFlexibleItem(dayIndex,sourceId,targetId,after=false){
   if(!day?.id||!sourceId||!targetId||sourceId===targetId)return;
   const source=day.events.find(e=>e.id===sourceId),target=day.events.find(e=>e.id===targetId);
   if(!source||!target||source.time)return;
-  const ids=day.events.map(e=>e.id);if(ids.some(id=>!id))return;
+
+  const originalEvents=[...day.events];
+  const ids=originalEvents.map(e=>e.id);if(ids.some(id=>!id))return;
   const from=ids.indexOf(sourceId);if(from<0)return;
   ids.splice(from,1);
   const targetPos=ids.indexOf(targetId);if(targetPos<0)return;
   ids.splice(targetPos+(after?1:0),0,sourceId);
+
+  // Optimistic UI: move the card immediately on drop instead of waiting for
+  // the network round-trip + cloud re-hydration. This prevents users from
+  // thinking the drop failed and repeating the gesture.
+  const byId=new Map(originalEvents.map(e=>[e.id,e]));
+  day.events=ids.map((id,i)=>{
+    const ev=byId.get(id);
+    if(ev) ev.sortOrder=i;
+    return ev;
+  }).filter(Boolean);
+  if(selectedDay===dayIndex) renderToday();
+
   try{
     await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});
+    // Reconcile with the server after the instant local move.
     await hydratePrivateCloudData();
-  }catch(err){alert('排序失敗：'+(err.code||err.message))}
+  }catch(err){
+    day.events=originalEvents;
+    if(selectedDay===dayIndex) renderToday();
+    alert('排序失敗，已恢復原順序：'+(err.code||err.message));
+  }
 }
 
 async function editCurrentDay(){
