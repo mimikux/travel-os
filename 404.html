@@ -5,11 +5,13 @@
 (function(){
   var base='/travel-os/';
   var path=location.pathname;
-  if(path.indexOf(base)!==0){location.replace(base);return;}
+  if(path.indexOf(base)!==0){ location.replace(base); return; }
   var rel=path.slice(base.length).split('/').filter(Boolean);
   var slug=rel[0]||'';
-  var target=base+(slug?'?trip='+encodeURIComponent(slug):'');
-  location.replace(target+location.search.replace(/^?/,'&')+location.hash);
+  var params=new URLSearchParams(location.search);
+  if(slug) params.set('trip',slug);
+  var q=params.toString();
+  location.replace(base+(q?'?'+q:'')+location.hash);
 })();
 </script>
 <noscript><a href="/travel-os/">Open Travel OS</a></noscript>
