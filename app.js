@@ -1281,6 +1281,8 @@ function ensureItemEditor(){
         <label><span>Latitude</span><input id="editItemLat" type="number" step="any"></label>
         <label><span>Longitude</span><input id="editItemLng" type="number" step="any"></label>
       </div>
+      <label><span>Google Maps 連結</span><div class="map-import-row"><input id="editItemMapUrl" inputmode="url" placeholder="貼上 maps.app.goo.gl 或 Google Maps 連結"><button type="button" class="edit-chip map-import-btn" id="importMapBtn">帶入</button></div></label>
+      <p class="edit-status map-import-status" id="mapImportStatus"></p>
       <label><span>導航搜尋（可留空）</span><input id="editItemNav"></label>
       <div class="edit-form-actions"><button type="button" class="edit-delete" id="deleteItemBtn">刪除</button><button type="submit" class="edit-save">儲存</button></div>
       <p class="edit-status" id="itemEditStatus"></p>
@@ -1290,6 +1292,7 @@ function ensureItemEditor(){
   qs('#closeItemEdit').onclick=close;backdrop.onclick=close;
   qs('#itemEditForm').onsubmit=saveItemEditor;
   qs('#deleteItemBtn').onclick=deleteCurrentItem;
+  qs('#importMapBtn').onclick=importGoogleMapIntoEditor;
   return sheet;
 }
 
@@ -1310,10 +1313,38 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemTips').value=(event?.details?.tips||[]).join('\n');
   qs('#editItemLat').value=Number.isFinite(event?.lat)?event.lat:'';
   qs('#editItemLng').value=Number.isFinite(event?.lng)?event.lng:'';
+  qs('#editItemMapUrl').value='';
+  qs('#mapImportStatus').textContent='';
   qs('#editItemNav').value=event?.navQuery||'';
   qs('#deleteItemBtn').hidden=!event;
   qs('#itemEditStatus').textContent='';
   qs('#itemEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+
+async function importGoogleMapIntoEditor(){
+  const url=qs('#editItemMapUrl')?.value.trim();
+  const status=qs('#mapImportStatus');
+  if(!url){status.textContent='請先貼上 Google Maps 連結。';return}
+  status.textContent='解析 Google Maps 連結中…';
+  try{
+    const data=await travelEditor('resolve_google_map',{url});
+    if(!data?.ok) throw new Error(data?.error||'map_resolve_failed');
+    if(data.name) qs('#editItemName').value=data.name;
+    if(Number.isFinite(data.lat)) qs('#editItemLat').value=data.lat;
+    if(Number.isFinite(data.lng)) qs('#editItemLng').value=data.lng;
+    if(data.navQuery) qs('#editItemNav').value=data.navQuery;
+    if(data.suggestedType && qs('#editItemType')?.querySelector(`option[value="${data.suggestedType}"]`)){
+      qs('#editItemType').value=data.suggestedType;
+    }
+    const filled=[
+      data.name?'店名/地名':'',
+      Number.isFinite(data.lat)&&Number.isFinite(data.lng)?'GPS':'',
+      data.suggestedType?'類型':''
+    ].filter(Boolean).join('、');
+    status.textContent=filled?`已帶入：${filled}`:'已解析連結，但找不到可自動帶入的欄位。';
+  }catch(err){
+    status.textContent='解析失敗：'+(err.code||err.message||'unknown');
+  }
 }
 
 async function saveItemEditor(e){
