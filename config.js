@@ -3,7 +3,8 @@
   const params=new URLSearchParams(location.search);
   const querySlug=(params.get('trip')||'').trim();
   const rel=location.pathname.startsWith(basePath)?location.pathname.slice(basePath.length):'';
-  const pathSlug=rel.split('/').filter(Boolean)[0]||'';
+  const firstPathPart=rel.split('/').filter(Boolean)[0]||'';
+  const pathSlug=firstPathPart.toLowerCase()==='index.html'?'':firstPathPart;
   const tripSlug=(querySlug||pathSlug||'').toLowerCase()||null;
   const tripLabel=tripSlug?tripSlug.split('-').map((part,i)=>{
     if(/^\d{4}$/.test(part)) return part;
