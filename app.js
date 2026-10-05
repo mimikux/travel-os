@@ -201,14 +201,14 @@ function dayContext(dateString){
     else label=`${diff}天後`;
     timelineLabel=label;
   }else{
-    // Live mode is a simple trip countdown/count-up. Keep the compact hero
-    // label numeric (e.g. 46天) because the date is already shown above.
+    // Live mode uses an explicit relative label so past trips are equally
+    // intuitive to revisit: "46天後" before the day, "46天前" after it.
     if(diff===0){
       label='今天';
       timelineLabel='今天';
     }else{
-      label=`${Math.abs(diff)}天`;
-      timelineLabel=diff<0?`${Math.abs(diff)}天前`:`${diff}天後`;
+      label=diff<0?`${Math.abs(diff)}天前`:`${diff}天後`;
+      timelineLabel=label;
     }
   }
 
