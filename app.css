@@ -401,3 +401,22 @@
 .map-import-btn{min-width:72px;margin:0!important}
 .map-import-status{margin:-2px 0 2px!important}
 @media(max-width:420px){.map-import-row{grid-template-columns:1fr}.map-import-btn{width:100%}}
+
+
+/* Restore v0.17 day selector sizing */
+.day-strip{gap:8px;padding:4px 0 12px}
+.day-btn{
+  min-width:108px;
+  min-height:78px;
+  border-radius:22px;
+  padding:13px 12px 12px;
+}
+.day-btn strong{
+  font-size:22px;
+  line-height:1.08;
+}
+.day-btn small{
+  margin-top:7px;
+  font-size:17px;
+  line-height:1.08;
+}
