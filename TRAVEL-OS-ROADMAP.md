@@ -319,3 +319,5 @@ Later:
 - [x] 2026-10-05 Visual consistency: Hero bottom corners, timeline cards, and Today D0-D7 buttons share one 18px corner radius so the collapsed Hero visually aligns with itinerary cards while scrolling.
 - [x] 2026-10-05 Trip place audit: Owner/Editor can run a one-time opening-hours / closed-day check for itinerary items that already have a confirmed Google Maps URL; items without URLs are listed as needing manual completion instead of fuzzy-matched.
 - [x] 2026-10-05 Existing itinerary metadata: Google Maps URL, opening hours, closed weekdays, check timestamp, and source are persisted in Supabase and loaded back into Travel OS; closed-day warnings render on Today cards.
+
+- [x] 2026-10-05 Edit entry cleanup: remove direct Edit buttons from Today/Map headers; Owner/Editor enters edit mode only from the trip (...) menu, while the in-edit persistent toolbar remains.
