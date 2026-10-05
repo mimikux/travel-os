@@ -320,3 +320,16 @@
     letter-spacing:-.18em!important;text-indent:-.08em;
   }
 }
+
+
+/* Hero ellipsis containment on mobile */
+@media(max-width:699px){
+  .hero-menu-btn{
+    width:38px!important;min-width:38px!important;max-width:38px!important;height:38px!important;
+    flex:0 0 38px!important;padding:0!important;
+    display:grid!important;place-items:center!important;
+    overflow:hidden!important;white-space:nowrap!important;
+    font-size:12px!important;line-height:1!important;
+    letter-spacing:-.18em!important;text-indent:-.08em;
+  }
+}
