@@ -1069,3 +1069,14 @@ body.timeline-dragging *{
   box-shadow:none!important;
 }
 .timeline-card.uncertain-item .type:after{content:" · 不確定"}
+
+
+/* linked stay reservation r110ap */
+#stayReservationLinkRow[hidden]{display:none!important}
+#stayReservationLinkRow .field-help{
+  display:block;
+  margin-top:6px;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.45;
+}
