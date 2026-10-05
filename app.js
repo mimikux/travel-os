@@ -44,7 +44,8 @@ const DEMO_WEATHER_BASE=[3,1,-2,-4,-1,2,0,4];
 const DEMO_WEATHER_CODE=[3,3,71,71,1,3,3,3];
 function demoWeatherForDay(dayIndex){
   const d=TRIP.days[dayIndex];
-  const loc=WEATHER_LOCATIONS[d.label];
+  const firstCoord=(d.events||[]).find(validCoord);
+  const loc=WEATHER_LOCATIONS[d.label]||(firstCoord?{name:d.name||d.label,lat:firstCoord.lat,lng:firstCoord.lng}:null);
   const ui=dayUi(d);
   const base=DEMO_WEATHER_BASE[dayIndex]??0;
   const code=DEMO_WEATHER_CODE[dayIndex]??3;
@@ -127,7 +128,7 @@ async function fetchWeatherForDay(dayIndex){
   url.searchParams.set('longitude',loc.lng);
   url.searchParams.set('hourly','temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m');
   url.searchParams.set('daily','sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max');
-  url.searchParams.set('timezone','Atlantic/Reykjavik');
+  url.searchParams.set('timezone',TRIP.timezone||'UTC');
   url.searchParams.set('wind_speed_unit','ms');
   url.searchParams.set('forecast_days','16');
   const pending=fetch(url.toString(),{mode:'cors'}).then(async res=>{
@@ -173,7 +174,7 @@ async function fetchWeatherForDay(dayIndex){
 }
 
 function icelandTodayISO(){
-  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Atlantic/Reykjavik',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:TRIP.timezone||'Atlantic/Reykjavik',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
   const get=t=>parts.find(p=>p.type===t)?.value;
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
@@ -542,6 +543,7 @@ function formatDriveTime(durationSec){
 }
 
 async function refreshTodayRouteStats(dayIndex){
+  if(!TRIP.days?.[dayIndex]) return;
   const token=++todayRouteToken;
   try{
     const road=await getRoadRouteForDay(dayIndex);
@@ -644,6 +646,12 @@ function updateMapRangeText(indices,km,sec){
 
 async function renderMapDay(){
   if(!map) return;
+  if(!TRIP.days?.length){
+    qs('#mapDayLabel').textContent='—';
+    qs('#mapDayName').textContent='尚未建立行程';
+    qs('#routeStops').textContent='請先由 Owner / Editor 新增行程日。';
+    return;
+  }
   const token=++routeRenderToken;
   const indices=sortedMapDays().length?sortedMapDays():[selectedDay];
   const isMulti=indices.length>1;
@@ -897,8 +905,11 @@ function updateDemoModeUI(){
     btn.classList.toggle('active',demoMode);
     btn.setAttribute('aria-pressed',String(demoMode));
   }
+  const isIceland=window.TRAVEL_CONFIG?.tripSlug==='iceland-2026';
+  if(btn) btn.hidden=!isIceland;
+  if(!isIceland&&demoMode){demoMode=false;try{localStorage.setItem('icelandDemoMode','0')}catch(_){}}
   if(state) state.textContent=demoMode?'開啟 · 11/23':'關閉';
-  if(badge) badge.hidden=!demoMode;
+  if(badge) badge.hidden=!demoMode||!isIceland;
 }
 
 function toggleDemoMode(){
@@ -1287,7 +1298,8 @@ async function editCurrentDay(){
 }
 
 function decorateBookingEditor(list){
-  if(!editMode||!canEditTrip())return;
+  const existingAdd=qs('#addBookingBtn');
+  if(!editMode||!canEditTrip()){if(existingAdd)existingAdd.remove();return;}
   const summary=qs('.booking-summary');
   if(summary&&!qs('#addBookingBtn')){
     const btn=document.createElement('button');btn.id='addBookingBtn';btn.className='edit-chip';btn.textContent='＋ 新增預訂';btn.onclick=()=>openBookingEditor(null);summary.append(btn);
@@ -1379,7 +1391,7 @@ async function loadMembers(){
     const data=await tripAdmin('list');
     const owner=data.role==='owner';
     qs('#inviteMemberForm').hidden=!owner;
-    qs('#membersRoleHint').textContent='Iceland 2026 · '+String(data.role||'viewer').toUpperCase();
+    qs('#membersRoleHint').textContent=currentTripTitle()+' · '+String(data.role||'viewer').toUpperCase();
     box.replaceChildren();
 
     for(const m of (data.members||[]).filter(x=>!x.revoked_at)){
