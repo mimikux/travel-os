@@ -383,7 +383,7 @@ function renderToday(){
   const dayIndex=selectedDay;
   const ui=dayUi(d);
   const context=dayContext(d.date);
-  qs('#heroDay').textContent=`${d.label} · ${d.short}`;
+  qs('#heroDay').textContent=`${d.label} · ${String(d.date||'').slice(5).replace('-','/')}`;
   qs('#heroTitle').textContent=d.name;
   const rel=qs('#heroRelativeLabel');
   if(rel) rel.textContent=context.label;
