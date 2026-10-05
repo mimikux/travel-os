@@ -523,13 +523,13 @@ function renderToday(){
   qs('#weatherLabel').textContent='讀取中';
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  const prevStay=dayIndex>0?[...(TRIP.days[dayIndex-1]?.events||[])].reverse().find(e=>e.type==='stay'&&validCoord(e)):null;
+  const prevStay=dayIndex>0?[...(TRIP.days[dayIndex-1]?.events||[])].reverse().find(e=>e.type==='stay'&&!e.uncertain&&validCoord(e)):null;
   const firstEvent=d.events[0]||null;
   const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -597,13 +597,13 @@ function markerIcon(label,car=false){
 
 function getRouteStops(d){
   const dayIndex=TRIP.days.indexOf(d);
-  const raw=d.events.filter(validCoord);
+  const raw=d.events.filter(e=>!e.uncertain&&validCoord(e));
 
   // Overnight continuity: the previous day's final accommodation is the
   // next day's route origin, without duplicating it in the next day's timeline.
   if(dayIndex>0){
     const prev=TRIP.days[dayIndex-1];
-    const overnight=[...(prev?.events||[])].reverse().find(e=>e.type==='stay'&&validCoord(e));
+    const overnight=[...(prev?.events||[])].reverse().find(e=>e.type==='stay'&&!e.uncertain&&validCoord(e));
     if(overnight){
       const first=raw[0];
       if(!first||Math.abs(first.lat-overnight.lat)>1e-6||Math.abs(first.lng-overnight.lng)>1e-6){
@@ -1824,13 +1824,14 @@ function ensureItemEditor(){
     <form class="edit-form" id="itemEditForm">
       <input type="hidden" id="editItemId"><input type="hidden" id="editItemVersion">
       <div class="edit-form-grid">
-        <label><span>日期</span><select id="editItemDay"></select></label>
+        <label><span>日期</span><input id="editItemDate" type="date" required></label>
         <label><span>時間</span><input id="editItemTime" type="time"></label>
       </div>
       <div class="edit-form-grid">
         <label><span>類型</span><select id="editItemType"><option value="spot">景點</option><option value="drive">移動</option><option value="stay">住宿</option><option value="food">餐食</option><option value="tour">Tour</option><option value="flight">航班</option><option value="car">租車</option><option value="shop">補給</option><option value="plan">備案</option><option value="other">其他</option></select></label>
         <label><span>名稱</span><input id="editItemName" required></label>
       </div>
+      <label class="uncertain-row"><input id="editItemUncertain" type="checkbox"><span>不確定</span><small>可能不會去；不列入地圖、里程與駕車時間</small></label>
       <label><span>副標題</span><input id="editItemSubtitle"></label>
       <label><span>備註</span><textarea id="editItemNote"></textarea></label>
       <label><span>景點介紹</span><textarea id="editItemIntro"></textarea></label>
@@ -1859,13 +1860,13 @@ function openItemEditor(dayIndex,eventIndex){
   if(!canEditTrip())return;
   const sheet=ensureItemEditor(),event=eventIndex===null?null:TRIP.days[dayIndex]?.events?.[eventIndex];
   qs('#itemEditTitle').textContent=event?'編輯行程':'新增行程';
-  qs('#editItemDay').innerHTML=TRIP.days.map((d,i)=>`<option value="${i}">${escapeHtml(d.label)} · ${escapeHtml(d.date)} · ${escapeHtml(d.name)}</option>`).join('');
-  qs('#editItemDay').value=String(dayIndex);
+  qs('#editItemDate').value=event?(TRIP.days[dayIndex]?.date||''):(TRIP.days[dayIndex]?.date||TRIP.startDate||'');
   qs('#editItemId').value=event?.id||'';
   qs('#editItemVersion').value=event?.version||'';
   qs('#editItemTime').value=event?.time||'';
   qs('#editItemType').value=event?.type||'spot';
   qs('#editItemName').value=event?.title||'';
+  qs('#editItemUncertain').checked=Boolean(event?.uncertain);
   qs('#editItemSubtitle').value=event?.subtitle||'';
   qs('#editItemNote').value=event?.note||'';
   qs('#editItemIntro').value=event?.details?.intro||'';
@@ -1919,8 +1920,7 @@ async function importGoogleMapIntoEditor(){
     // Preserve what the user pasted. Store the expanded URL separately for audit/debugging.
     input.dataset.resolvedUrl=data.finalUrl||'';
 
-    const dayIndex=Number(qs('#editItemDay')?.value||0);
-    const visitDate=TRIP.days?.[dayIndex]?.date||'';
+    const visitDate=qs('#editItemDate')?.value||'';
     const visitWeekday=visitDate?new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(visitDate+'T00:00:00Z')):'';
     const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
     input.dataset.openingHours=JSON.stringify(hours);
@@ -1953,9 +1953,12 @@ async function importGoogleMapIntoEditor(){
 
 async function saveItemEditor(e){
   e.preventDefault();
-  const dayIndex=Number(qs('#editItemDay').value),day=TRIP.days[dayIndex];
+  const selectedDate=qs('#editItemDate').value;
+  if(!selectedDate){qs('#itemEditStatus').textContent='請選擇日期。';return;}
+  const existingDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
   const item={
-    id:qs('#editItemId').value||null,baseVersion:Number(qs('#editItemVersion').value)||0,dayId:day.id,
+    id:qs('#editItemId').value||null,baseVersion:Number(qs('#editItemVersion').value)||0,
+    date:selectedDate,dayId:existingDayIndex>=0?TRIP.days[existingDayIndex].id:null,
     time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
@@ -1967,13 +1970,16 @@ async function saveItemEditor(e){
     openingHours:JSON.parse(qs('#editItemMapUrl').dataset.openingHours||'[]'),
     closedWeekdays:JSON.parse(qs('#editItemMapUrl').dataset.closedWeekdays||'[]'),
     hoursSource:qs('#editItemMapUrl').dataset.hoursSource||null,
-    hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null
+    hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null,
+    uncertain:qs('#editItemUncertain').checked
   };
   qs('#itemEditStatus').textContent='儲存中…';
   try{
     await travelEditor('save_item',{item});
     qs('#itemEditSheet').classList.remove('show');qs('#itemEditBackdrop').classList.remove('show');
-    selectedDay=dayIndex;await hydratePrivateCloudData();
+    await hydratePrivateCloudData();
+    const savedDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
+    if(savedDayIndex>=0){selectedDay=savedDayIndex;mapPrimaryDay=savedDayIndex;mapSelectedDays=new Set([savedDayIndex]);renderAll();}
   }catch(err){
     if(err.code==='version_conflict'){
       qs('#itemEditStatus').textContent='資料已被其他人更新，正在重新載入…';
@@ -1982,7 +1988,8 @@ async function saveItemEditor(e){
     qs('#itemEditStatus').textContent='正在確認伺服器是否已儲存…';
     try{
       await hydratePrivateCloudData();
-      const saved=TRIP.days?.[dayIndex]?.events?.some(x=>
+      const retryDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
+      const saved=TRIP.days?.[retryDayIndex]?.events?.some(x=>
         (item.id&&x.id===item.id)||(!item.id&&x.title===item.title&&String(x.time||'')===String(item.time||''))
       );
       if(saved){
