@@ -1351,12 +1351,24 @@ async function importGoogleMapIntoEditor(){
     if(data.suggestedType && qs('#editItemType')?.querySelector(`option[value="${data.suggestedType}"]`)){
       qs('#editItemType').value=data.suggestedType;
     }
+
+    const dayIndex=Number(qs('#editItemDay')?.value||0);
+    const visitDate=TRIP.days?.[dayIndex]?.date||'';
+    const visitWeekday=visitDate?new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(visitDate+'T00:00:00Z')):'';
+    const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
+    const hoursText=hours.length?'營業時間：'+hours.map(x=>`${x.day} ${x.hours}`).join('；'):'';
+    const closedToday=visitWeekday&&Array.isArray(data.closedDays)&&data.closedDays.includes(visitWeekday);
+    const warning=closedToday?`⚠️ 行程日期 ${visitDate}（${visitWeekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
+    const noteParts=[qs('#editItemNote').value.trim(),hoursText,warning].filter(Boolean);
+    qs('#editItemNote').value=noteParts.join('\n');
+
     const filled=[
       data.name?'店名/地名':'',
       Number.isFinite(data.lat)&&Number.isFinite(data.lng)?'GPS':'',
-      data.suggestedType?'類型':''
+      data.suggestedType?'類型':'',
+      hours.length?'營業時間':''
     ].filter(Boolean).join('、');
-    status.textContent=filled?`已帶入：${filled}`:'已解析連結，但找不到可自動帶入的欄位。';
+    status.textContent=warning?warning:(filled?`已帶入：${filled}`:'已解析連結，但找不到可自動帶入的欄位。');
   }catch(err){
     status.textContent='解析失敗：'+(err.code||err.message||'unknown');
   }
