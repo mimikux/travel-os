@@ -1080,3 +1080,99 @@ body.timeline-dragging *{
   font-size:12px;
   line-height:1.45;
 }
+
+
+/* day note card r110ar */
+.day-note-wrap{
+  margin:14px 0 22px;
+  border:1px solid rgba(183,145,77,.22);
+  border-radius:22px;
+  background:linear-gradient(135deg,rgba(255,252,245,.96),rgba(241,235,223,.88));
+  box-shadow:0 12px 30px rgba(46,58,50,.06);
+  overflow:hidden;
+}
+.day-note-wrap[hidden]{display:none!important}
+.day-note-card{
+  width:100%;
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr) 28px;
+  align-items:center;
+  gap:12px;
+  padding:15px 16px;
+  border:0;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+  cursor:pointer;
+}
+.day-note-icon{
+  width:42px;height:42px;
+  display:grid;place-items:center;
+  border-radius:14px;
+  background:rgba(183,145,77,.11);
+  color:var(--gold);
+}
+.day-note-icon svg{
+  width:22px;height:22px;
+  fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.day-note-copy{min-width:0;display:grid;gap:2px}
+.day-note-kicker{
+  font-size:11px;
+  letter-spacing:.18em;
+  font-weight:900;
+  color:var(--gold);
+}
+.day-note-copy strong{font-size:15px;line-height:1.25}
+.day-note-preview{
+  display:block;
+  max-width:100%;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  color:var(--muted);
+  font-size:14px;
+  line-height:1.45;
+}
+.day-note-chevron{
+  justify-self:end;
+  color:var(--gold);
+  font-size:20px;
+  font-weight:900;
+  transition:transform .18s ease;
+}
+.day-note-wrap.open .day-note-chevron{transform:rotate(180deg)}
+.day-note-wrap.open .day-note-preview{display:none}
+.day-note-body{
+  padding:0 16px 16px 70px;
+  border-top:1px solid rgba(183,145,77,.16);
+}
+.day-note-body[hidden]{display:none!important}
+.day-note-text{
+  padding-top:14px;
+  white-space:pre-wrap;
+  color:var(--ink);
+  font-size:14px;
+  line-height:1.75;
+}
+.day-note-edit-btn{
+  margin-top:12px;
+  padding:9px 12px;
+  border:1px solid #ded4c2;
+  border-radius:12px;
+  background:#fffdf8;
+  color:var(--green);
+  font-weight:900;
+}
+.day-note-edit-btn[hidden]{display:none!important}
+.day-note-edit-sheet textarea{
+  min-height:220px;
+  line-height:1.65;
+}
+@media(max-width:699px){
+  .day-note-wrap{margin:12px 0 20px;border-radius:20px}
+  .day-note-card{grid-template-columns:38px minmax(0,1fr) 24px;padding:14px}
+  .day-note-icon{width:38px;height:38px;border-radius:12px}
+  .day-note-body{padding:0 14px 14px 64px}
+}
