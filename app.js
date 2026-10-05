@@ -988,6 +988,7 @@ function renderAll(){
   renderBookings();
   renderBottomNavIcons();
   if(map)renderMapDay();
+  syncEditModeChrome();
 }
 
 qsa('.nav-item[data-target]').forEach(b=>b.onclick=()=>showView(b.dataset.target));
@@ -1000,6 +1001,11 @@ const openTripSheet=()=>{qs('#tripSheet').classList.add('show');qs('#sheetBackdr
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
 qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
+if(qs('#heroEditBtn')) qs('#heroEditBtn').onclick=e=>{e.stopPropagation();toggleEditMode(true)};
+qsa('.subview-edit-entry').forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleEditMode(true)});
+if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
+if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
+if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
 function closeSheet(){qs('#tripSheet').classList.remove('show');qs('#sheetBackdrop').classList.remove('show')}
 qs('#closeSheet').onclick=closeSheet;
 qs('#sheetBackdrop').onclick=closeSheet;
@@ -1216,25 +1222,33 @@ function updateEditAvailability(){
   syncTripLabels();
 }
 
+function syncEditModeChrome(){
+  const active=editMode&&canEditTrip();
+  document.documentElement.classList.toggle('editing-trip',active);
+  const toolbar=qs('#globalEditToolbar');
+  if(toolbar){
+    toolbar.hidden=!active;
+    qs('#globalEditRole').textContent=String(currentTripRole||'editor').toUpperCase();
+  }
+  const heroEntry=qs('#heroEditBtn');
+  if(heroEntry){
+    heroEntry.hidden=!canEditTrip()||active;
+    heroEntry.textContent='編輯';
+  }
+  qsa('.subview-edit-entry').forEach(btn=>{
+    btn.hidden=!canEditTrip()||active;
+    btn.textContent='編輯';
+  });
+}
 function toggleEditMode(force){
   if(!canEditTrip())return;
   editMode=typeof force==='boolean'?force:!editMode;
   renderAll();
+  syncEditModeChrome();
 }
-
 function decorateTimelineEditor(){
-  const today=qs('#todayView');
-  if(!today)return;
-  let banner=qs('#editModeBanner');
+  const old=qs('#editModeBanner');if(old)old.remove();
   if(editMode&&canEditTrip()){
-    if(!banner){
-      banner=document.createElement('div');banner.id='editModeBanner';banner.className='edit-mode-banner';
-      qs('#dayStrip')?.before(banner);
-    }
-    banner.innerHTML='<span>編輯模式 · '+escapeHtml(String(currentTripRole).toUpperCase())+'</span><span><button class="edit-chip" id="editDayBtn">編輯本日</button> <button class="edit-chip" id="addItemBtn">＋ 新增</button> <button class="edit-chip" id="doneEditBtn">完成</button></span>';
-    qs('#editDayBtn').onclick=editCurrentDay;
-    qs('#addItemBtn').onclick=()=>openItemEditor(selectedDay,null);
-    qs('#doneEditBtn').onclick=()=>toggleEditMode(false);
     qsa('#timeline .timeline-card').forEach((card,eventIndex)=>{
       const item=currentDay().events[eventIndex];
       const actions=document.createElement('div');actions.className='edit-inline-actions';
@@ -1252,7 +1266,8 @@ function decorateTimelineEditor(){
       }
       card.append(actions);
     });
-  }else if(banner){banner.remove();}
+  }
+  syncEditModeChrome();
 }
 
 function ensureItemEditor(){
@@ -1396,32 +1411,60 @@ async function deleteCurrentItem(){
 }
 
 function enableFlexibleDrag(card,handle,eventIndex){
-  let timer=null,dragging=false;
   const itemEl=card.closest('.timeline-item');
-  const cancel=()=>{if(timer){clearTimeout(timer);timer=null}};
-  const startDrag=()=>{
-    timer=null;dragging=true;
-    itemEl.draggable=true;itemEl.classList.add('drag-ready');
-    try{itemEl.focus?.()}catch(_){}
+  let timer=null,active=false,pointerId=null,startY=0,currentTarget=null;
+
+  const flexibleItems=()=>qsa('#timeline .timeline-item').filter((el,i)=>!currentDay().events[i]?.time);
+  const clearTargets=()=>qsa('#timeline .timeline-item').forEach(x=>x.classList.remove('drag-over'));
+  const reset=()=>{
+    if(timer){clearTimeout(timer);timer=null}
+    active=false;pointerId=null;currentTarget=null;
+    itemEl.classList.remove('dragging','drag-ready');
+    clearTargets();
+    document.body.classList.remove('timeline-dragging');
   };
-  handle.addEventListener('pointerdown',e=>{e.stopPropagation();cancel();timer=setTimeout(startDrag,420)});
-  handle.addEventListener('pointerup',cancel);handle.addEventListener('pointercancel',cancel);handle.addEventListener('pointerleave',()=>{if(!dragging)cancel()});
-  itemEl.addEventListener('dragstart',e=>{
-    if(!dragging){e.preventDefault();return}
-    e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(eventIndex));itemEl.classList.add('dragging');
+  const targetAt=(x,y)=>{
+    const el=document.elementFromPoint(x,y)?.closest('.timeline-item');
+    if(!el||!el.closest('#timeline'))return null;
+    const idx=qsa('#timeline .timeline-item').indexOf(el);
+    return currentDay().events[idx]?.time?null:el;
+  };
+  const begin=e=>{
+    active=true;pointerId=e.pointerId;startY=e.clientY;
+    itemEl.classList.add('drag-ready','dragging');
+    document.body.classList.add('timeline-dragging');
+    try{handle.setPointerCapture(pointerId)}catch(_){}
+    if(navigator.vibrate) navigator.vibrate(18);
+  };
+  handle.addEventListener('pointerdown',e=>{
+    e.stopPropagation();
+    if(e.button!==undefined&&e.button!==0)return;
+    startY=e.clientY;pointerId=e.pointerId;
+    timer=setTimeout(()=>begin(e),360);
   });
-  itemEl.addEventListener('dragend',()=>{dragging=false;itemEl.draggable=false;itemEl.classList.remove('dragging','drag-ready');qsa('#timeline .timeline-item').forEach(x=>x.classList.remove('drag-over'))});
-  itemEl.addEventListener('dragover',e=>{
-    const targetIndex=qsa('#timeline .timeline-item').indexOf(itemEl),target=currentDay().events[targetIndex];
-    if(target?.time)return;
-    e.preventDefault();e.dataTransfer.dropEffect='move';itemEl.classList.add('drag-over');
-  });
-  itemEl.addEventListener('dragleave',()=>itemEl.classList.remove('drag-over'));
-  itemEl.addEventListener('drop',async e=>{
-    e.preventDefault();itemEl.classList.remove('drag-over');
-    const from=Number(e.dataTransfer.getData('text/plain')),to=qsa('#timeline .timeline-item').indexOf(itemEl);
-    if(Number.isInteger(from)&&Number.isInteger(to)&&from!==to) await reorderFlexibleItem(selectedDay,from,to);
-  });
+  handle.addEventListener('pointermove',e=>{
+    if(timer&&!active&&Math.abs(e.clientY-startY)>10){clearTimeout(timer);timer=null}
+    if(!active||e.pointerId!==pointerId)return;
+    e.preventDefault();e.stopPropagation();
+    clearTargets();
+    currentTarget=targetAt(e.clientX,e.clientY);
+    if(currentTarget&&currentTarget!==itemEl) currentTarget.classList.add('drag-over');
+    const edge=70;
+    if(e.clientY<edge) window.scrollBy(0,-14);
+    else if(e.clientY>window.innerHeight-edge) window.scrollBy(0,14);
+  },{passive:false});
+  const finish=async e=>{
+    if(timer){clearTimeout(timer);timer=null}
+    if(!active){reset();return}
+    e.preventDefault();e.stopPropagation();
+    const target=currentTarget||targetAt(e.clientX,e.clientY);
+    const all=qsa('#timeline .timeline-item');
+    const from=all.indexOf(itemEl),to=target?all.indexOf(target):-1;
+    reset();
+    if(from>=0&&to>=0&&from!==to) await reorderFlexibleItem(selectedDay,from,to);
+  };
+  handle.addEventListener('pointerup',finish,{passive:false});
+  handle.addEventListener('pointercancel',reset);
 }
 
 async function reorderFlexibleItem(dayIndex,from,to){
