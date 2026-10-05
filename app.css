@@ -507,6 +507,9 @@ body.timeline-dragging .timeline-item.dragging .timeline-card{
 /* Unified corner radius: Hero / timeline cards / Today day buttons */
 :root{--travel-card-radius:18px}
 .hero-card{
+  border-radius:var(--travel-card-radius)!important;
+}
+.hero-card.hero-compact{
   border-radius:0 0 var(--travel-card-radius) var(--travel-card-radius)!important;
 }
 .timeline-card{
