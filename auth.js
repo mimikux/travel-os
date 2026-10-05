@@ -61,7 +61,7 @@
     try{
       const device=await window.TravelStore.getDevice();
       const cloudState=await window.TravelStore.getCloudState?.();
-      if(device?.device_public_id && (cloudState==="trusted_device" || cloudState?.state==="trusted_device")){
+      if(device?.device_public_id && withinIdleWindow() && (cloudState==="trusted_device" || cloudState?.state==="trusted_device")){
         setState('ready');
       }
     }catch(_){ }
@@ -81,6 +81,7 @@
     client.auth.onAuthStateChange(async (event,session)=>{
       currentSession=session||null;
       if(currentSession){
+        manualSignOut=false;
         if(state==='ready'){
           // Token refresh / tab resume: keep the app visible and re-check the trusted device silently.
           registerTrustedDevice({silent:true}).catch(()=>{});
@@ -165,6 +166,7 @@
     if(error) throw error;
     currentSession=data.session||null;
     if(currentSession){
+      manualSignOut=false;
       setState('ready');
       registerTrustedDevice({silent:true}).catch(()=>{});
     }else{
