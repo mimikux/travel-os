@@ -321,3 +321,5 @@ Later:
 - [x] 2026-10-05 Existing itinerary metadata: Google Maps URL, opening hours, closed weekdays, check timestamp, and source are persisted in Supabase and loaded back into Travel OS; closed-day warnings render on Today cards.
 
 - [x] 2026-10-05 Edit entry cleanup: remove direct Edit buttons from Today/Map headers; Owner/Editor enters edit mode only from the trip (...) menu, while the in-edit persistent toolbar remains.
+
+- [x] 2026-10-05 Hero collapse flicker fix: remove the mid-scroll 82% layout switch; Hero height, title font size, spacing, stats and weather now interpolate continuously, with compact class applied only at the final state.
