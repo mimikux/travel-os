@@ -786,10 +786,25 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     return `<span class="route-segment-label" style="left:${left.toFixed(3)}%">${label}</span>`;
   }).join('');
 
+  const realStopProgress=(()=>{
+    if(routeStopFractions.length===stops.length){
+      return routeStopFractions.map(v=>Math.max(0,Math.min(100,Number(v||0)*100)));
+    }
+    const out=[0];
+    let acc=0;
+    for(const km of seg){
+      acc+=Math.max(0,Number(km)||0);
+      out.push(Math.min(100,(acc/segTotal)*100));
+    }
+    if(out.length) out[out.length-1]=100;
+    return out;
+  })();
+
   const nodes=positions.map((p,i)=>{
     const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i+1}`);
     const edge=i===0?' edge-start':(i===positions.length-1?' edge-end':'');
-    return `<button type="button" class="route-node${i===0?' current':''}${edge}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
+    const target=Number(realStopProgress[i]??p);
+    return `<button type="button" class="route-node${i===0?' current':''}${edge}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-target="${target.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
   }).join('');
 
   el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}" data-metric="${routeMetricMode}">
@@ -803,9 +818,16 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
   qsa('.route-node').forEach(node=>{
     node.addEventListener('click',e=>{
       e.preventDefault();e.stopPropagation();
-      const willShow=!node.classList.contains('show-name');
+      clearRouteTimer();
       qsa('.route-node.show-name').forEach(other=>other.classList.remove('show-name'));
-      node.classList.toggle('show-name',willShow);
+      node.classList.add('show-name');
+
+      // Jump directly to the real route position for this stop. The ruler uses
+      // readability-adjusted visual spacing, so never use the visual left % as
+      // the car/slider target.
+      const target=Math.max(0,Math.min(100,Number(node.dataset.routeTarget||0)));
+      if(qs('#routeSlider')) qs('#routeSlider').value=target;
+      updateRouteAt(target);
     });
     node.addEventListener('focus',()=>node.classList.add('show-name'));
     node.addEventListener('blur',()=>node.classList.remove('show-name'));
@@ -817,13 +839,35 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
 
 function updateRouteScaleProgress(v){
   const pct=Math.max(0,Math.min(100,Number(v)||0));
-  const progress=qs('.route-track-progress');
-  if(progress) progress.style.width=`${pct}%`;
   const nodes=qsa('.route-node');
   let current=-1;
+
+  // Convert real route progress to the ruler's adjusted visual position so the
+  // fill, active node and car stay synchronized even when short legs are widened.
+  let visualPct=pct;
+  if(nodes.length>=2){
+    const target=nodes.map(node=>Math.max(0,Math.min(100,Number(node.dataset.routeTarget||0))));
+    const visual=nodes.map(node=>Math.max(0,Math.min(100,Number(node.dataset.routeProgress||0))));
+    if(pct<=target[0]) visualPct=visual[0];
+    else if(pct>=target[target.length-1]) visualPct=visual[visual.length-1];
+    else{
+      for(let i=0;i<target.length-1;i++){
+        if(pct<=target[i+1]+0.0001){
+          const span=Math.max(0.0001,target[i+1]-target[i]);
+          const f=Math.max(0,Math.min(1,(pct-target[i])/span));
+          visualPct=visual[i]+(visual[i+1]-visual[i])*f;
+          break;
+        }
+      }
+    }
+  }
+
+  const progress=qs('.route-track-progress');
+  if(progress) progress.style.width=`${visualPct}%`;
+
   nodes.forEach((node,i)=>{
-    const p=Number(node.dataset.routeProgress||0);
-    const passed=p<=pct+0.001;
+    const target=Number(node.dataset.routeTarget||0);
+    const passed=target<=pct+0.001;
     node.classList.toggle('passed',passed);
     if(passed) current=i;
     node.classList.remove('current');
