@@ -1832,6 +1832,7 @@ function ensureItemEditor(){
         <label><span>名稱</span><input id="editItemName" required></label>
       </div>
       <label class="uncertain-row"><input id="editItemUncertain" type="checkbox"><span>不確定</span><small>可能不會去；不列入地圖、里程與駕車時間</small></label>
+      <label id="stayReservationLinkRow"><span>住宿預訂連動</span><select id="editItemReservation"><option value="">不連動預訂</option></select><small class="field-help">連動後，名稱以每日行程為準；地址、GPS、Google Maps 由住宿預訂共用。</small></label>
       <label><span>副標題</span><input id="editItemSubtitle"></label>
       <label><span>備註</span><textarea id="editItemNote"></textarea></label>
       <label><span>景點介紹</span><textarea id="editItemIntro"></textarea></label>
@@ -1853,6 +1854,10 @@ function ensureItemEditor(){
   qs('#itemEditForm').onsubmit=saveItemEditor;
   qs('#deleteItemBtn').onclick=deleteCurrentItem;
   qs('#importMapBtn').onclick=importGoogleMapIntoEditor;
+  qs('#editItemType').onchange=()=>{
+    const row=qs('#stayReservationLinkRow');
+    if(row) row.hidden=qs('#editItemType').value!=='stay';
+  };
   return sheet;
 }
 
@@ -1867,6 +1872,11 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemType').value=event?.type||'spot';
   qs('#editItemName').value=event?.title||'';
   qs('#editItemUncertain').checked=Boolean(event?.uncertain);
+  const reservationSelect=qs('#editItemReservation');
+  const stayBookings=(TRIP.bookings||[]).map((b,i)=>({b,i})).filter(x=>x.b?.type==='stay');
+  reservationSelect.innerHTML='<option value="">不連動預訂</option>'+stayBookings.map(({b})=>`<option value="${escapeHtml(b.id||'')}">${escapeHtml(b.title||'住宿預訂')}</option>`).join('');
+  reservationSelect.value=event?.reservationId||'';
+  qs('#stayReservationLinkRow').hidden=(event?.type||'spot')!=='stay';
   qs('#editItemSubtitle').value=event?.subtitle||'';
   qs('#editItemNote').value=event?.note||'';
   qs('#editItemIntro').value=event?.details?.intro||'';
@@ -1962,11 +1972,13 @@ async function saveItemEditor(e){
     time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
-    address:qs('#editItemAddress').value.trim(),
-    lat:qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value),
-    lng:qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value),navQuery:qs('#editItemNav').value.trim(),
-    googleMapsUrl:qs('#editItemMapUrl').value.trim(),
-    googleMapsResolvedUrl:qs('#editItemMapUrl').dataset.resolvedUrl||'',
+    reservationId:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?qs('#editItemReservation').value:null,
+    address:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemAddress').value.trim(),
+    lat:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?null:(qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value)),
+    lng:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?null:(qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value)),
+    navQuery:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemNav').value.trim(),
+    googleMapsUrl:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemMapUrl').value.trim(),
+    googleMapsResolvedUrl:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':(qs('#editItemMapUrl').dataset.resolvedUrl||''),
     openingHours:JSON.parse(qs('#editItemMapUrl').dataset.openingHours||'[]'),
     closedWeekdays:JSON.parse(qs('#editItemMapUrl').dataset.closedWeekdays||'[]'),
     hoursSource:qs('#editItemMapUrl').dataset.hoursSource||null,
@@ -2234,7 +2246,13 @@ function ensureBookingEditor(){
       <label><span>名稱</span><input id="editBookingName" required></label>
       <label><span>Provider</span><input id="editBookingProvider"></label>
       <label><span>日期摘要</span><input id="editBookingSummary" placeholder="11/22 → 11/25"></label>
+      <div class="edit-form-grid"><label><span>入住日期</span><input id="editBookingStartDate" type="date"></label><label><span>退房日期</span><input id="editBookingEndDate" type="date"></label></div>
       <label><span>地點 / Meta</span><input id="editBookingLocation"></label>
+      <label><span>地址</span><input id="editBookingAddress" autocomplete="street-address"></label>
+      <div class="edit-form-grid"><label><span>Latitude</span><input id="editBookingLat" type="number" step="any"></label><label><span>Longitude</span><input id="editBookingLng" type="number" step="any"></label></div>
+      <label><span>Google Maps 連結</span><div class="map-import-row"><input id="editBookingMapUrl" inputmode="url" placeholder="住宿地址只需在預訂輸入一次"><button type="button" class="edit-chip map-import-btn" id="importBookingMapBtn">帶入</button></div></label>
+      <p class="edit-status map-import-status" id="bookingMapImportStatus"></p>
+      <label><span>導航搜尋（可留空）</span><input id="editBookingNav"></label>
       <div class="edit-form-grid"><label><span>Confirmation</span><input id="editBookingCode"></label><label><span>PIN</span><input id="editBookingPin"></label></div>
       <label><span>私人備註</span><textarea id="editBookingNotes"></textarea></label>
       <label><span>取消條款</span><textarea id="editBookingCancel"></textarea></label>
@@ -2243,7 +2261,7 @@ function ensureBookingEditor(){
     </form>`;
   document.body.append(backdrop,sheet);
   const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show')};
-  qs('#closeBookingEdit').onclick=close;backdrop.onclick=close;qs('#bookingEditForm').onsubmit=saveBookingEditor;qs('#deleteBookingBtn').onclick=deleteCurrentBooking;
+  qs('#closeBookingEdit').onclick=close;backdrop.onclick=close;qs('#bookingEditForm').onsubmit=saveBookingEditor;qs('#deleteBookingBtn').onclick=deleteCurrentBooking;qs('#importBookingMapBtn').onclick=importGoogleMapIntoBookingEditor;
   return sheet;
 }
 
@@ -2255,10 +2273,40 @@ function openBookingEditor(idx){
   qs('#editBookingType').value=b?.type||'stay';qs('#editBookingStatus').value=b?.status||'confirmed';
   qs('#editBookingName').value=b?.title||'';qs('#editBookingProvider').value=b?.provider||'';
   qs('#editBookingSummary').value=b?.dates||'';qs('#editBookingLocation').value=raw.location_name||b?.meta||'';
+  qs('#editBookingStartDate').value=raw.starts_at?String(raw.starts_at).slice(0,10):'';
+  qs('#editBookingEndDate').value=raw.ends_at?String(raw.ends_at).slice(0,10):'';
+  qs('#editBookingAddress').value=raw.address||'';
+  qs('#editBookingLat').value=Number.isFinite(raw.latitude)?raw.latitude:'';
+  qs('#editBookingLng').value=Number.isFinite(raw.longitude)?raw.longitude:'';
+  qs('#editBookingMapUrl').value=raw.google_maps_url||'';
+  qs('#editBookingMapUrl').dataset.resolvedUrl=raw.google_maps_resolved_url||'';
+  qs('#editBookingNav').value=raw.nav_query||'';
+  qs('#bookingMapImportStatus').textContent='';
   qs('#editBookingCode').value=b?.code==='—'?'':(b?.code||'');qs('#editBookingPin').value=b?.secret||'';
   qs('#editBookingNotes').value=b?.notice||'';qs('#editBookingCancel').value=raw.cancellation_policy||'';
   qs('#deleteBookingBtn').hidden=!b;qs('#bookingEditStatus').textContent='';
   qs('#bookingEditBackdrop').classList.add('show');sheet.classList.add('show');
+}
+
+async function importGoogleMapIntoBookingEditor(){
+  const input=qs('#editBookingMapUrl'),status=qs('#bookingMapImportStatus');
+  const url=input?.value.trim();
+  if(!url){status.textContent='請先貼上 Google Maps 連結。';return}
+  status.textContent='解析 Google Maps 連結中…';
+  try{
+    const data=await travelEditor('resolve_google_map',{url});
+    if(!data?.ok) throw new Error(data?.error||'map_resolve_failed');
+    if(data.address) qs('#editBookingAddress').value=data.address;
+    if(Number.isFinite(data.lat)) qs('#editBookingLat').value=data.lat;
+    if(Number.isFinite(data.lng)) qs('#editBookingLng').value=data.lng;
+    if(data.navQuery) qs('#editBookingNav').value=data.navQuery;
+    input.dataset.resolvedUrl=data.finalUrl||'';
+    const name=qs('#editBookingName');
+    if(name&&!name.value.trim()&&data.name) name.value=data.name;
+    status.textContent='已帶入住宿地址、GPS 與導航資料。';
+  }catch(err){
+    status.textContent='解析失敗，已保留原始連結：'+(err.code||err.message||'unknown');
+  }
 }
 
 async function saveBookingEditor(e){
@@ -2267,7 +2315,13 @@ async function saveBookingEditor(e){
     id:qs('#editBookingId').value||null,baseVersion:Number(qs('#editBookingVersion').value)||0,
     type:qs('#editBookingType').value,status:qs('#editBookingStatus').value,title:qs('#editBookingName').value.trim(),
     provider:qs('#editBookingProvider').value.trim(),summary:qs('#editBookingSummary').value.trim(),
-    locationName:qs('#editBookingLocation').value.trim(),confirmationCode:qs('#editBookingCode').value.trim(),
+    startsAt:qs('#editBookingStartDate').value||null,endsAt:qs('#editBookingEndDate').value||null,
+    locationName:qs('#editBookingLocation').value.trim(),address:qs('#editBookingAddress').value.trim(),
+    lat:qs('#editBookingLat').value===''?null:Number(qs('#editBookingLat').value),
+    lng:qs('#editBookingLng').value===''?null:Number(qs('#editBookingLng').value),
+    navQuery:qs('#editBookingNav').value.trim(),googleMapsUrl:qs('#editBookingMapUrl').value.trim(),
+    googleMapsResolvedUrl:qs('#editBookingMapUrl').dataset.resolvedUrl||'',
+    confirmationCode:qs('#editBookingCode').value.trim(),
     pinCode:qs('#editBookingPin').value.trim(),privateNotes:qs('#editBookingNotes').value.trim(),
     cancellationPolicy:qs('#editBookingCancel').value.trim(),sourceType:'manual'
   };
