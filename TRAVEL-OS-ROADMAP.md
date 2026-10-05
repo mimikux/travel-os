@@ -344,3 +344,5 @@ Later:
 - [x] 2026-10-05 Flexible itinerary drag r110ac: floating card now preserves the exact finger/handle grab offset instead of snapping the finger to the card edge; long-press suppresses text selection; live insertion placeholder physically opens a card-sized gap so surrounding flexible cards move aside before drop.
 
 - [x] 2026-10-05 Drag/navigation r110ad: flexible cards may now use fixed-time cards as insertion anchors, so surrounding cards can visibly open a drop gap anywhere in the timeline while fixed-time cards themselves remain non-draggable. Navigation buttons now render for manually added/edited places whenever nav query, address, Google Maps URL/resolved URL, or coordinates exist; navigation uses nav query -> address -> coordinates -> title fallback.
+
+- [x] 2026-10-05 Drag reorder r110ae: fixed-time cards were accepted visually as drop anchors but reorderFlexibleItem still rejected targets that had a time, causing the card to snap back after drop. Removed that stale guard; flexible items can now be inserted before/after fixed-time cards and persist via reorder_items.
