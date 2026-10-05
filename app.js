@@ -1189,7 +1189,12 @@ async function travelEditor(action,payload={}){
     deviceSecret:device.device_secret,
     action,...payload
   }});
-  if(error) throw error;
+  if(error){
+    let body=null;
+    try{ body=error.context?await error.context.clone().json():null; }catch(_){}
+    const code=body?.error||error.code||'edge_function_error';
+    const e=new Error(code);e.code=code;e.currentVersion=body?.currentVersion;e.status=error.context?.status;throw e;
+  }
   if(data?.error){
     const e=new Error(data.error);e.code=data.error;e.currentVersion=data.currentVersion;throw e;
   }
@@ -1231,11 +1236,21 @@ function decorateTimelineEditor(){
     qs('#addItemBtn').onclick=()=>openItemEditor(selectedDay,null);
     qs('#doneEditBtn').onclick=()=>toggleEditMode(false);
     qsa('#timeline .timeline-card').forEach((card,eventIndex)=>{
+      const item=currentDay().events[eventIndex];
       const actions=document.createElement('div');actions.className='edit-inline-actions';
       const edit=document.createElement('button');edit.className='edit-chip';edit.textContent='✎ 編輯';edit.onclick=e=>{e.stopPropagation();openItemEditor(selectedDay,eventIndex)};
-      const up=document.createElement('button');up.className='edit-chip';up.textContent='↑';up.disabled=eventIndex===0;up.onclick=e=>{e.stopPropagation();moveItem(selectedDay,eventIndex,-1)};
-      const down=document.createElement('button');down.className='edit-chip';down.textContent='↓';down.disabled=eventIndex===currentDay().events.length-1;down.onclick=e=>{e.stopPropagation();moveItem(selectedDay,eventIndex,1)};
-      actions.append(edit,up,down);card.append(actions);
+      actions.append(edit);
+      if(!item?.time){
+        const drag=document.createElement('button');
+        drag.type='button';drag.className='edit-chip drag-handle';drag.textContent='☰ 長按拖曳';
+        drag.title='無固定時間，可長按拖曳排序';
+        enableFlexibleDrag(card,drag,eventIndex);
+        actions.append(drag);
+      }else{
+        const fixed=document.createElement('span');fixed.className='fixed-time-hint';fixed.textContent='固定時間 · 自動排序';
+        actions.append(fixed);
+      }
+      card.append(actions);
     });
   }else if(banner){banner.remove();}
 }
@@ -1318,8 +1333,23 @@ async function saveItemEditor(e){
     qs('#itemEditSheet').classList.remove('show');qs('#itemEditBackdrop').classList.remove('show');
     selectedDay=dayIndex;await hydratePrivateCloudData();
   }catch(err){
-    qs('#itemEditStatus').textContent=err.code==='version_conflict'?'資料已被其他人更新，正在重新載入…':'儲存失敗：'+err.message;
-    if(err.code==='version_conflict')await hydratePrivateCloudData();
+    if(err.code==='version_conflict'){
+      qs('#itemEditStatus').textContent='資料已被其他人更新，正在重新載入…';
+      await hydratePrivateCloudData();return;
+    }
+    qs('#itemEditStatus').textContent='正在確認伺服器是否已儲存…';
+    try{
+      await hydratePrivateCloudData();
+      const saved=TRIP.days?.[dayIndex]?.events?.some(x=>
+        (item.id&&x.id===item.id)||(!item.id&&x.title===item.title&&String(x.time||'')===String(item.time||''))
+      );
+      if(saved){
+        qs('#itemEditStatus').textContent='已儲存。';
+        setTimeout(()=>{qs('#itemEditSheet')?.classList.remove('show');qs('#itemEditBackdrop')?.classList.remove('show')},250);
+        return;
+      }
+    }catch(_){}
+    qs('#itemEditStatus').textContent='儲存失敗：'+(err.code||err.message);
   }
 }
 
@@ -1334,13 +1364,42 @@ async function deleteCurrentItem(){
   }catch(err){qs('#itemEditStatus').textContent='刪除失敗：'+err.message}
 }
 
-async function moveItem(dayIndex,eventIndex,delta){
-  const day=TRIP.days[dayIndex],target=eventIndex+delta;
-  if(!day?.id||target<0||target>=day.events.length)return;
-  const ids=day.events.map(e=>e.id);
-  if(ids.some(id=>!id))return;
-  [ids[eventIndex],ids[target]]=[ids[target],ids[eventIndex]];
-  try{await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});await hydratePrivateCloudData()}catch(err){alert('排序失敗：'+err.message)}
+function enableFlexibleDrag(card,handle,eventIndex){
+  let timer=null,dragging=false;
+  const itemEl=card.closest('.timeline-item');
+  const cancel=()=>{if(timer){clearTimeout(timer);timer=null}};
+  const startDrag=()=>{
+    timer=null;dragging=true;
+    itemEl.draggable=true;itemEl.classList.add('drag-ready');
+    try{itemEl.focus?.()}catch(_){}
+  };
+  handle.addEventListener('pointerdown',e=>{e.stopPropagation();cancel();timer=setTimeout(startDrag,420)});
+  handle.addEventListener('pointerup',cancel);handle.addEventListener('pointercancel',cancel);handle.addEventListener('pointerleave',()=>{if(!dragging)cancel()});
+  itemEl.addEventListener('dragstart',e=>{
+    if(!dragging){e.preventDefault();return}
+    e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(eventIndex));itemEl.classList.add('dragging');
+  });
+  itemEl.addEventListener('dragend',()=>{dragging=false;itemEl.draggable=false;itemEl.classList.remove('dragging','drag-ready');qsa('#timeline .timeline-item').forEach(x=>x.classList.remove('drag-over'))});
+  itemEl.addEventListener('dragover',e=>{
+    const targetIndex=qsa('#timeline .timeline-item').indexOf(itemEl),target=currentDay().events[targetIndex];
+    if(target?.time)return;
+    e.preventDefault();e.dataTransfer.dropEffect='move';itemEl.classList.add('drag-over');
+  });
+  itemEl.addEventListener('dragleave',()=>itemEl.classList.remove('drag-over'));
+  itemEl.addEventListener('drop',async e=>{
+    e.preventDefault();itemEl.classList.remove('drag-over');
+    const from=Number(e.dataTransfer.getData('text/plain')),to=qsa('#timeline .timeline-item').indexOf(itemEl);
+    if(Number.isInteger(from)&&Number.isInteger(to)&&from!==to) await reorderFlexibleItem(selectedDay,from,to);
+  });
+}
+
+async function reorderFlexibleItem(dayIndex,from,to){
+  const day=TRIP.days[dayIndex],source=day?.events?.[from],target=day?.events?.[to];
+  if(!day?.id||!source||!target||source.time||target.time)return;
+  const ids=day.events.map(e=>e.id);if(ids.some(id=>!id))return;
+  const [moved]=ids.splice(from,1);ids.splice(to,0,moved);
+  try{await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});await hydratePrivateCloudData()}
+  catch(err){alert('排序失敗：'+(err.code||err.message))}
 }
 
 async function editCurrentDay(){
