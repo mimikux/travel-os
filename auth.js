@@ -95,24 +95,25 @@
         setState('ready');
       }
     }else if(state!=='ready') setState('signed_out');
-    client.auth.onAuthStateChange(async (event,session)=>{
+    client.auth.onAuthStateChange((event,session)=>{
       currentSession=session||null;
       if(currentSession){
         manualSignOut=false;
         if(!cfg.tripSlug){
           setState('ready');
-        }else if(state==='ready'){
-          registerTrustedDevice({silent:true}).catch(()=>{});
         }else{
-          setState('registering_device');
-          await registerTrustedDevice();
+          const silent=state==='ready';
+          if(!silent) setState('registering_device');
+          // Supabase documents that awaiting another Supabase API call inside
+          // onAuthStateChange can deadlock. Defer the bootstrap outside the callback.
+          setTimeout(()=>{
+            registerTrustedDevice({silent}).catch(()=>{});
+          },0);
         }
       }else if(manualSignOut || !withinIdleWindow()){
         setState('signed_out');
       }else if(event==='SIGNED_OUT'){
-        // Avoid a misleading login flash during browser background/foreground transitions.
-        // A real missing session will be resolved by resumeSessionCheck below.
-        resumeSessionCheck().catch(()=>{});
+        setTimeout(()=>{resumeSessionCheck().catch(()=>{})},0);
       }
     });
     return snapshot();
