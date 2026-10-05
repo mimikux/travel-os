@@ -267,6 +267,10 @@ function syncTripLabels(){
   const title=currentTripTitle();
   qsa('[data-trip-title]').forEach(el=>el.textContent=title);
   const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripSlug?title:'Travel OS';
+  const dateSummary=qs('#tripDateSummary');
+  if(dateSummary) dateSummary.textContent=[TRIP?.startDate||TRIP?.days?.[0]?.date,TRIP?.endDate||TRIP?.days?.at(-1)?.date].filter(Boolean).join(' → ')||'—';
+  const roleSummary=qs('#tripRoleSummary'); if(roleSummary) roleSummary.textContent=String(currentTripRole||TRIP?.role||'viewer').toUpperCase();
+  const syncSummary=qs('#tripSyncSummary'); if(syncSummary) syncSummary.textContent=cloudLoaded?'Cloud synced':'Offline cache';
   document.title=window.TRAVEL_CONFIG?.tripSlug?`${title} · Travel OS`:'Travel OS';
 }
 
@@ -1040,6 +1044,7 @@ async function hydratePrivateCloudData(){
     mapSelectedDays=new Set(TRIP.days.length?[selectedDay]:[]);
     await window.TravelStore?.replaceTrip?.({...data,bookings:normalized.bookings});
     syncTripLabels();
+    updateDemoModeUI();
     renderAll();
     updateEditAvailability();
   }catch(err){
