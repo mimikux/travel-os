@@ -211,7 +211,12 @@ function syncToReferenceTripDay(forceDemo=false){
 
 function qs(s){return document.querySelector(s)}
 function qsa(s){return [...document.querySelectorAll(s)]}
-function currentDay(){return TRIP.days[selectedDay]}
+function currentDay(){
+  return TRIP.days?.[selectedDay]||{
+    id:null,label:'D0',date:TRIP.startDate||new Date().toISOString().slice(0,10),
+    name:'尚未建立行程',short:'',km:0,drive:'0m',driveMinutes:0,events:[]
+  };
+}
 function validCoord(e){return Number.isFinite(e.lat)&&Number.isFinite(e.lng)}
 
 function iconSVG(name,cls=''){
@@ -429,6 +434,7 @@ function renderToday(){
   qs('#timeline').innerHTML=d.events.map((e,eventIndex)=>`<div class="timeline-item"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${validCoord(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();showView(\'booking\')">預訂資料</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div><div class="code-pill">已確認</div></div><p style="margin-top:10px">${stay.note||''}</p></div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
+  decorateTimelineEditor();
   refreshTodayRouteStats(dayIndex);
   refreshHeroWeather(dayIndex);
 }
@@ -787,6 +793,7 @@ function renderBookings(){
   const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>currentFilter==='all'||b.type===currentFilter);
   qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${b.provider}</div><h3>${b.title}</h3><div class="booking-dates">${b.dates}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${b.meta}</div><div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
   renderBookingIcons();
+  decorateBookingEditor(list);
   qsa('.expandable-booking').forEach((card,visualIndex)=>{
     const item=list[visualIndex];
     if(!item?.b?.details)return;
@@ -1101,6 +1108,256 @@ async function renderTripSwitchList(){
     host.innerHTML='<div class="section-kicker">SWITCH TRIP</div>'+trips.map(t=>`<button class="sheet-action-card" data-switch-trip="${escapeHtml(t.slug)}"><span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong></span><span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'✓':'→'}</span></button>`).join('');
     host.querySelectorAll('[data-switch-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.switchTrip!==window.TRAVEL_CONFIG.tripSlug)location.href=tripHref(btn.dataset.switchTrip)});
   }catch(err){host.innerHTML='<p class="member-status">無法讀取旅程清單。</p>'}
+}
+
+
+async function travelEditor(action,payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const device=await window.TravelStore.getDevice();
+  const {data,error}=await client.functions.invoke('travel-editor',{body:{
+    tripSlug:window.TRAVEL_CONFIG.tripSlug,
+    devicePublicId:device.device_public_id,
+    deviceSecret:device.device_secret,
+    action,...payload
+  }});
+  if(error) throw error;
+  if(data?.error){
+    const e=new Error(data.error);e.code=data.error;e.currentVersion=data.currentVersion;throw e;
+  }
+  return data;
+}
+
+function canEditTrip(){return currentTripRole==='owner'||currentTripRole==='editor'}
+
+function updateEditAvailability(){
+  let btn=qs('#editModeBtn');
+  if(!btn&&qs('#membersBtn')){
+    btn=document.createElement('button');
+    btn.id='editModeBtn';btn.type='button';btn.className='sheet-action-card';
+    btn.innerHTML='<span><small>ITINERARY</small><strong>編輯行程</strong></span><span>→</span>';
+    qs('#membersBtn').before(btn);
+    btn.onclick=()=>{closeSheet();toggleEditMode();};
+  }
+  if(btn) btn.hidden=!canEditTrip();
+  syncTripLabels();
+}
+
+function toggleEditMode(force){
+  if(!canEditTrip())return;
+  editMode=typeof force==='boolean'?force:!editMode;
+  renderAll();
+}
+
+function decorateTimelineEditor(){
+  const today=qs('#todayView');
+  if(!today)return;
+  let banner=qs('#editModeBanner');
+  if(editMode&&canEditTrip()){
+    if(!banner){
+      banner=document.createElement('div');banner.id='editModeBanner';banner.className='edit-mode-banner';
+      qs('#dayStrip')?.before(banner);
+    }
+    banner.innerHTML='<span>編輯模式 · '+escapeHtml(String(currentTripRole).toUpperCase())+'</span><span><button class="edit-chip" id="editDayBtn">編輯本日</button> <button class="edit-chip" id="addItemBtn">＋ 新增</button> <button class="edit-chip" id="doneEditBtn">完成</button></span>';
+    qs('#editDayBtn').onclick=editCurrentDay;
+    qs('#addItemBtn').onclick=()=>openItemEditor(selectedDay,null);
+    qs('#doneEditBtn').onclick=()=>toggleEditMode(false);
+    qsa('#timeline .timeline-card').forEach((card,eventIndex)=>{
+      const actions=document.createElement('div');actions.className='edit-inline-actions';
+      const edit=document.createElement('button');edit.className='edit-chip';edit.textContent='✎ 編輯';edit.onclick=e=>{e.stopPropagation();openItemEditor(selectedDay,eventIndex)};
+      const up=document.createElement('button');up.className='edit-chip';up.textContent='↑';up.disabled=eventIndex===0;up.onclick=e=>{e.stopPropagation();moveItem(selectedDay,eventIndex,-1)};
+      const down=document.createElement('button');down.className='edit-chip';down.textContent='↓';down.disabled=eventIndex===currentDay().events.length-1;down.onclick=e=>{e.stopPropagation();moveItem(selectedDay,eventIndex,1)};
+      actions.append(edit,up,down);card.append(actions);
+    });
+  }else if(banner){banner.remove();}
+}
+
+function ensureItemEditor(){
+  let sheet=qs('#itemEditSheet');
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='itemEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet';sheet.id='itemEditSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">ITINERARY EDITOR</span><h2 id="itemEditTitle">新增行程</h2></div><button class="round-btn" id="closeItemEdit">×</button></div>
+    <form class="edit-form" id="itemEditForm">
+      <input type="hidden" id="editItemId"><input type="hidden" id="editItemVersion">
+      <div class="edit-form-grid">
+        <label><span>日期</span><select id="editItemDay"></select></label>
+        <label><span>時間</span><input id="editItemTime" type="time"></label>
+      </div>
+      <div class="edit-form-grid">
+        <label><span>類型</span><select id="editItemType"><option value="spot">景點</option><option value="drive">移動</option><option value="stay">住宿</option><option value="food">餐食</option><option value="tour">Tour</option><option value="flight">航班</option><option value="car">租車</option><option value="shop">補給</option><option value="plan">備案</option><option value="other">其他</option></select></label>
+        <label><span>名稱</span><input id="editItemName" required></label>
+      </div>
+      <label><span>副標題</span><input id="editItemSubtitle"></label>
+      <label><span>備註</span><textarea id="editItemNote"></textarea></label>
+      <label><span>景點介紹</span><textarea id="editItemIntro"></textarea></label>
+      <label><span>注意事項（每行一項）</span><textarea id="editItemTips"></textarea></label>
+      <div class="edit-form-grid">
+        <label><span>Latitude</span><input id="editItemLat" type="number" step="any"></label>
+        <label><span>Longitude</span><input id="editItemLng" type="number" step="any"></label>
+      </div>
+      <label><span>導航搜尋（可留空）</span><input id="editItemNav"></label>
+      <div class="edit-form-actions"><button type="button" class="edit-delete" id="deleteItemBtn">刪除</button><button type="submit" class="edit-save">儲存</button></div>
+      <p class="edit-status" id="itemEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeItemEdit').onclick=close;backdrop.onclick=close;
+  qs('#itemEditForm').onsubmit=saveItemEditor;
+  qs('#deleteItemBtn').onclick=deleteCurrentItem;
+  return sheet;
+}
+
+function openItemEditor(dayIndex,eventIndex){
+  if(!canEditTrip())return;
+  const sheet=ensureItemEditor(),event=eventIndex===null?null:TRIP.days[dayIndex]?.events?.[eventIndex];
+  qs('#itemEditTitle').textContent=event?'編輯行程':'新增行程';
+  qs('#editItemDay').innerHTML=TRIP.days.map((d,i)=>`<option value="${i}">${escapeHtml(d.label)} · ${escapeHtml(d.date)} · ${escapeHtml(d.name)}</option>`).join('');
+  qs('#editItemDay').value=String(dayIndex);
+  qs('#editItemId').value=event?.id||'';
+  qs('#editItemVersion').value=event?.version||'';
+  qs('#editItemTime').value=event?.time||'';
+  qs('#editItemType').value=event?.type||'spot';
+  qs('#editItemName').value=event?.title||'';
+  qs('#editItemSubtitle').value=event?.subtitle||'';
+  qs('#editItemNote').value=event?.note||'';
+  qs('#editItemIntro').value=event?.details?.intro||'';
+  qs('#editItemTips').value=(event?.details?.tips||[]).join('\n');
+  qs('#editItemLat').value=Number.isFinite(event?.lat)?event.lat:'';
+  qs('#editItemLng').value=Number.isFinite(event?.lng)?event.lng:'';
+  qs('#editItemNav').value=event?.navQuery||'';
+  qs('#deleteItemBtn').hidden=!event;
+  qs('#itemEditStatus').textContent='';
+  qs('#itemEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+
+async function saveItemEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#editItemDay').value),day=TRIP.days[dayIndex];
+  const item={
+    id:qs('#editItemId').value||null,baseVersion:Number(qs('#editItemVersion').value)||0,dayId:day.id,
+    time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
+    subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
+    tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
+    lat:qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value),
+    lng:qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value),navQuery:qs('#editItemNav').value.trim()
+  };
+  qs('#itemEditStatus').textContent='儲存中…';
+  try{
+    await travelEditor('save_item',{item});
+    qs('#itemEditSheet').classList.remove('show');qs('#itemEditBackdrop').classList.remove('show');
+    selectedDay=dayIndex;await hydratePrivateCloudData();
+  }catch(err){
+    qs('#itemEditStatus').textContent=err.code==='version_conflict'?'資料已被其他人更新，正在重新載入…':'儲存失敗：'+err.message;
+    if(err.code==='version_conflict')await hydratePrivateCloudData();
+  }
+}
+
+async function deleteCurrentItem(){
+  const id=qs('#editItemId').value;if(!id)return;
+  if(!confirm('刪除這筆行程？'))return;
+  qs('#itemEditStatus').textContent='刪除中…';
+  try{
+    await travelEditor('delete_item',{id,baseVersion:Number(qs('#editItemVersion').value)||0});
+    qs('#itemEditSheet').classList.remove('show');qs('#itemEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){qs('#itemEditStatus').textContent='刪除失敗：'+err.message}
+}
+
+async function moveItem(dayIndex,eventIndex,delta){
+  const day=TRIP.days[dayIndex],target=eventIndex+delta;
+  if(!day?.id||target<0||target>=day.events.length)return;
+  const ids=day.events.map(e=>e.id);
+  if(ids.some(id=>!id))return;
+  [ids[eventIndex],ids[target]]=[ids[target],ids[eventIndex]];
+  try{await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});await hydratePrivateCloudData()}catch(err){alert('排序失敗：'+err.message)}
+}
+
+async function editCurrentDay(){
+  const d=currentDay();if(!d?.id)return;
+  const name=prompt('當日標題',d.name);if(name===null)return;
+  const date=prompt('日期 YYYY-MM-DD',d.date);if(date===null)return;
+  const short=prompt('摘要 / 路線',d.short||'');if(short===null)return;
+  try{
+    await travelEditor('save_day',{day:{id:d.id,baseVersion:d.version,date,label:d.label,name,short,heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,sunrise:d.sunrise,sunset:d.sunset}});
+    await hydratePrivateCloudData();
+  }catch(err){alert(err.code==='version_conflict'?'本日資料已被其他人更新，請再試一次。':'更新失敗：'+err.message)}
+}
+
+function decorateBookingEditor(list){
+  if(!editMode||!canEditTrip())return;
+  const summary=qs('.booking-summary');
+  if(summary&&!qs('#addBookingBtn')){
+    const btn=document.createElement('button');btn.id='addBookingBtn';btn.className='edit-chip';btn.textContent='＋ 新增預訂';btn.onclick=()=>openBookingEditor(null);summary.append(btn);
+  }
+  qsa('.booking-card').forEach((card,visualIndex)=>{
+    const item=list[visualIndex];if(!item)return;
+    const actions=document.createElement('div');actions.className='edit-inline-actions';
+    const edit=document.createElement('button');edit.className='edit-chip';edit.textContent='✎ 編輯預訂';edit.onclick=e=>{e.stopPropagation();openBookingEditor(item.idx)};
+    actions.append(edit);card.append(actions);
+  });
+}
+
+function ensureBookingEditor(){
+  let sheet=qs('#bookingEditSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='bookingEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet';sheet.id='bookingEditSheet';
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div><div class="sheet-title"><div><span class="section-kicker">BOOKING EDITOR</span><h2 id="bookingEditTitle">新增預訂</h2></div><button class="round-btn" id="closeBookingEdit">×</button></div>
+    <form class="edit-form" id="bookingEditForm">
+      <input type="hidden" id="editBookingId"><input type="hidden" id="editBookingVersion">
+      <div class="edit-form-grid"><label><span>類型</span><select id="editBookingType"><option value="stay">住宿</option><option value="flight">航班</option><option value="car">租車</option><option value="tour">Tour</option><option value="other">其他</option></select></label><label><span>狀態</span><select id="editBookingStatus"><option value="confirmed">confirmed</option><option value="planned">planned</option><option value="cancelled">cancelled</option></select></label></div>
+      <label><span>名稱</span><input id="editBookingName" required></label>
+      <label><span>Provider</span><input id="editBookingProvider"></label>
+      <label><span>日期摘要</span><input id="editBookingSummary" placeholder="11/22 → 11/25"></label>
+      <label><span>地點 / Meta</span><input id="editBookingLocation"></label>
+      <div class="edit-form-grid"><label><span>Confirmation</span><input id="editBookingCode"></label><label><span>PIN</span><input id="editBookingPin"></label></div>
+      <label><span>私人備註</span><textarea id="editBookingNotes"></textarea></label>
+      <label><span>取消條款</span><textarea id="editBookingCancel"></textarea></label>
+      <div class="edit-form-actions"><button type="button" class="edit-delete" id="deleteBookingBtn">刪除</button><button type="submit" class="edit-save">儲存</button></div>
+      <p class="edit-status" id="bookingEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show')};
+  qs('#closeBookingEdit').onclick=close;backdrop.onclick=close;qs('#bookingEditForm').onsubmit=saveBookingEditor;qs('#deleteBookingBtn').onclick=deleteCurrentBooking;
+  return sheet;
+}
+
+function openBookingEditor(idx){
+  if(!canEditTrip())return;
+  const sheet=ensureBookingEditor(),b=idx===null?null:TRIP.bookings[idx],raw=b?._raw||{};
+  qs('#bookingEditTitle').textContent=b?'編輯預訂':'新增預訂';
+  qs('#editBookingId').value=b?.id||'';qs('#editBookingVersion').value=b?.version||'';
+  qs('#editBookingType').value=b?.type||'stay';qs('#editBookingStatus').value=b?.status||'confirmed';
+  qs('#editBookingName').value=b?.title||'';qs('#editBookingProvider').value=b?.provider||'';
+  qs('#editBookingSummary').value=b?.dates||'';qs('#editBookingLocation').value=raw.location_name||b?.meta||'';
+  qs('#editBookingCode').value=b?.code==='—'?'':(b?.code||'');qs('#editBookingPin').value=b?.secret||'';
+  qs('#editBookingNotes').value=b?.notice||'';qs('#editBookingCancel').value=raw.cancellation_policy||'';
+  qs('#deleteBookingBtn').hidden=!b;qs('#bookingEditStatus').textContent='';
+  qs('#bookingEditBackdrop').classList.add('show');sheet.classList.add('show');
+}
+
+async function saveBookingEditor(e){
+  e.preventDefault();
+  const reservation={
+    id:qs('#editBookingId').value||null,baseVersion:Number(qs('#editBookingVersion').value)||0,
+    type:qs('#editBookingType').value,status:qs('#editBookingStatus').value,title:qs('#editBookingName').value.trim(),
+    provider:qs('#editBookingProvider').value.trim(),summary:qs('#editBookingSummary').value.trim(),
+    locationName:qs('#editBookingLocation').value.trim(),confirmationCode:qs('#editBookingCode').value.trim(),
+    pinCode:qs('#editBookingPin').value.trim(),privateNotes:qs('#editBookingNotes').value.trim(),
+    cancellationPolicy:qs('#editBookingCancel').value.trim(),sourceType:'manual'
+  };
+  qs('#bookingEditStatus').textContent='儲存中…';
+  try{await travelEditor('save_reservation',{reservation});qs('#bookingEditSheet').classList.remove('show');qs('#bookingEditBackdrop').classList.remove('show');await hydratePrivateCloudData()}
+  catch(err){qs('#bookingEditStatus').textContent=err.code==='version_conflict'?'資料已被其他人更新，請重新開啟。':'儲存失敗：'+err.message}
+}
+
+async function deleteCurrentBooking(){
+  const id=qs('#editBookingId').value;if(!id||!confirm('刪除這筆預訂？'))return;
+  try{await travelEditor('delete_reservation',{id,baseVersion:Number(qs('#editBookingVersion').value)||0});qs('#bookingEditSheet').classList.remove('show');qs('#bookingEditBackdrop').classList.remove('show');await hydratePrivateCloudData()}
+  catch(err){qs('#bookingEditStatus').textContent='刪除失敗：'+err.message}
 }
 
 async function tripAdmin(action='list',payload={}){
