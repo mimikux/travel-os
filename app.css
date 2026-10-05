@@ -1263,3 +1263,22 @@ body.timeline-dragging *{
     margin:11px 0 20px!important;
   }
 }
+
+
+/* Day Note -> Timeline spacing r110ay
+   Keep this gap slightly larger than the 11px gaps above, while trimming
+   the previous ~20px spacing by about 30%. */
+#todayView .day-note-wrap{
+  margin-bottom:0!important;
+}
+#todayView .day-note-wrap + .section-head{
+  margin-top:14px!important;
+}
+@media(max-width:699px){
+  #todayView .day-note-wrap{
+    margin-bottom:0!important;
+  }
+  #todayView .day-note-wrap + .section-head{
+    margin-top:14px!important;
+  }
+}
