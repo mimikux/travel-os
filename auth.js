@@ -72,7 +72,9 @@
     const {data}=await client.auth.getSession();
     currentSession=data.session||null;
     if(currentSession){
-      if(navigator.onLine){
+      if(!cfg.tripSlug){
+        setState('ready');
+      }else if(navigator.onLine){
         setState('registering_device');
         try{await registerTrustedDevice()}catch(_){ }
       }else{
@@ -83,8 +85,9 @@
       currentSession=session||null;
       if(currentSession){
         manualSignOut=false;
-        if(state==='ready'){
-          // Token refresh / tab resume: keep the app visible and re-check the trusted device silently.
+        if(!cfg.tripSlug){
+          setState('ready');
+        }else if(state==='ready'){
           registerTrustedDevice({silent:true}).catch(()=>{});
         }else{
           setState('registering_device');
@@ -115,7 +118,7 @@
       const redirectTo=location.origin+location.pathname;
       const normalized=String(email||'').trim().toLowerCase();
       const {data:gate,error:gateError}=await client.functions.invoke('request-travel-login',{
-        body:{email:normalized,tripSlug:cfg.tripSlug,redirectTo}
+        body:{email:normalized,tripSlug:cfg.tripSlug||'',redirectTo}
       });
       if(gateError){setState('signed_out');throw gateError;}
       if(gate?.existing){
@@ -131,6 +134,7 @@
   }
 
   async function registerTrustedDevice({silent=false}={}){
+    if(!cfg.tripSlug) return {ok:true,role:null,trip:null,deviceId:null};
     try{
       const device=await window.TravelStore.getDevice();
       const {data,error}=await client.functions.invoke('travel-bootstrap',{
@@ -173,7 +177,7 @@
     if(currentSession){
       manualSignOut=false;
       setState('ready');
-      registerTrustedDevice({silent:true}).catch(()=>{});
+      if(cfg.tripSlug) registerTrustedDevice({silent:true}).catch(()=>{});
     }else{
       setState('signed_out');
     }
