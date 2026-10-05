@@ -125,7 +125,7 @@ data.js becomes demo/emergency fallback only.
 
 ### v1.1B — Multi-Trip
 
-- [x] 2026-10-05 UX polish: Today uses relative day labels (e.g. 3天前 / 前天 / 昨天 / 今天 / 明天 / 後天 / 3天後) to avoid repeating the date already shown in the hero metadata.
+- [x] 2026-10-05 UX polish: DEMO uses 3天前 / 前天 / 昨天 / 今天 / 明天 / 後天 / 3天後; live mode shows a numeric trip countdown in the hero (e.g. 46天) and directional wording in the timeline heading.
 - [x] 2026-10-05 UX polish: Map and Booking use a permanently compact sticky header matching the collapsed Today hero height, instead of a second large header animation.
 
 - [x] 2026-10-05 hotfix: desktop auth callback deadlock fixed by deferring Supabase API calls outside onAuthStateChange.
