@@ -348,3 +348,5 @@ Later:
 - [x] 2026-10-05 Drag reorder r110ae: fixed-time cards were accepted visually as drop anchors but reorderFlexibleItem still rejected targets that had a time, causing the card to snap back after drop. Removed that stale guard; flexible items can now be inserted before/after fixed-time cards and persist via reorder_items.
 
 - [x] 2026-10-05 Drag reorder r110af: reorder is now optimistic. The card moves to its new position immediately on drop, then saves `sort_order` in the background and reconciles from Supabase; on failure it restores the previous order and shows an error. This removes the ~3 second visual delay that could make users repeat the drag.
+
+- [x] 2026-10-05 Today readability r110ag: raised all undersized Today-page labels/body/action text to a 14px minimum, matching the visual baseline of 看地圖 / 08:15. Only font size changed; existing colors and font weights remain untouched.
