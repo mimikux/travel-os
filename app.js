@@ -441,6 +441,25 @@ function eventClosedWarning(event,dateString){
   const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'));
   return event.closedWeekdays.includes(weekday)?`⚠️ ${dateString}（${weekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
 }
+function demoHoursConflict(event,dateString){
+  if(!demoMode||window.TRAVEL_CONFIG?.tripSlug!=='iceland-2026'||dateString!=='2026-11-23')return '';
+  if(!event?.time)return '';
+  // Demo-only visual fixture. Never writes fake hours to Supabase.
+  if(/diamond beach|鑽石沙灘/i.test(String(event.title||''))) return '⚠️ 營業時間有變動 · DEMO：預計 18:30 抵達，但最新營業時間為 17:00 關閉。';
+  const candidates=(currentDay()?.events||[]).filter(e=>e?.time&&['spot','food','shop','tour'].includes(e.type));
+  if(candidates[0]===event) return '⚠️ 營業時間有變動 · DEMO：預計 '+event.time+' 抵達，但最新營業時間較早結束，請調整行程。';
+  return '';
+}
+function tripPlaceAlerts(){
+  const alerts=[];
+  (TRIP?.days||[]).forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
+    const closed=eventClosedWarning(event,day.date);
+    const demo=demoHoursConflict(event,day.date);
+    if(closed) alerts.push({dayIndex,eventIndex,title:event.title,message:closed});
+    if(demo) alerts.push({dayIndex,eventIndex,title:event.title,message:demo});
+  }));
+  return alerts;
+}
 
 function handleTimelineCardClick(ev,dayIndex,eventIndex){
   if(ev.target.closest('button,a,input')) return;
@@ -657,7 +676,7 @@ function renderToday(){
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -1551,6 +1570,8 @@ function toggleDemoMode(){
   }
   updateDemoModeUI();
   renderAll();
+  updateEditAvailability();
+  updateMailBadges();
   requestAnimationFrame(updateHeroCollapse);
 }
 
@@ -1775,7 +1796,7 @@ function pendingMailCount(){
   return canEditTrip()&&Array.isArray(TRIP?.mailImports)?TRIP.mailImports.length:0;
 }
 function updateMailBadges(){
-  const count=pendingMailCount();
+  const count=pendingMailCount()+tripPlaceAlerts().length;
   const targets=[qs('#heroMenuBtn'),qs('#tripMenuBtn'),...qsa('.subview-menu-btn')].filter(Boolean);
   targets.forEach(btn=>{
     let badge=btn.querySelector('.menu-mail-badge');
@@ -1999,6 +2020,27 @@ function updateEditAvailability(){
     btn.onclick=()=>{closeSheet();toggleEditMode();};
   }
   if(btn) btn.hidden=!canEditTrip();
+
+  let alertBtn=qs('#tripAlertBtn');
+  const placeAlerts=tripPlaceAlerts();
+  if(!alertBtn&&qs('#membersBtn')){
+    alertBtn=document.createElement('button');
+    alertBtn.id='tripAlertBtn';alertBtn.type='button';alertBtn.className='sheet-action-card';
+    qs('#membersBtn').before(alertBtn);
+    alertBtn.onclick=()=>{
+      const alerts=tripPlaceAlerts();
+      if(!alerts.length)return;
+      const x=alerts[0];
+      closeSheet();
+      selectedDay=x.dayIndex;mapPrimaryDay=x.dayIndex;mapSelectedDays=new Set([x.dayIndex]);
+      showView('today');renderAll();
+      setTimeout(()=>document.querySelector(`#timeline [data-event-index="${x.eventIndex}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}),80);
+    };
+  }
+  if(alertBtn){
+    alertBtn.hidden=!placeAlerts.length;
+    alertBtn.innerHTML='<span><small>TRIP ALERT</small><strong>行程提醒</strong><em>'+placeAlerts.length+' 筆需要注意 · 點一下查看</em></span><span class="trip-alert-count">'+placeAlerts.length+'</span>';
+  }
 
   let audit=qs('#placeAuditBtn');
   if(!audit&&qs('#membersBtn')){
