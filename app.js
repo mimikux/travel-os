@@ -2189,6 +2189,20 @@ async function auditTripPlaceHours(){
       const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl});
       const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
       const closed=Array.isArray(data.closedDays)?data.closedDays:[];
+      const lookup=data?.hoursLookup||null;
+
+      if(lookup&&lookup.configured===false){
+        btn.disabled=false;
+        status.textContent='尚未啟用 Google Places API';
+        alert('目前尚未設定 Google Places API Key，因此無法可靠取得營業時間。\n\nGoogle Maps 連結仍可用來解析地點、地址與 GPS；營業時間檢查需要另外啟用 Google Places API (New)。');
+        return;
+      }
+      if(lookup&&lookup.status==='api_error'){
+        failed++;
+        issues.push(`${day.label} · ${event.title}：Google Places API 查詢失敗`);
+        continue;
+      }
+
       await travelEditor('save_place_hours',{
         id:event.id,
         googleMapsUrl:event.googleMapsUrl,
@@ -2215,7 +2229,7 @@ async function auditTripPlaceHours(){
   await hydratePrivateCloudData();
   btn.disabled=false;
   status.textContent=`完成 · 已檢查 ${linked.length} · 警示 ${warnings} · 待補連結 ${missing.length}`;
-  let msg=`行程完整檢查完成\n\n已檢查：${linked.length}\n抓到營業時間：${withHours}\n公休日警示：${warnings}\n檢查失敗：${failed}\n待補 Google Maps 連結：${missing.length}`;
+  let msg=`營業時間檢查完成\n\n已檢查：${linked.length}\n取得營業時間：${withHours}\n公休日警示：${warnings}\n查詢失敗：${failed}\n待補 Google Maps 連結：${missing.length}`;
   if(issues.length) msg+='\n\n'+issues.slice(0,12).join('\n')+(issues.length>12?`\n…另有 ${issues.length-12} 項`:'');
   alert(msg);
 }
