@@ -1,4 +1,4 @@
-const CACHE='travel-os-places-v2';
+const CACHE='travel-os-places-diag-v3';
 const ASSETS=['./','./index.html','./app.css','./app.js','./data.js','./config.js','./auth.js','./local-db.js','./sync-engine.js','./manifest.json','./icon.svg','./404.html'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
