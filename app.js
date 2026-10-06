@@ -3306,7 +3306,13 @@ function ensureBookingEditor(){
       <label><span>地點 / Meta</span><input id="editBookingLocation"></label>
       <label><span>地址</span><input id="editBookingAddress" autocomplete="street-address"></label>
       <div class="edit-form-grid"><label><span>Latitude</span><input id="editBookingLat" type="number" step="any"></label><label><span>Longitude</span><input id="editBookingLng" type="number" step="any"></label></div>
-      <label><span>Google Maps 連結</span><div class="map-import-row"><input id="editBookingMapUrl" inputmode="url" placeholder="住宿地址只需在預訂輸入一次"><button type="button" class="edit-chip map-import-btn" id="importBookingMapBtn">帶入</button></div></label>
+      <label><span>Google Maps</span>
+        <div class="map-link-display" id="bookingMapLinkDisplay" hidden>
+          <a class="mini-btn map-open-link" id="editBookingMapOpen" target="_blank" rel="noopener">開啟 Google Maps ↗</a>
+          <button type="button" class="mini-btn map-edit-link" id="editBookingMapEdit">編輯</button>
+        </div>
+        <div class="map-import-row" id="editBookingMapEditRow"><input id="editBookingMapUrl" inputmode="url" placeholder="貼上 Google Maps 連結，會自動帶入"></div>
+      </label>
       <p class="edit-status map-import-status" id="bookingMapImportStatus"></p>
       <label><span>導航搜尋（可留空）</span><input id="editBookingNav"></label>
       <div class="edit-form-grid"><label><span>Confirmation</span><input id="editBookingCode"></label><label><span>PIN</span><input id="editBookingPin"></label></div>
@@ -3317,8 +3323,30 @@ function ensureBookingEditor(){
     </form>`;
   document.body.append(backdrop,sheet);
   const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show')};
-  qs('#closeBookingEdit').onclick=close;backdrop.onclick=close;qs('#bookingEditForm').onsubmit=saveBookingEditor;qs('#deleteBookingBtn').onclick=deleteCurrentBooking;qs('#importBookingMapBtn').onclick=importGoogleMapIntoBookingEditor;
+  qs('#closeBookingEdit').onclick=close;backdrop.onclick=close;qs('#bookingEditForm').onsubmit=saveBookingEditor;qs('#deleteBookingBtn').onclick=deleteCurrentBooking;
+  qs('#editBookingMapEdit').onclick=()=>setBookingMapEditMode(true);
+  qs('#editBookingMapUrl').addEventListener('input',scheduleBookingMapImport);
+  qs('#editBookingMapUrl').addEventListener('change',scheduleBookingMapImport);
   return sheet;
+}
+
+let bookingMapImportTimer=0;
+function setBookingMapEditMode(editing=false){
+  const input=qs('#editBookingMapUrl'),row=qs('#editBookingMapEditRow'),display=qs('#bookingMapLinkDisplay'),open=qs('#editBookingMapOpen');
+  if(!input||!row||!display||!open)return;
+  const url=input.dataset.resolvedUrl||input.value.trim();
+  const has=usableMapUrl(url);
+  row.hidden=has&&!editing;
+  display.hidden=!has||editing;
+  if(has)open.href=url;
+  if(editing)setTimeout(()=>{input.focus();input.select()},30);
+}
+function scheduleBookingMapImport(){
+  clearTimeout(bookingMapImportTimer);
+  const input=qs('#editBookingMapUrl'),url=input?.value.trim()||'';
+  if(!url){setBookingMapEditMode(true);return}
+  if(!usableMapUrl(url))return;
+  bookingMapImportTimer=setTimeout(()=>importGoogleMapIntoBookingEditor(),450);
 }
 
 function openBookingEditor(idx){
@@ -3336,6 +3364,7 @@ function openBookingEditor(idx){
   qs('#editBookingLng').value=Number.isFinite(raw.longitude)?raw.longitude:'';
   qs('#editBookingMapUrl').value=raw.google_maps_url||'';
   qs('#editBookingMapUrl').dataset.resolvedUrl=raw.google_maps_resolved_url||'';
+  setBookingMapEditMode(!usableMapUrl(raw.google_maps_resolved_url||raw.google_maps_url));
   qs('#editBookingNav').value=raw.nav_query||'';
   qs('#bookingMapImportStatus').textContent='';
   qs('#editBookingCode').value=b?.code==='—'?'':(b?.code||'');qs('#editBookingPin').value=b?.secret||'';
@@ -3360,8 +3389,10 @@ async function importGoogleMapIntoBookingEditor(){
     const name=qs('#editBookingName');
     if(name&&!name.value.trim()&&data.name) name.value=data.name;
     status.textContent='已帶入住宿地址、GPS 與導航資料。';
+    setBookingMapEditMode(false);
   }catch(err){
     status.textContent='解析失敗，已保留原始連結：'+(err.code||err.message||'unknown');
+    setBookingMapEditMode(true);
   }
 }
 
