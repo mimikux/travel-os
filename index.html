@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261006-more-v1" />
+  <link rel="stylesheet" href="app.css?v=20261006-mailrouter-v1" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
@@ -189,6 +189,14 @@
           <button class="more-primary-btn" id="moreNewTrip" type="button" hidden>＋ 建立新旅程</button>
         </section>
 
+        <section class="more-section more-mail-section">
+          <div class="more-section-head more-mail-head">
+            <div><span class="section-kicker">GLOBAL MAIL INBOX</span><h2>未分類信件 <span class="more-mail-count" id="moreMailCount">0</span></h2><p>無法可靠判斷旅程的訂房、機票與租車信會留在這裡。</p></div>
+            <button type="button" class="more-small-btn" id="moreRerouteMail">重新分類</button>
+          </div>
+          <div class="more-mail-inbox" id="moreMailInbox"><div class="booking-empty">讀取收件匣中…</div></div>
+        </section>
+
         <section class="more-section">
           <div class="more-section-head"><span class="section-kicker">DATA &amp; SYNC</span><h2>資料與同步</h2></div>
           <div class="more-setting-card">
@@ -220,7 +228,7 @@
       <button class="nav-item" data-target="map"><span class="nav-icon" data-icon="map"></span><small>地圖</small></button>
       <button class="nav-item" data-target="booking"><span class="nav-icon" data-icon="booking"></span><small>預訂</small></button>
       <button class="nav-item disabled" title="Coming soon"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
-      <button class="nav-item" data-target="more"><span class="nav-icon" data-icon="more"></span><small>更多</small></button>
+      <button class="nav-item" data-target="more"><span class="nav-icon" data-icon="more"></span><small>更多</small><span class="global-mail-badge" id="globalMailBadge" hidden>0</span></button>
     </nav>
   </div>
 
@@ -320,11 +328,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261006-more-v1"></script>
-  <script src="data.js?v=20261006-more-v1"></script>
-  <script src="local-db.js?v=20261006-more-v1"></script>
-  <script src="sync-engine.js?v=20261006-more-v1"></script>
-  <script src="auth.js?v=20261006-more-v1"></script>
-  <script src="app.js?v=20261006-more-v1"></script>
+  <script src="config.js?v=20261006-mailrouter-v1"></script>
+  <script src="data.js?v=20261006-mailrouter-v1"></script>
+  <script src="local-db.js?v=20261006-mailrouter-v1"></script>
+  <script src="sync-engine.js?v=20261006-mailrouter-v1"></script>
+  <script src="auth.js?v=20261006-mailrouter-v1"></script>
+  <script src="app.js?v=20261006-mailrouter-v1"></script>
 </body>
 </html>
