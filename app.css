@@ -1282,3 +1282,19 @@ body.timeline-dragging *{
     margin-top:14px!important;
   }
 }
+
+
+/* public share controls r110az */
+.public-share-sheet .sheet-title p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.public-privacy-list{display:grid;gap:8px;margin:8px 0 18px}
+.public-privacy-list>div{display:flex;justify-content:space-between;gap:16px;padding:11px 12px;border:1px solid #e1d9ca;border-radius:14px;background:#fffdf8}
+.public-privacy-list span{color:var(--muted)}
+.public-privacy-list strong{color:var(--green)}
+.public-share-control{display:grid;gap:12px}
+.public-share-control p{margin:0;color:var(--muted)}
+.public-link-row{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:6px}
+.public-link-row input{min-width:0}
+.public-link-row button,.public-share-actions button{border:1px solid #ddd3c2;border-radius:12px;background:#fffdf8;color:var(--green);font-weight:900;padding:10px 12px}
+.public-share-actions{display:flex;gap:8px;justify-content:flex-end}
+.public-share-actions .danger{color:#9a4439}
+.sheet-action-card em{display:block;margin-top:3px;color:var(--muted);font-size:12px;font-style:normal;font-weight:700}
