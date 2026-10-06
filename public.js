@@ -50,8 +50,37 @@ function renderTimeline(){
   }).join(''):'<article class="timeline-card"><h3>這一天尚無公開行程</h3></article>';
 }
 
+function routeCoord(e){
+  const lat=Number(e?.routeLat ?? e?.lat);
+  const lng=Number(e?.routeLng ?? e?.lng);
+  return Number.isFinite(lat)&&Number.isFinite(lng)?{lat,lng}:null;
+}
+
 function publicStops(){
-  return (PUBLIC_TRIP.days[selectedDay]?.events||[]).filter(e=>!e.uncertain&&Number.isFinite(e.lat)&&Number.isFinite(e.lng));
+  const day=PUBLIC_TRIP.days[selectedDay];
+  if(!day)return [];
+  const stops=(day.events||[])
+    .filter(e=>!e.uncertain&&routeCoord(e))
+    .map(e=>({...e,...routeCoord(e)}));
+
+  // Keep route continuity without exposing the exact accommodation position:
+  // previous night's masked stay becomes today's route origin.
+  if(selectedDay>0){
+    const prev=PUBLIC_TRIP.days[selectedDay-1];
+    const overnight=[...(prev?.events||[])].reverse().find(e=>e.type==='stay'&&!e.uncertain&&routeCoord(e));
+    if(overnight){
+      const p={...overnight,...routeCoord(overnight),_carryover:true};
+      const first=stops[0];
+      if(!first||Math.abs(first.lat-p.lat)>1e-6||Math.abs(first.lng-p.lng)>1e-6) stops.unshift(p);
+    }
+  }
+
+  const out=[];
+  for(const e of stops){
+    const last=out[out.length-1];
+    if(!last||Math.abs(last.lat-e.lat)>1e-6||Math.abs(last.lng-e.lng)>1e-6) out.push(e);
+  }
+  return out;
 }
 
 async function renderMap(){
@@ -66,7 +95,7 @@ async function renderMap(){
 
   stops.forEach((s,i)=>{
     const icon=L.divIcon({className:'',html:`<div class="public-marker"><span>${i+1}</span></div>`,iconSize:[30,30],iconAnchor:[15,28]});
-    markers.push(L.marker([s.lat,s.lng],{icon}).addTo(map).bindPopup(esc(s.title)));
+    markers.push(L.marker([s.lat,s.lng],{icon}).addTo(map).bindPopup(esc(s.locationMasked?'住宿區域（位置已模糊）':s.title)));
   });
 
   const bounds=L.latLngBounds(stops.map(s=>[s.lat,s.lng]));
