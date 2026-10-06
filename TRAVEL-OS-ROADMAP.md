@@ -386,3 +386,5 @@ Later:
 - [x] 2026-10-06 Today spacing density r110ax: reduced Today D0–Dn selector height by ~20% while preserving button widths; tightened Hero→day-selector spacing by ~40%, and made day-selector→Day Note use the same compact 11px gap. No itinerary / reservation / Supabase production data changed.
 
 - [x] 2026-10-06 Day Note→Timeline spacing r110ay: reduced the gap after Day Note to 14px, roughly 30% tighter than before while intentionally keeping it slightly larger than the 11px Hero→days and days→Day Note gaps. Layout-only change; no Supabase data changed.
+
+- [x] 2026-10-06 Public Share V1 r110az: added Owner-only public sharing controls with create/reset/revoke/copy link actions, backed by hashed share tokens. Added privacy-safe public.html UI and travel-public-data Edge Function. Public payload omits real calendar dates, accommodation addresses/GPS, booking codes/PIN, payment/private notes, contact data; it includes D0–Dn, itinerary times/places, public prices, safe room/package fields, amenities, and non-stay map points. Existing private production itinerary/reservation rows are not modified.
