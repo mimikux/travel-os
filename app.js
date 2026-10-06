@@ -409,6 +409,49 @@ function escapeHtml(value){
   return String(value??'').replace(/[&<>"']/g,ch=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
 }
 
+function eventBookings(event){
+  const ids=Array.isArray(event?.reservationIds)&&event.reservationIds.length
+    ?event.reservationIds
+    :(event?.reservationId?[event.reservationId]:[]);
+  const set=new Set(ids.map(String));
+  return (TRIP.bookings||[]).map((b,idx)=>({b,idx})).filter(x=>set.has(String(x.b.id)));
+}
+function bookingPeopleCount(b){
+  const p=b?.imported||{};
+  return Number(p.guestCount||p.passengerCount||0)||0;
+}
+function bookingRoomCount(b){
+  const p=b?.imported||{};
+  return Number(p.roomCount||0)||0;
+}
+function renderLinkedBookings(event,dayIndex,eventIndex){
+  const linked=eventBookings(event);
+  if(!linked.length)return '';
+  const people=linked.reduce((n,x)=>n+bookingPeopleCount(x.b),0);
+  const rooms=linked.reduce((n,x)=>n+bookingRoomCount(x.b),0);
+  const amountGroups=new Map();
+  linked.forEach(({b})=>{
+    if(b.amount!==null&&b.amount!==undefined&&Number.isFinite(Number(b.amount))){
+      const k=b.currency||'';amountGroups.set(k,(amountGroups.get(k)||0)+Number(b.amount));
+    }
+  });
+  const total=[...amountGroups.entries()].map(([c,v])=>(c?c+' ':'')+Number(v).toLocaleString()).join(' + ');
+  const summary=[linked.length+' BOOKINGS',rooms?rooms+' ROOMS':'',people?people+' GUESTS':'',total].filter(Boolean).join(' · ');
+  const rows=linked.map(({b},n)=>{
+    const p=b.imported||{};
+    const detail=[
+      p.roomType||'',
+      p.leadGuest||'',
+      Array.isArray(p.passengers)&&p.passengers.length?p.passengers.join('、'):'',
+      p.guests||'',
+      (b.amount!==null&&b.amount!==undefined)?((b.currency||'')+' '+Number(b.amount).toLocaleString()):''
+    ].filter(Boolean).join(' · ');
+    return '<div class="event-booking-row"><div><small>BOOKING '+(n+1)+'</small><strong>'+escapeHtml(b.provider||'')+' '+(b.code?escapeHtml('#'+b.code):'')+'</strong><span>'+escapeHtml(detail)+'</span></div></div>';
+  }).join('');
+  const id='eventBookings-'+dayIndex+'-'+eventIndex;
+  return '<div class="event-booking-group"><button class="booking-detail-toggle" type="button" onclick="event.stopPropagation();const p=document.getElementById(\''+id+'\');p.hidden=!p.hidden;this.classList.toggle(\'open\',!p.hidden)"><span>'+escapeHtml(summary)+'</span><span class="detail-chevron">⌄</span></button><div class="event-booking-list" id="'+id+'" hidden>'+rows+'</div></div>';
+}
+
 function renderEventDetails(e,dayIndex,eventIndex){
   const detail=e.details;
   if(!detail) return '';
@@ -735,7 +778,7 @@ function renderToday(){
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderLinkedBookings(e,selectedDay,eventIndex)}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -1734,6 +1777,10 @@ function normalizeReservation(row){
       tips:Array.isArray(nested.tips)?nested.tips:[],
       source:nested.source||d.source||row?.source_type||'Supabase 私人預訂資料'
     },
+    imported:row?.details?.mailImport?.parsed||null,
+    amount:row?.amount??null,
+    currency:row?.currency||'',
+    paymentStatus:row?.payment_status||'',
     _raw:row
   };
 }
@@ -2219,6 +2266,41 @@ function mailValue(value){
   if(typeof value==='object')return JSON.stringify(value);
   return String(value);
 }
+function mailSuggestedItems(mail){
+  const d=mail?.parsed_data||{};
+  const hits=[];
+  if(mail?.reservation_type==='stay'&&d.startDate){
+    const dayIndex=(TRIP.days||[]).findIndex(x=>x.date===String(d.startDate).slice(0,10));
+    if(dayIndex>=0){
+      const key=normalizedStayName(d.displayTitle||d.title||'');
+      (TRIP.days[dayIndex].events||[]).forEach((e,eventIndex)=>{
+        if(e.type!=='stay')return;
+        const ek=normalizedStayName(e.title||'');
+        if(key&&ek&&(ek.includes(key)||key.includes(ek)))hits.push({dayIndex,eventIndex,event:e});
+      });
+    }
+  }
+  if(mail?.reservation_type==='flight'){
+    const segs=Array.isArray(d.segments)&&d.segments.length?d.segments:[{date:d.date,flightNo:d.flightNo}];
+    segs.forEach(seg=>{
+      const dayIndex=(TRIP.days||[]).findIndex(x=>x.date===String(seg?.date||'').slice(0,10));
+      if(dayIndex<0||!seg?.flightNo)return;
+      const f=String(seg.flightNo).replace(/\s+/g,'').toLowerCase();
+      (TRIP.days[dayIndex].events||[]).forEach((e,eventIndex)=>{
+        if(e.type==='flight'&&String(e.title||'').replace(/\s+/g,'').toLowerCase().includes(f))hits.push({dayIndex,eventIndex,event:e});
+      });
+    });
+  }
+  const seen=new Set();
+  return hits.filter(x=>x.event?.id&&!seen.has(x.event.id)&&(seen.add(x.event.id),true));
+}
+function mailGroupLabel(mail){
+  const hits=mailSuggestedItems(mail);
+  if(!hits.length)return '會建立新的預訂與行程事件';
+  if(mail.reservation_type==='flight')return '會加入同一航班事件：'+hits.map(x=>x.event.title).join(' / ');
+  return '會加入同一住宿事件：'+hits[0].event.title;
+}
+
 function mailExistingReservation(mail){
   if(!mail?.matched_reservation_id)return null;
   return (TRIP.bookings||[]).find(b=>String(b.id)===String(mail.matched_reservation_id))||null;
@@ -2240,7 +2322,10 @@ function mailReviewRows(mail){
   add('開始',raw.starts_at,[d.startDate||d.date,d.startTime||d.time||d.departureTime].filter(Boolean).join(' '));
   add('結束',raw.ends_at,[d.endDate||d.date,d.endTime||d.arrivalTime].filter(Boolean).join(' '));
   add('地址',raw.address,d.address);
-  add('取消期限',raw.cancellation_policy,d.cancellationDeadline?.date?[d.cancellationDeadline.date,d.cancellationDeadline.time].filter(Boolean).join(' '):d.cancellationPolicy);
+  add('取消期限',raw.cancellation_policy,d.cancellationDeadline?.date?[d.cancellationDeadline.date,d.cancellationDeadline.time].filter(Boolean).join(' '):(d.cancellationDeadlineText||d.cancellationPolicy));
+  add('房型','',d.roomType);
+  add('住客','',d.guests||(Array.isArray(d.passengers)?d.passengers.join('、'):''));
+  add('PNR / 訂單','',d.confirmationCode);
   if(d.flightNo)add('航班',raw.title,d.flightNo+' '+(d.departureAirport||'')+' → '+(d.arrivalAirport||''));
   if(d.participants)add('人數 / 方案','',d.participants);
   if(d.vehicle)add('車型',raw.title,d.vehicle);
@@ -2270,14 +2355,14 @@ function renderMailImportSheet(){
         <div class="mail-import-head">
           <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
           <h3>${escapeHtml(d.title||mail.subject||'待確認信件')}</h3>
-          <p>${existing?'已配對：'+escapeHtml(existing.title):'尚未找到既有預訂'}</p>
+          <p>${existing?'同一張訂單更新：'+escapeHtml(existing.title):escapeHtml(mailGroupLabel(mail))}</p>
           <p class="mail-parser-meta">${escapeHtml(String(mail.parser_method||'rules').toUpperCase())} · 信心 ${Math.round(Number(mail.parser_confidence||0)*100)}%${Array.isArray(mail.validation_issues)&&mail.validation_issues.length?' · ⚠ '+mail.validation_issues.length+' 項':''}</p></div>
           <span class="mail-import-badge">${existing?'MATCHED':'NEW'}</span>
         </div>
         <div class="mail-diff-list">${diff}</div>
         <div class="mail-import-actions">
           <button type="button" class="mail-ignore" data-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
-          <button type="button" class="mail-apply" data-mail-apply="${escapeHtml(mail.id)}" ${existing?'':'disabled'}>套用更新</button>
+          <button type="button" class="mail-apply" data-mail-apply="${escapeHtml(mail.id)}">${existing?'套用更新':(mailSuggestedItems(mail).length?'新增訂單並合併':'新增預訂')}</button>
         </div>
       </article>`;
   }).join('');
@@ -2294,13 +2379,27 @@ async function openMailImportSheet(){
 }
 async function reviewMailImport(mailId,mode,button){
   if(!mailId||!canEditTrip())return;
-  const verb=mode==='apply'?'套用這封信解析到的欄位到既有預訂？\n\n未解析到的原資料會保留。':'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
+  const mail=(TRIP.mailImports||[]).find(x=>String(x.id)===String(mailId));
+  const existing=mailExistingReservation(mail);
+  const suggestions=mailSuggestedItems(mail);
+  const verb=mode==='apply'
+    ?(existing
+      ?'套用這封信到同一張既有訂單？\n\n未解析到的原資料會保留。'
+      :suggestions.length
+        ?'新增這張預訂，並掛到下列既有行程事件？\n\n'+suggestions.map(x=>'• '+x.event.title).join('\n')+'\n\n不同 PNR / 訂單號仍會保留成不同訂單。'
+        :'新增這張預訂，並建立對應的行程事件？')
+    :'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
   if(!confirm(verb))return;
   const card=button.closest('.mail-import-card');
   button.disabled=true;
   if(card) card.classList.add('mail-processing');
   try{
-    await travelEditor(mode==='apply'?'mail_apply':'mail_ignore',{mailId});
+    const payload={mailId};
+    if(mode==='apply'){
+      payload.itineraryItemIds=suggestions.map(x=>x.event.id);
+      payload.createItinerary=true;
+    }
+    await travelEditor(mode==='apply'?'mail_apply':'mail_ignore',payload);
     const oldHeight=card?.getBoundingClientRect().height||0;
     if(card){
       card.style.height=oldHeight+'px';
