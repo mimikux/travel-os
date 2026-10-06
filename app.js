@@ -1714,6 +1714,7 @@ async function hydratePrivateCloudData(){
     updateDemoModeUI();
     renderAll();
     updateEditAvailability();
+    refreshGlobalMailBadge().catch(()=>{});
     return true;
   }catch(err){
     cloudLoaded=false;
@@ -1896,6 +1897,16 @@ function renderGlobalMailInbox(data){
       await loadGlobalMailInbox();
     }catch(err){alert('忽略失敗：'+(err.code||err.message||'unknown'));btn.disabled=false;}
   });
+}
+async function refreshGlobalMailBadge(){
+  try{
+    const data=await globalMailApi('list');
+    const count=Number(data?.count||0);
+    const badge=qs('#globalMailBadge');
+    if(badge){badge.textContent=String(count);badge.hidden=!count;}
+    const countEl=qs('#moreMailCount');if(countEl)countEl.textContent=String(count);
+    return count;
+  }catch(_){return 0;}
 }
 async function loadGlobalMailInbox(){
   const host=qs('#moreMailInbox');
