@@ -2180,7 +2180,48 @@ async function auditTripPlaceHours(){
     return;
   }
 
-  if(!confirm(`將重新檢查 ${linked.length} 筆已有 Google Maps 來源的行程。\n另有 ${missing.length} 筆尚未補連結，本次會略過。\n\n是否開始？`))return;
+  const probe=linked.find(x=>/blue\s*lagoon/i.test(String(x.event?.title||'')))||linked[0];
+  if(probe){
+    btn.disabled=true;
+    status.textContent='先測試 Places API…';
+    try{
+      const p=await travelEditor('resolve_google_map',{
+        url:probe.event.googleMapsUrl,
+        title:probe.event.title,
+        lat:probe.event.lat,
+        lng:probe.event.lng
+      });
+      const lookup=p?.hoursLookup||{};
+      const diag=[
+        'Places API 單筆測試',
+        '',
+        '測試地點：'+(probe.event.title||'—'),
+        'Secret：'+(lookup.configured?'已讀取':'未讀取'),
+        'Status：'+(lookup.status||'unknown'),
+        'Place ID：'+(lookup.placeId||'—'),
+        'Google 配對：'+(lookup.matchedName||'—'),
+        '營業時間：'+(Array.isArray(p?.weeklyHours)?p.weeklyHours.length:0)+' 天',
+        '收到標題：'+(p?.debug?.receivedTitle||'—'),
+        'GPS：'+([p?.debug?.receivedLat,p?.debug?.receivedLng].every(Number.isFinite)?p.debug.receivedLat+', '+p.debug.receivedLng:'—')
+      ].join('\n');
+      if(lookup.status!=='ok'){
+        status.textContent='Places API 單筆測試未通過';
+        alert(diag+'\n\n先停止整批檢查，避免重複查 32 筆。');
+        btn.disabled=false;
+        return;
+      }
+      if(!confirm(diag+`\n\n單筆測試正常。要繼續檢查其餘 ${linked.length} 筆嗎？`)){
+        btn.disabled=false;
+        status.textContent='單筆測試正常 · 尚未執行整批';
+        return;
+      }
+    }catch(err){
+      btn.disabled=false;
+      status.textContent='Places API 單筆測試失敗';
+      alert('Places API 單筆測試失敗：'+(err.code||err.message||'unknown'));
+      return;
+    }
+  }else if(!confirm(`將重新檢查 ${linked.length} 筆已有 Google Maps 來源的行程。\n另有 ${missing.length} 筆尚未補連結，本次會略過。\n\n是否開始？`))return;
 
   btn.disabled=true;
   let done=0,withHours=0,warnings=0,failed=0;
