@@ -1617,8 +1617,10 @@ function setAuthGateState(state){
   const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
   if(btn) btn.disabled=state==='sending_link'||state==='loading'||state==='registering_device';
   if(state==='link_sent'){
-    if(msg) msg.textContent='登入連結已寄出，請到 Gmail 點一下 Magic Link。';
+    if(msg) msg.textContent='登入連結已寄出，請到信箱點一下 Magic Link。';
     if(foot) foot.textContent='點開後會回到 Travel OS，並把這支裝置記為 Trusted Device。';
+  }else if(state==='unauthorized_email'){
+    if(msg) msg.textContent='此信箱不在授權清單，請找 Trip Owner 加入再登入。';
   }else if(state==='device_error'){
     if(msg) msg.textContent='帳號已登入，但這支裝置尚未完成授權。請保持連線後重試。';
   }else if(state==='signed_out'){
