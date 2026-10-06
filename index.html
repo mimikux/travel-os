@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261005-r110ay" />
+  <link rel="stylesheet" href="app.css?v=20261006-r110az" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
@@ -209,10 +209,44 @@
       </button>
       <div><small>同步狀態</small><strong id="tripSyncSummary">Cloud</strong></div>
     </div>
-    <button class="sheet-action-card" id="membersBtn" type="button">
+    <button class="sheet-action-card" id="publicShareBtn" type="button">
+  <span><small>PUBLIC SHARE</small><strong>公開分享</strong><em id="publicShareStatus">尚未開啟</em></span><span>→</span>
+</button>
+<button class="sheet-action-card" id="membersBtn" type="button">
   <span><small>TRIP ACCESS</small><strong>成員與裝置</strong></span><span>→</span>
 </button>
 <div class="info-note">此 Trip 的 Owner 可邀請 Editor / Viewer，並管理每位成員的 Trusted Device。</div>
+  </aside>
+
+  <div class="modal-backdrop" id="publicShareBackdrop"></div>
+  <aside class="members-sheet public-share-sheet" id="publicShareSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">PUBLIC SHARE</span><h2>公開分享</h2><p>只分享 D0～Dn 與公開行程；不顯示實際日期與住宿精確位置。</p></div>
+      <button class="round-btn" id="closePublicShare">×</button>
+    </div>
+
+    <div class="public-privacy-list">
+      <div><span>實際日期</span><strong>隱藏</strong></div>
+      <div><span>住宿地址 / GPS</span><strong>隱藏</strong></div>
+      <div><span>訂位代碼 / PIN / 聯絡資料</span><strong>隱藏</strong></div>
+      <div><span>行程時間 / 景點</span><strong>顯示</strong></div>
+      <div><span>價格 / 房型 / 套裝內容</span><strong>顯示</strong></div>
+    </div>
+
+    <div class="public-share-control" id="publicShareInactive">
+      <p>目前尚未建立公開連結。</p>
+      <button type="button" class="edit-save" id="createPublicShare">建立公開連結</button>
+    </div>
+
+    <div class="public-share-control" id="publicShareActive" hidden>
+      <label><span>公開連結</span><div class="public-link-row"><input id="publicShareUrl" readonly><button type="button" id="copyPublicShare">複製</button></div></label>
+      <div class="public-share-actions">
+        <button type="button" id="resetPublicShare">重設連結</button>
+        <button type="button" class="danger" id="revokePublicShare">停止分享</button>
+      </div>
+      <p class="member-status" id="publicShareMessage"></p>
+    </div>
   </aside>
 
   <div class="modal-backdrop" id="membersBackdrop"></div>
@@ -251,11 +285,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261005-r110ay"></script>
-  <script src="data.js?v=20261005-r110ay"></script>
-  <script src="local-db.js?v=20261005-r110ay"></script>
-  <script src="sync-engine.js?v=20261005-r110ay"></script>
-  <script src="auth.js?v=20261005-r110ay"></script>
-  <script src="app.js?v=20261005-r110ay"></script>
+  <script src="config.js?v=20261006-r110az"></script>
+  <script src="data.js?v=20261006-r110az"></script>
+  <script src="local-db.js?v=20261006-r110az"></script>
+  <script src="sync-engine.js?v=20261006-r110az"></script>
+  <script src="auth.js?v=20261006-r110az"></script>
+  <script src="app.js?v=20261006-r110az"></script>
 </body>
 </html>
