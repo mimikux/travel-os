@@ -1758,6 +1758,21 @@ function normalizeReservation(row){
   const rows=Array.isArray(nested.rows)?[...nested.rows]:[];
   if(row?.public_price_text&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('費用'))) rows.push(['費用',row.public_price_text]);
   if(row?.cancellation_policy&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('取消'))) rows.push(['取消條款',row.cancellation_policy]);
+  const imported=row?.details?.mailImport?.parsed||null;
+  const pushImported=(label,value)=>{
+    if(value===null||value===undefined||value==='')return;
+    if(rows.some(x=>Array.isArray(x)&&String(x[0])===label))return;
+    rows.push([label,String(value)]);
+  };
+  if(imported){
+    pushImported('房型',imported.roomType);
+    pushImported('主要住客',imported.leadGuest);
+    pushImported('入住人數',imported.guests||(imported.guestCount?imported.guestCount+' 人':''));
+    pushImported('房間數',imported.roomCount?imported.roomCount+' 間':'');
+    pushImported('住宿晚數',imported.nightCount?imported.nightCount+' 晚':'');
+    pushImported('方案 / 餐食',imported.amenities);
+    pushImported('付款卡',imported.paymentCardLast4?'••••'+imported.paymentCardLast4:'');
+  }
   return {
     id:row?.id,
     version:row?.version||1,
@@ -2248,7 +2263,10 @@ function ensureMailImportSheet(){
       <div><span class="section-kicker">MAIL IMPORT</span><h2>信箱匯入</h2><p>來自 mTripPlan Gmail。先比較差異，確認後才更新正式預訂。</p></div>
       <button class="round-btn" id="closeMailImport">×</button>
     </div>
-    <div class="mail-import-status" id="mailImportStatus"></div>
+    <div class="mail-import-toolbar">
+      <div class="mail-import-status" id="mailImportStatus"></div>
+      <button type="button" class="secondary mail-reparse-btn" id="mailReparseBtn">重新辨識既有信件</button>
+    </div>
     <div class="mail-import-list" id="mailImportList"></div>`;
   document.body.append(backdrop,sheet);
   const close=()=>{
@@ -2258,7 +2276,35 @@ function ensureMailImportSheet(){
   };
   qs('#closeMailImport').onclick=close;
   backdrop.onclick=close;
+  qs('#mailReparseBtn').onclick=reparseTripMail;
   return sheet;
+}
+
+async function reparseTripMail(){
+  if(!canEditTrip()||!TRIP?.id)return;
+  const btn=qs('#mailReparseBtn');
+  if(btn){btn.disabled=true;btn.textContent='重新辨識中…';}
+  try{
+    const client=window.TravelAuth?.getClient?.();
+    if(!client)throw new Error('auth_not_ready');
+    const {data,error}=await client.functions.invoke('travel-mail-ingest',{body:{action:'reparse',tripId:TRIP.id}});
+    if(error)throw error;
+    if(data?.error){const e=new Error(data.error);e.code=data.error;throw e;}
+    await hydratePrivateCloudData();
+    renderMailImportSheet();
+    alert([
+      '信件重新辨識完成',
+      '',
+      '重新解析：'+Number(data?.changed||0),
+      '更新既有預訂：'+Number(data?.updatedReservations||0),
+      '已分類：'+Number(data?.classified||0),
+      '已忽略非必要信件：'+Number(data?.ignored||0)
+    ].join('\n'));
+  }catch(err){
+    alert('重新辨識失敗：'+(err.code||err.message||'unknown'));
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='重新辨識既有信件';}
+  }
 }
 
 function mailValue(value){
@@ -2324,7 +2370,12 @@ function mailReviewRows(mail){
   add('地址',raw.address,d.address);
   add('取消期限',raw.cancellation_policy,d.cancellationDeadline?.date?[d.cancellationDeadline.date,d.cancellationDeadline.time].filter(Boolean).join(' '):(d.cancellationDeadlineText||d.cancellationPolicy));
   add('房型','',d.roomType);
-  add('住客','',d.guests||(Array.isArray(d.passengers)?d.passengers.join('、'):''));
+  add('主要住客','',d.leadGuest);
+  add('入住人數','',d.guests||(d.guestCount?String(d.guestCount):''));
+  add('房間數','',d.roomCount?String(d.roomCount):'');
+  add('晚數','',d.nightCount?String(d.nightCount):'');
+  add('方案 / 餐食','',d.amenities);
+  add('付款卡','',d.paymentCardLast4?'••••'+d.paymentCardLast4:'');
   add('PNR / 訂單','',d.confirmationCode);
   if(d.flightNo)add('航班',raw.title,d.flightNo+' '+(d.departureAirport||'')+' → '+(d.arrivalAirport||''));
   if(d.participants)add('人數 / 方案','',d.participants);
