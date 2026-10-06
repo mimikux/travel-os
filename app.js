@@ -2265,7 +2265,7 @@ function ensureMailImportSheet(){
     </div>
     <div class="mail-import-toolbar">
       <div class="mail-import-status" id="mailImportStatus"></div>
-      <button type="button" class="secondary mail-reparse-btn" id="mailReparseBtn">重新辨識既有信件</button>
+      <button type="button" class="mini-btn mail-reparse-btn" id="mailReparseBtn">重新辨識既有信件</button>
     </div>
     <div class="mail-import-list" id="mailImportList"></div>`;
   document.body.append(backdrop,sheet);
