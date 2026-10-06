@@ -2204,6 +2204,9 @@ async function auditTripPlaceHours(){
         'Regular hours：'+(lookup.hasRegularHours?'有':'無'),
         'Current hours：'+(lookup.hasCurrentHours?'有':'無'),
         '營業時間：'+(Array.isArray(p?.weeklyHours)?p.weeklyHours.length:0)+' 天',
+        ...(Array.isArray(lookup.rawRegularDescriptions)&&lookup.rawRegularDescriptions.length
+          ?['Google 原始 hours：'+lookup.rawRegularDescriptions.map(x=>typeof x==='string'?x:(x?.text||JSON.stringify(x))).join(' / ')]
+          :[]),
         '收到標題：'+(p?.debug?.receivedTitle||'—'),
         'GPS：'+([p?.debug?.receivedLat,p?.debug?.receivedLng].every(Number.isFinite)?p.debug.receivedLat+', '+p.debug.receivedLng:'—')
       ].join('\n');
