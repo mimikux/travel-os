@@ -1931,7 +1931,8 @@ function renderMailImportSheet(){
         <div class="mail-import-head">
           <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
           <h3>${escapeHtml(d.title||mail.subject||'待確認信件')}</h3>
-          <p>${existing?'已配對：'+escapeHtml(existing.title):'尚未找到既有預訂'}</p></div>
+          <p>${existing?'已配對：'+escapeHtml(existing.title):'尚未找到既有預訂'}</p>
+          <p class="mail-parser-meta">${escapeHtml(String(mail.parser_method||'rules').toUpperCase())} · 信心 ${Math.round(Number(mail.parser_confidence||0)*100)}%${Array.isArray(mail.validation_issues)&&mail.validation_issues.length?' · ⚠ '+mail.validation_issues.length+' 項':''}</p></div>
           <span class="mail-import-badge">${existing?'MATCHED':'NEW'}</span>
         </div>
         <div class="mail-diff-list">${diff}</div>
