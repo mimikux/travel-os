@@ -1608,6 +1608,7 @@ if(qs('#moreResync')) qs('#moreResync').onclick=async()=>{
   }finally{btn.disabled=false;}
 };
 if(qs('#moreSignOut')) qs('#moreSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
+if(qs('#moreRerouteMail')) qs('#moreRerouteMail').onclick=rerouteGlobalMail;
 
 if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
 if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{e.stopPropagation();showView('more');};
@@ -1812,9 +1813,110 @@ async function renderMoreView(){
     });
     const canCreate=trips.some(t=>t.role==='owner');
     if(qs('#moreNewTrip')) qs('#moreNewTrip').hidden=!canCreate;
+    await loadGlobalMailInbox();
   }catch(err){
     host.innerHTML='<div class="booking-empty">無法讀取旅程清單。</div>';
+    await loadGlobalMailInbox().catch(()=>{});
   }
+}
+
+async function globalMailApi(action,payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const {data,error}=await client.functions.invoke('travel-global-mail',{body:{action,...payload}});
+  if(error) throw error;
+  if(data?.error){const e=new Error(data.error);e.code=data.error;throw e;}
+  return data||{};
+}
+function globalMailTitle(mail){
+  const d=mail?.parsed_data||{};
+  return d.title||mail?.subject||'未分類信件';
+}
+function globalMailDate(mail){
+  const d=mail?.parsed_data||{};
+  return d.startDate||d.date||d.routingEventDate||'日期未辨識';
+}
+function renderGlobalMailInbox(data){
+  const host=qs('#moreMailInbox'),countEl=qs('#moreMailCount'),badge=qs('#globalMailBadge');
+  if(!host)return;
+  const mails=Array.isArray(data?.mails)?data.mails:[];
+  const trips=Array.isArray(data?.trips)?data.trips:[];
+  if(countEl)countEl.textContent=String(mails.length);
+  if(badge){
+    badge.textContent=String(mails.length);
+    badge.hidden=!mails.length;
+  }
+  if(!mails.length){
+    host.innerHTML='<div class="booking-empty">目前沒有未分類信件。</div>';
+    return;
+  }
+  host.innerHTML=mails.map(mail=>{
+    const d=mail.parsed_data||{};
+    const candidates=Array.isArray(mail.route_candidates)?mail.route_candidates:[];
+    const options=trips.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.title)} · ${escapeHtml(t.start_date||'')} → ${escapeHtml(t.end_date||'')}</option>`).join('');
+    const hint=mail.routing_status==='ambiguous'&&candidates.length
+      ? '可能屬於：'+candidates.slice(0,2).map(c=>c.title+' '+Math.round(Number(c.score||0)*100)+'%').join(' / ')
+      : '找不到符合日期的旅程';
+    return `
+      <article class="global-mail-card" data-global-mail="${escapeHtml(mail.id)}">
+        <div class="global-mail-top">
+          <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
+          <h3>${escapeHtml(globalMailTitle(mail))}</h3>
+          <p>${escapeHtml(globalMailDate(mail))} · ${escapeHtml(hint)}</p></div>
+          <span>${mail.routing_status==='ambiguous'?'待選擇':'未分類'}</span>
+        </div>
+        <div class="global-mail-actions">
+          <select data-global-mail-trip="${escapeHtml(mail.id)}"><option value="">選擇旅程…</option>${options}</select>
+          <button type="button" data-global-mail-assign="${escapeHtml(mail.id)}">加入旅程</button>
+          <button type="button" class="secondary" data-global-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
+        </div>
+      </article>`;
+  }).join('');
+  host.querySelectorAll('[data-global-mail-assign]').forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.globalMailAssign;
+    const select=host.querySelector('[data-global-mail-trip="'+CSS.escape(id)+'"]');
+    if(!select?.value){alert('請先選擇旅程。');return;}
+    btn.disabled=true;
+    try{
+      await globalMailApi('assign',{mailId:id,tripId:select.value});
+      const card=btn.closest('.global-mail-card');
+      if(card){card.classList.add('mail-removing');await new Promise(r=>setTimeout(r,360));}
+      await loadGlobalMailInbox();
+      if(select.value===TRIP?.id) await hydratePrivateCloudData();
+    }catch(err){alert('指定旅程失敗：'+(err.code||err.message||'unknown'));btn.disabled=false;}
+  });
+  host.querySelectorAll('[data-global-mail-ignore]').forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.globalMailIgnore;
+    if(!confirm('忽略這封未分類信件？'))return;
+    btn.disabled=true;
+    try{
+      await globalMailApi('ignore',{mailId:id});
+      const card=btn.closest('.global-mail-card');
+      if(card){card.classList.add('mail-removing');await new Promise(r=>setTimeout(r,360));}
+      await loadGlobalMailInbox();
+    }catch(err){alert('忽略失敗：'+(err.code||err.message||'unknown'));btn.disabled=false;}
+  });
+}
+async function loadGlobalMailInbox(){
+  const host=qs('#moreMailInbox');
+  if(host)host.innerHTML='<div class="booking-empty">讀取收件匣中…</div>';
+  try{
+    const data=await globalMailApi('list');
+    renderGlobalMailInbox(data);
+    return data;
+  }catch(err){
+    if(host)host.innerHTML='<div class="booking-empty">無法讀取全域收件匣。</div>';
+    throw err;
+  }
+}
+async function rerouteGlobalMail(){
+  const btn=qs('#moreRerouteMail'); if(btn)btn.disabled=true;
+  try{
+    const result=await globalMailApi('reroute');
+    await loadGlobalMailInbox();
+    if(window.TRAVEL_CONFIG?.tripSlug) await hydratePrivateCloudData();
+    return result;
+  }finally{if(btn)btn.disabled=false;}
 }
 async function createNewTrip(){
   const title=prompt('新旅程名稱，例如 Kumamoto 2027');
@@ -1831,6 +1933,7 @@ async function createNewTrip(){
     devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label
   }});
   if(error||data?.error){alert('建立旅程失敗：'+(data?.error||error?.message||'unknown'));return;}
+  try{await globalMailApi('reroute');}catch(err){console.warn('Mail reroute after trip create failed',err);}
   location.href=tripHref(data.trip.slug);
 }
 
