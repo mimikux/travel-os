@@ -2783,7 +2783,13 @@ function ensureItemEditor(){
         <label><span>Latitude</span><input id="editItemLat" type="number" step="any"></label>
         <label><span>Longitude</span><input id="editItemLng" type="number" step="any"></label>
       </div>
-      <label><span>Google Maps 連結</span><div class="map-import-row"><input id="editItemMapUrl" inputmode="url" placeholder="貼上 maps.app.goo.gl 或 Google Maps 連結"><button type="button" class="edit-chip map-import-btn" id="importMapBtn">帶入</button></div></label>
+      <label><span>Google Maps</span>
+        <div class="map-link-display" id="itemMapLinkDisplay" hidden>
+          <a class="mini-btn map-open-link" id="editItemMapOpen" target="_blank" rel="noopener">開啟 Google Maps ↗</a>
+          <button type="button" class="mini-btn map-edit-link" id="editItemMapEdit">編輯</button>
+        </div>
+        <div class="map-import-row" id="editItemMapEditRow"><input id="editItemMapUrl" inputmode="url" placeholder="貼上 Google Maps 連結，會自動帶入"></div>
+      </label>
       <p class="edit-status map-import-status" id="mapImportStatus"></p>
       <label><span>導航搜尋（可留空）</span><input id="editItemNav"></label>
       <div class="edit-form-actions"><button type="button" class="edit-delete" id="deleteItemBtn">刪除</button><button type="submit" class="edit-save">儲存</button></div>
@@ -2794,12 +2800,34 @@ function ensureItemEditor(){
   qs('#closeItemEdit').onclick=close;backdrop.onclick=close;
   qs('#itemEditForm').onsubmit=saveItemEditor;
   qs('#deleteItemBtn').onclick=deleteCurrentItem;
-  qs('#importMapBtn').onclick=importGoogleMapIntoEditor;
+  qs('#editItemMapEdit').onclick=()=>setItemMapEditMode(true);
+  qs('#editItemMapUrl').addEventListener('input',scheduleItemMapImport);
+  qs('#editItemMapUrl').addEventListener('change',scheduleItemMapImport);
   qs('#editItemType').onchange=()=>{
     const row=qs('#stayReservationLinkRow');
     if(row) row.hidden=qs('#editItemType').value!=='stay';
   };
   return sheet;
+}
+
+let itemMapImportTimer=0;
+function usableMapUrl(value){return /^https?:\/\//i.test(String(value||'').trim())}
+function setItemMapEditMode(editing=false){
+  const input=qs('#editItemMapUrl'),row=qs('#editItemMapEditRow'),display=qs('#itemMapLinkDisplay'),open=qs('#editItemMapOpen');
+  if(!input||!row||!display||!open)return;
+  const url=input.dataset.resolvedUrl||input.value.trim();
+  const has=usableMapUrl(url);
+  row.hidden=has&&!editing;
+  display.hidden=!has||editing;
+  if(has)open.href=url;
+  if(editing)setTimeout(()=>{input.focus();input.select()},30);
+}
+function scheduleItemMapImport(){
+  clearTimeout(itemMapImportTimer);
+  const input=qs('#editItemMapUrl'),url=input?.value.trim()||'';
+  if(!url){setItemMapEditMode(true);return}
+  if(!usableMapUrl(url))return;
+  itemMapImportTimer=setTimeout(()=>importGoogleMapIntoEditor(),450);
 }
 
 function openItemEditor(dayIndex,eventIndex){
@@ -2833,6 +2861,7 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemMapUrl').dataset.hoursSource=event?.hoursSource||'';
   qs('#editItemMapUrl').dataset.hoursCheckedAt=event?.hoursCheckedAt||'';
   qs('#mapImportStatus').textContent=event?.hoursCheckedAt?'上次營業時間檢查：'+new Date(event.hoursCheckedAt).toLocaleString():'';
+  setItemMapEditMode(!usableMapUrl(event?.googleMapsResolvedUrl||event?.googleMapsUrl));
 
   qs('#editItemNav').value=event?.navQuery||'';
   qs('#deleteItemBtn').hidden=!event;
@@ -2901,8 +2930,10 @@ async function importGoogleMapIntoEditor(){
       ?`；Google 類型建議：${typeLabel[suggestedType]||suggestedType}（未自動修改）`
       :'';
     status.textContent=warning?warning:(filled?`已帶入：${filled}${kept}${typeHint}`:`連結已展開並保留原始網址${kept}${typeHint}。`);
+    setItemMapEditMode(false);
   }catch(err){
     status.textContent='解析失敗，已保留你貼上的原始連結，不會覆蓋現有資料：'+(err.code||err.message||'unknown');
+    setItemMapEditMode(true);
   }
 }
 
