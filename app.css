@@ -1389,3 +1389,29 @@ body.timeline-dragging *{
 @media(max-width:699px){
   .more-view{padding-left:14px;padding-right:14px}
 }
+
+
+/* Global mail inbox */
+.more-mail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.more-mail-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#b54f41;color:#fff;font-size:12px;vertical-align:2px}
+.more-small-btn{border:1px solid #ddd4c6;border-radius:12px;background:#fffdf8;color:var(--green);padding:9px 10px;font-weight:900;white-space:nowrap}
+.more-mail-inbox{display:grid;gap:10px}
+.global-mail-card{border:1px solid #e1d9cc;border-radius:18px;background:var(--paper);padding:14px;box-shadow:var(--shadow);overflow:hidden;transition:opacity .22s ease,transform .28s ease,height .34s ease,padding .34s ease,margin .34s ease,border-width .34s ease}
+.global-mail-card.mail-removing{opacity:0;transform:translateY(-7px) scale(.99);height:0!important;padding-top:0!important;padding-bottom:0!important;margin:0!important;border-width:0!important}
+.global-mail-top{display:flex;justify-content:space-between;gap:12px}
+.global-mail-top small{color:var(--gold);font-weight:900;letter-spacing:.08em}
+.global-mail-top h3{margin:4px 0 3px;font-size:16px}
+.global-mail-top p{margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.global-mail-top>span{flex:0 0 auto;height:max-content;border-radius:999px;background:#eee8df;color:#75695e;padding:5px 8px;font-size:10px;font-weight:900}
+.global-mail-actions{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;margin-top:12px}
+.global-mail-actions select{min-width:0;border:1px solid #ddd6cb;border-radius:11px;background:#fff;padding:0 9px;height:40px;color:var(--ink)}
+.global-mail-actions button{border:0;border-radius:11px;background:var(--green);color:#fff;padding:0 12px;font-weight:900}
+.global-mail-actions .secondary{background:#eee8df;color:#75695e}
+.nav-item[data-target="more"]{position:relative}
+.global-mail-badge{position:absolute;top:7px;right:calc(50% - 23px);min-width:17px;height:17px;padding:0 4px;display:grid;place-items:center;border-radius:999px;background:#b54f41;color:#fff;border:2px solid #fffdf8;font-size:9px;font-weight:950}
+.global-mail-badge[hidden]{display:none!important}
+@media(max-width:520px){
+  .more-mail-head{display:block}.more-small-btn{margin-top:8px}
+  .global-mail-actions{grid-template-columns:1fr 1fr}
+  .global-mail-actions select{grid-column:1/-1}
+}
