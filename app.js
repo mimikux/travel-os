@@ -2296,9 +2296,11 @@ async function reparseTripMail(){
       '信件重新辨識完成',
       '',
       '重新解析：'+Number(data?.changed||0),
-      '更新既有預訂：'+Number(data?.updatedReservations||0),
+      '回到待確認：'+Number(data?.pendingReview||0),
       '已分類：'+Number(data?.classified||0),
-      '已忽略非必要信件：'+Number(data?.ignored||0)
+      '已忽略非必要信件：'+Number(data?.ignored||0),
+      '',
+      '重新辨識不會直接修改正式預訂，請在下方逐筆確認後再套用。'
     ].join('\n'));
   }catch(err){
     alert('重新辨識失敗：'+(err.code||err.message||'unknown'));
