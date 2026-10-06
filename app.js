@@ -2200,11 +2200,14 @@ async function auditTripPlaceHours(){
         'Status：'+(lookup.status||'unknown'),
         'Place ID：'+(lookup.placeId||'—'),
         'Google 配對：'+(lookup.matchedName||'—'),
+        'Business：'+(lookup.businessStatus||'—'),
+        'Regular hours：'+(lookup.hasRegularHours?'有':'無'),
+        'Current hours：'+(lookup.hasCurrentHours?'有':'無'),
         '營業時間：'+(Array.isArray(p?.weeklyHours)?p.weeklyHours.length:0)+' 天',
         '收到標題：'+(p?.debug?.receivedTitle||'—'),
         'GPS：'+([p?.debug?.receivedLat,p?.debug?.receivedLng].every(Number.isFinite)?p.debug.receivedLat+', '+p.debug.receivedLng:'—')
       ].join('\n');
-      if(lookup.status!=='ok'){
+      if(!['ok','ok_current_fallback'].includes(lookup.status)){
         status.textContent='Places API 單筆測試未通過';
         alert(diag+'\n\n先停止整批檢查，避免重複查 32 筆。');
         btn.disabled=false;
