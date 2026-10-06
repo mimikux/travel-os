@@ -7,7 +7,7 @@
   <title>Travel OS · Public Trip</title>
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="public.css?v=20261006-public-v1">
+  <link rel="stylesheet" href="public.css?v=20261006-public-v2">
 </head>
 <body>
   <div class="public-shell">
@@ -48,10 +48,10 @@
       <section class="section map-section">
         <div class="section-head">
           <div><span class="eyebrow">ROUTE MAP</span><h2>行程地圖</h2></div>
-          <span class="safe-note">住宿位置已隱藏</span>
+          <span class="safe-note">住宿位置已模糊</span>
         </div>
         <div id="publicMap"></div>
-        <p class="map-note">地圖僅顯示公開景點。住宿、民宿、飯店的地址與座標不會傳送到公開頁。</p>
+        <p class="map-note">地圖會保留住宿前後的完整路線；住宿、民宿、飯店的地址與精確座標不會傳送到公開頁，僅使用模糊化區域點銜接路線。</p>
       </section>
     </main>
 
@@ -71,7 +71,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261006-public-v1"></script>
-  <script src="public.js?v=20261006-public-v1"></script>
+  <script src="config.js?v=20261006-public-v2"></script>
+  <script src="public.js?v=20261006-public-v2"></script>
 </body>
 </html>
