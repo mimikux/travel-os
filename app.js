@@ -2188,7 +2188,7 @@ async function auditTripPlaceHours(){
   for(const row of linked){
     const {day,event}=row;
     try{
-      const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl});
+      const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl,title:event.title,lat:event.lat,lng:event.lng});
       const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
       const closed=Array.isArray(data.closedDays)?data.closedDays:[];
       const lookup=data?.hoursLookup||null;
