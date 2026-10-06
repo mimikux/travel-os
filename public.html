@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#173c35">
+  <title>Travel OS · Public Trip</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="public.css?v=20261006-public-v1">
+</head>
+<body>
+  <div class="public-shell">
+    <header class="public-topbar">
+      <div>
+        <span class="eyebrow">TRAVEL OS · PUBLIC</span>
+        <h1 id="tripTitle">旅程分享</h1>
+      </div>
+      <span class="privacy-badge">隱私版</span>
+    </header>
+
+    <main id="publicApp" hidden>
+      <section class="hero" id="hero">
+        <div class="hero-shade"></div>
+        <div class="hero-copy">
+          <span class="hero-day" id="heroDay">D0</span>
+          <h2 id="heroTitle">旅程</h2>
+          <p>公開行程不顯示實際日期與住宿精確位置</p>
+        </div>
+        <div class="hero-stats">
+          <div><small>里程</small><strong id="heroKm">—</strong></div>
+          <div><small>駕車</small><strong id="heroDrive">—</strong></div>
+          <div><small>日出</small><strong id="heroSunrise">—</strong></div>
+          <div><small>日落</small><strong id="heroSunset">—</strong></div>
+        </div>
+      </section>
+
+      <div class="day-strip" id="dayStrip"></div>
+
+      <section class="section">
+        <div class="section-head">
+          <div><span class="eyebrow">ITINERARY</span><h2>當日行程</h2></div>
+          <span class="safe-note">無精確日期</span>
+        </div>
+        <div class="timeline" id="timeline"></div>
+      </section>
+
+      <section class="section map-section">
+        <div class="section-head">
+          <div><span class="eyebrow">ROUTE MAP</span><h2>行程地圖</h2></div>
+          <span class="safe-note">住宿位置已隱藏</span>
+        </div>
+        <div id="publicMap"></div>
+        <p class="map-note">地圖僅顯示公開景點。住宿、民宿、飯店的地址與座標不會傳送到公開頁。</p>
+      </section>
+    </main>
+
+    <section class="loading-card" id="loadingCard">
+      <div class="spinner"></div>
+      <h2>讀取公開行程</h2>
+      <p>正在載入分享內容…</p>
+    </section>
+
+    <section class="loading-card error" id="errorCard" hidden>
+      <h2>這個分享連結無法使用</h2>
+      <p id="errorText">可能已停止分享或連結已更新。</p>
+    </section>
+
+    <footer>Travel OS · Public itinerary</footer>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
+  <script src="config.js?v=20261006-public-v1"></script>
+  <script src="public.js?v=20261006-public-v1"></script>
+</body>
+</html>
