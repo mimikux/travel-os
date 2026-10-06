@@ -482,7 +482,7 @@ function eventHoursConflictWarning(event,dateString){
   if(!row)return '';
   const w=parseBusinessWindow(row.hours);
   if(!w)return '';
-  if(w.closed)return `⚠️ 當日公休 · Google Places 顯示 ${row.day} Closed，請調整行程。`;
+  if(w.closed)return '';
   if(w.open24)return '';
   const visit=timeToMinutes(String(event.time).slice(0,5));
   if(visit===null)return '';
@@ -2142,7 +2142,10 @@ function updateEditAvailability(){
       if(!alerts.length)return;
       const x=alerts[0];
       if(x.kind==='changed'&&x.itemId){
-        try{await travelEditor('ack_place_alert',{id:x.itemId});await hydratePrivateCloudData();}catch(_){}
+        const markRead=confirm(x.message+'\n\n按「確定」標記這筆營業時間變動為已讀；按「取消」只查看行程。');
+        if(markRead){
+          try{await travelEditor('ack_place_alert',{id:x.itemId});await hydratePrivateCloudData();}catch(_){}
+        }
       }
       closeSheet();
       selectedDay=x.dayIndex;mapPrimaryDay=x.dayIndex;mapSelectedDays=new Set([x.dayIndex]);
