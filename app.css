@@ -1435,3 +1435,5 @@ body.timeline-dragging *{
   z-index:999!important;
   pointer-events:none;
 }
+
+.hours-change-warning{background:#fff8dc!important;border-color:#e2c76d!important;color:#7b641c!important;font-weight:850}
