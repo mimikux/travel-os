@@ -1437,3 +1437,11 @@ body.timeline-dragging *{
 }
 
 .hours-change-warning{background:#fff8dc!important;border-color:#e2c76d!important;color:#7b641c!important;font-weight:850}
+
+/* Multi-booking itinerary group */
+.event-booking-group{margin-top:12px}
+.event-booking-list{margin-top:8px;display:grid;gap:8px}
+.event-booking-row{padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.62);border:1px solid rgba(73,92,82,.12)}
+.event-booking-row small{display:block;font-size:10px;font-weight:900;letter-spacing:.12em;opacity:.55;margin-bottom:3px}
+.event-booking-row strong{display:block;font-size:13px;font-weight:900}
+.event-booking-row span{display:block;margin-top:3px;font-size:12px;line-height:1.45;opacity:.76}
