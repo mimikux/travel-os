@@ -16,7 +16,7 @@ let cloudLastError='';
 let editMode=false;
 let authorizedTrips=[];
 
-const titles={today:'行程',map:'旅程地圖',booking:'預訂'};
+const titles={today:'行程',map:'旅程地圖',booking:'預訂',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
 
 const DAY_UI={
@@ -298,6 +298,8 @@ function syncTripLabels(){
     syncSummary.title=cloudLastError||'';
   }
   document.title=window.TRAVEL_CONFIG?.tripSlug?`${title} · Travel OS`:'Travel OS';
+  updateMailBadges();
+  syncMoreStatus();
 }
 
 function renderBottomNavIcons(){
@@ -314,11 +316,12 @@ function renderStaticIcons(){}
 function showView(name){
   qs('.app-shell')?.classList.toggle('today-mode',name==='today');
   qsa('.view').forEach(v=>v.classList.remove('active'));
-  qs('#'+name+'View').classList.add('active');
+  qs('#'+name+'View')?.classList.add('active');
   qsa('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.target===name));
-  qs('#pageTitle').textContent=titles[name];
+  if(qs('#pageTitle')) qs('#pageTitle').textContent=titles[name]||'Travel OS';
   if(name==='map') setTimeout(()=>{initMap();map.invalidateSize();renderMapDay()},60);
   if(name==='today') requestAnimationFrame(updateHeroCollapse);
+  if(name==='more') renderMoreView();
 }
 
 function renderDayStrip(){
@@ -1594,8 +1597,20 @@ qs('#closeWeather').onclick=closeWeatherSheet;
 qs('#weatherBackdrop').onclick=closeWeatherSheet;
 qs('#demoModeToggle').onclick=toggleDemoMode;
 if(qs('#newTripBtn')) qs('#newTripBtn').onclick=createNewTrip;
+if(qs('#moreNewTrip')) qs('#moreNewTrip').onclick=createNewTrip;
+if(qs('#moreResync')) qs('#moreResync').onclick=async()=>{
+  const btn=qs('#moreResync');btn.disabled=true;
+  try{
+    cloudSyncState='syncing';syncMoreStatus();
+    await window.TravelAuth?.resumeSessionCheck?.({keepReady:true});
+    await hydratePrivateCloudData();
+    await renderMoreView();
+  }finally{btn.disabled=false;}
+};
+if(qs('#moreSignOut')) qs('#moreSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
+
 if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
-if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=async e=>{e.stopPropagation();openTripSheet();await renderTripSwitchList();};
+if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{e.stopPropagation();showView('more');};
 
 function setAuthGateState(state){
   const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
@@ -1751,6 +1766,56 @@ async function renderTripChooser(){
   }
 }
 
+
+function pendingMailCount(){
+  return canEditTrip()&&Array.isArray(TRIP?.mailImports)?TRIP.mailImports.length:0;
+}
+function updateMailBadges(){
+  const count=pendingMailCount();
+  const targets=[qs('#heroMenuBtn'),qs('#tripMenuBtn'),...qsa('.subview-menu-btn')].filter(Boolean);
+  targets.forEach(btn=>{
+    let badge=btn.querySelector('.menu-mail-badge');
+    if(!badge){
+      badge=document.createElement('span');
+      badge.className='menu-mail-badge';
+      btn.appendChild(badge);
+    }
+    badge.textContent=String(count);
+    badge.hidden=!count;
+    btn.classList.toggle('has-mail-badge',Boolean(count));
+  });
+}
+function syncMoreStatus(){
+  const status=qs('#moreSyncStatus'),detail=qs('#moreSyncDetail'),email=qs('#moreAccountEmail');
+  if(status){
+    const labels={synced:'Cloud synced',syncing:'正在同步…',auth:'需要重新登入',error:'同步失敗',cache:'Offline cache'};
+    status.textContent=labels[cloudSyncState]||'Offline cache';
+  }
+  if(detail) detail.textContent=cloudLastError||'Travel OS Cloud';
+  const auth=window.TravelAuth?.snapshot?.()||{};
+  if(email) email.textContent=auth.user?.email||'—';
+}
+async function renderMoreView(){
+  syncMoreStatus();
+  const host=qs('#moreTripList');
+  if(!host)return;
+  host.innerHTML='<div class="booking-empty">讀取旅程中…</div>';
+  try{
+    const trips=await fetchAuthorizedTrips();
+    host.innerHTML=trips.length?trips.map(t=>`
+      <button class="more-trip-card ${t.slug===window.TRAVEL_CONFIG.tripSlug?'active':''}" type="button" data-more-trip="${escapeHtml(t.slug)}">
+        <span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong><em>${escapeHtml(t.start_date||'')}${t.end_date?' → '+escapeHtml(t.end_date):''}</em></span>
+        <span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'目前':'→'}</span>
+      </button>`).join(''):'<div class="booking-empty">目前沒有可使用的旅程。</div>';
+    host.querySelectorAll('[data-more-trip]').forEach(btn=>btn.onclick=()=>{
+      if(btn.dataset.moreTrip!==window.TRAVEL_CONFIG.tripSlug) location.href=tripHref(btn.dataset.moreTrip);
+    });
+    const canCreate=trips.some(t=>t.role==='owner');
+    if(qs('#moreNewTrip')) qs('#moreNewTrip').hidden=!canCreate;
+  }catch(err){
+    host.innerHTML='<div class="booking-empty">無法讀取旅程清單。</div>';
+  }
+}
 async function createNewTrip(){
   const title=prompt('新旅程名稱，例如 Kumamoto 2027');
   if(!title)return;
@@ -1957,13 +2022,26 @@ async function reviewMailImport(mailId,mode,button){
   if(!mailId||!canEditTrip())return;
   const verb=mode==='apply'?'套用這封信解析到的欄位到既有預訂？\n\n未解析到的原資料會保留。':'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
   if(!confirm(verb))return;
+  const card=button.closest('.mail-import-card');
   button.disabled=true;
+  if(card) card.classList.add('mail-processing');
   try{
     await travelEditor(mode==='apply'?'mail_apply':'mail_ignore',{mailId});
+    const oldHeight=card?.getBoundingClientRect().height||0;
+    if(card){
+      card.style.height=oldHeight+'px';
+      requestAnimationFrame(()=>card.classList.add('mail-removing'));
+      await new Promise(resolve=>setTimeout(resolve,420));
+    }
     await hydratePrivateCloudData();
     renderMailImportSheet();
     updateEditAvailability();
+    updateMailBadges();
   }catch(err){
+    if(card){
+      card.classList.remove('mail-processing','mail-removing');
+      card.style.height='';
+    }
     alert('處理失敗：'+(err.code||err.message||'unknown'));
     button.disabled=false;
   }
