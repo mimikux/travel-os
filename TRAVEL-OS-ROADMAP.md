@@ -1,3 +1,5 @@
+- [x] 2026-10-06 Gmail reservation import V1: dedicated mTripPlan Gmail inbox can push messages through Apps Script into Supabase mail_imports without touching live reservations. Parser recognizes Trip.com flights, Booking.com stays, Blue Car Rental cars and GetYourGuide tours; Google account/security notices are auto-ignored. Parsed mails are matched to existing reservations when possible. Travel OS now exposes a MAIL IMPORT review sheet for Owner/Editor with field comparison plus Ignore / Apply actions; Apply updates only parsed fields and preserves unmatched existing reservation data. Initial Iceland test: 9 inbox messages accepted, 4 travel reservations matched, 5 Google system mails ignored. Parser follow-up still needed for some Booking.com structured fields and Trip.com date/PNR edge formatting.
+
 # Travel OS Roadmap
 
 Last updated: 2026-10-05 · online release line v1.1.0
