@@ -1298,3 +1298,32 @@ body.timeline-dragging *{
 .public-share-actions{display:flex;gap:8px;justify-content:flex-end}
 .public-share-actions .danger{color:#9a4439}
 .sheet-action-card em{display:block;margin-top:3px;color:var(--muted);font-size:12px;font-style:normal;font-weight:700}
+
+
+/* mail import review */
+.mail-import-sheet .sheet-title p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.mail-import-status{margin:0 0 12px;color:var(--muted);font-size:13px;font-weight:800}
+.mail-import-list{display:grid;gap:14px}
+.mail-import-card{border:1px solid #ddd5c7;border-radius:18px;background:#fffdf8;padding:14px;box-shadow:0 8px 24px rgba(20,45,39,.05)}
+.mail-import-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.mail-import-head small{color:var(--gold);font-weight:900;letter-spacing:.08em}
+.mail-import-head h3{margin:4px 0 2px;font-size:16px;line-height:1.35}
+.mail-import-head p{margin:0;color:var(--muted);font-size:12px}
+.mail-import-badge{flex:0 0 auto;padding:5px 8px;border-radius:999px;background:#ece8df;color:var(--green);font-size:10px;font-weight:950}
+.mail-diff-list{display:grid;gap:8px;margin-top:12px}
+.mail-diff-row{display:grid;grid-template-columns:72px 1fr 1fr;gap:8px;align-items:stretch}
+.mail-diff-row>span{padding:9px 4px;color:var(--muted);font-size:11px;font-weight:900}
+.mail-diff-row>div{border:1px solid #e4dccf;border-radius:12px;padding:8px 9px;background:#fff}
+.mail-diff-row small{display:block;margin-bottom:2px;color:var(--muted);font-size:9px;font-weight:900}
+.mail-diff-row strong{display:block;font-size:12px;line-height:1.4;word-break:break-word}
+.mail-no-diff{padding:10px 0;color:var(--muted);font-size:12px}
+.mail-import-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.mail-import-actions button{border-radius:12px;padding:10px 12px;font-weight:900}
+.mail-ignore{border:1px solid #ddd3c2;background:#fff;color:#7b7064}
+.mail-apply{border:0;background:var(--green);color:#fff}
+.mail-apply:disabled{opacity:.45}
+@media(max-width:699px){
+  .mail-import-card{padding:12px}
+  .mail-diff-row{grid-template-columns:64px 1fr}
+  .mail-diff-row>div:nth-child(3){grid-column:2}
+}
