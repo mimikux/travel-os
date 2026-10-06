@@ -1450,5 +1450,5 @@ body.timeline-dragging *{
 #tripAlertBtn[hidden], .menu-mail-badge[hidden], #globalMailBadge[hidden]{display:none!important;}
 
 .mail-import-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 12px}
-.mail-reparse-btn{white-space:nowrap}
-@media(max-width:640px){.mail-import-toolbar{align-items:stretch;flex-direction:column}.mail-reparse-btn{width:100%}}
+.mail-reparse-btn{white-space:nowrap;align-self:flex-start}
+@media(max-width:640px){.mail-import-toolbar{align-items:flex-start;flex-direction:column}.mail-reparse-btn{width:auto}}
