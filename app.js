@@ -270,11 +270,18 @@ function iconSVG(name,cls=''){
 
 function dayUi(d){
   const fallback=DAY_UI[d.label]||DAY_UI.D0;
+  const tripFallback=TRIP?.slug==='kumamoto-2027'
+    ?{
+      photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Mount%20Aso%20%2849647957171%29.jpg?width=1600')",
+      sunrise:'07:13',sunset:'17:45'
+    }
+    :fallback;
   return {
     ...fallback,
-    photo:d?.heroImageUrl?`url('${d.heroImageUrl}')`:fallback.photo,
-    sunrise:d?.sunrise||fallback.sunrise,
-    sunset:d?.sunset||fallback.sunset
+    ...tripFallback,
+    photo:d?.heroImageUrl?`url('${d.heroImageUrl}')`:tripFallback.photo,
+    sunrise:d?.sunrise||tripFallback.sunrise,
+    sunset:d?.sunset||tripFallback.sunset
   };
 }
 function driveText(day){
@@ -1540,6 +1547,10 @@ function weatherLocationForDay(dayIndex){
   const d=TRIP.days?.[dayIndex];
   if(!d) return null;
   const fallback=(d.events||[]).find(validCoord);
+  if(TRIP?.slug!=='iceland-2026'){
+    if(fallback)return {name:d.name||fallback.title||d.label,lat:fallback.lat,lng:fallback.lng};
+    if(TRIP?.slug==='kumamoto-2027')return {name:'Kumamoto',lat:32.8031,lng:130.7079};
+  }
   return WEATHER_LOCATIONS[d.label]||(fallback?{name:d.name||d.label,lat:fallback.lat,lng:fallback.lng}:null);
 }
 
@@ -1821,6 +1832,32 @@ function cloudTripToUi(data){
   };
 }
 
+let placeAutoResolveRunning=false;
+async function maybeAutoResolveMissingPlaces(){
+  if(placeAutoResolveRunning||!cloudLoaded||!canEditTrip()||demoMode)return;
+  const eligible=new Set(['spot','food','shop','stay','car','tour']);
+  const due=[];
+  const retryCutoff=Date.now()-30*86400000;
+  (TRIP?.days||[]).forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
+    if(!event?.id||!eligible.has(event.type)||event.uncertain||validCoord(event))return;
+    const checked=event.placeLookupCheckedAt?new Date(event.placeLookupCheckedAt).getTime():0;
+    if(event.placeLookupStatus==='not_found'&&checked>retryCutoff)return;
+    due.push({dayIndex,eventIndex,event});
+  }));
+  if(!due.length)return;
+  placeAutoResolveRunning=true;
+  let changed=false;
+  try{
+    for(const row of due.slice(0,8)){
+      try{
+        const r=await travelEditor('lookup_place',{id:row.event.id,title:row.event.title});
+        if(r?.status==='matched')changed=true;
+      }catch(err){console.warn('Auto place lookup failed',row.event.title,err)}
+    }
+    if(changed)await hydratePrivateCloudData();
+  }finally{placeAutoResolveRunning=false}
+}
+
 let placeAutoCheckRunning=false;
 function daysBetweenISO(a,b){return isoDayNumber(a)-isoDayNumber(b)}
 function placeAutoCheckPlan(){
@@ -1909,7 +1946,8 @@ async function hydratePrivateCloudData(){
     renderAll();
     updateEditAvailability();
     refreshGlobalMailBadge().catch(()=>{});
-    setTimeout(()=>maybeAutoCheckPlaceHours().catch(()=>{}),1200);
+    setTimeout(()=>maybeAutoResolveMissingPlaces().catch(()=>{}),500);
+    setTimeout(()=>maybeAutoCheckPlaceHours().catch(()=>{}),1800);
     return true;
   }catch(err){
     cloudLoaded=false;
