@@ -1445,3 +1445,6 @@ body.timeline-dragging *{
 .event-booking-row small{display:block;font-size:10px;font-weight:900;letter-spacing:.12em;opacity:.55;margin-bottom:3px}
 .event-booking-row strong{display:block;font-size:13px;font-weight:900}
 .event-booking-row span{display:block;margin-top:3px;font-size:12px;line-height:1.45;opacity:.76}
+
+/* Respect zero-state alert visibility even when .sheet-action-card sets display:flex */
+#tripAlertBtn[hidden], .menu-mail-badge[hidden], #globalMailBadge[hidden]{display:none!important;}
