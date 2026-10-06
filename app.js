@@ -1506,7 +1506,7 @@ function togglePlay(){
 
 function bookingDetailHtml(b,idx){
   const d=b.details||{};
-  const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
+  const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
   const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${x}</span>`).join('')}</div></div>`:'';
   const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${x}</li>`).join('')}</ul></div>`:'';
   const source=d.source?`<div class="booking-detail-source">資料來源：${d.source}</div>`:'';
@@ -1782,6 +1782,35 @@ function normalizeReservation(row){
     pushImported('房間數',imported.roomCount?imported.roomCount+' 間':'');
     pushImported('住宿晚數',imported.nightCount?imported.nightCount+' 晚':'');
     pushImported('方案 / 餐食',imported.amenities);
+
+    if(Array.isArray(imported.segments)&&imported.segments.length){
+      imported.segments.forEach((seg,i)=>{
+        const direction=i===0?'去程':(i===1?'回程':'航段 '+(i+1));
+        const dep=[seg.departureAirport,seg.departureName].filter(Boolean).join(' ');
+        const arr=[seg.arrivalAirport,seg.arrivalName].filter(Boolean).join(' ');
+        const when=[seg.date,seg.departureTime].filter(Boolean).join(' ');
+        const arrival=[seg.arrivalTime,arr].filter(Boolean).join(' ');
+        pushImported(direction+' '+(seg.flightNo||''),[when,dep,'→',arrival].filter(Boolean).join(' '));
+      });
+    }
+    let flightPassengers=Array.isArray(imported.passengers)?imported.passengers.filter(Boolean):[];
+    if(!flightPassengers.length&&Array.isArray(imported.passengerDetails)){
+      flightPassengers=Array.from(new Set(imported.passengerDetails.map(line=>{
+        const m=String(line).match(/^(?:去程|回程)\s+[A-Z]{2}\d+\s+((?:MR|MS|MRS|MISS|MSTR)\s+.+?)\s+\d+\s*公斤/i);
+        return m?.[1]?.trim()||'';
+      }).filter(Boolean)));
+    }
+    if(flightPassengers.length)pushImported('旅客',flightPassengers.join('、'));
+    if(Array.isArray(imported.passengerDetails)){
+      imported.passengerDetails.forEach((line,i)=>{
+        pushImported((i===0?'去程':i===1?'回程':'航段 '+(i+1))+' 行李 / 座位',line);
+      });
+    }
+    if(row?.amount!==null&&row?.amount!==undefined&&row?.amount!==''){
+      pushImported('總金額',(row.currency?row.currency+' ':'')+Number(row.amount).toLocaleString());
+    }
+    if(imported.paymentStatus||row?.payment_status)pushImported('付款狀態',imported.paymentStatus||row.payment_status);
+    pushImported('付款方式',imported.paymentMethod);
     pushImported('付款卡',imported.paymentCardLast4?'••••'+imported.paymentCardLast4:'');
   }
   return {
@@ -1790,8 +1819,14 @@ function normalizeReservation(row){
     type:d.type||row?.reservation_type||'other',
     provider:d.provider||row?.provider||'',
     title:d.title||row?.title||'預訂',
-    dates:d.dates||row?.public_summary||'',
-    meta:d.meta||row?.location_name||row?.public_summary||'',
+    dates:d.dates||row?.public_summary||(
+      imported?.segments?.length
+        ?imported.segments.map(s=>[String(s.date||'').slice(5).replace('-','/'),s.departureAirport&&s.arrivalAirport?(s.departureAirport+'→'+s.arrivalAirport):''].filter(Boolean).join(' ')).join(' · ')
+        :''
+    ),
+    meta:d.meta||row?.location_name||row?.public_summary||(
+      imported?.passengers?.length?imported.passengers.join('、'):''
+    ),
     code:row?.confirmation_code||d.code||'',
     secret:row?.pin_code||d.secret||'',
     status:d.status||row?.status||'confirmed',
