@@ -1415,3 +1415,5 @@ body.timeline-dragging *{
   .global-mail-actions{grid-template-columns:1fr 1fr}
   .global-mail-actions select{grid-column:1/-1}
 }
+
+.auth-card p.auth-error{color:var(--red);font-weight:800}
