@@ -1,4 +1,4 @@
-const CACHE='travel-os-mailrouter-v1';
+const CACHE='travel-os-authfix-v1';
 const ASSETS=['./','./index.html','./app.css','./app.js','./data.js','./config.js','./auth.js','./local-db.js','./sync-engine.js','./manifest.json','./icon.svg','./404.html'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
