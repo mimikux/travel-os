@@ -2691,6 +2691,7 @@ function openItemEditor(dayIndex,eventIndex){
   const stayBookings=(TRIP.bookings||[]).map((b,i)=>({b,i})).filter(x=>x.b?.type==='stay');
   reservationSelect.innerHTML='<option value="">不連動預訂</option>'+stayBookings.map(({b})=>`<option value="${escapeHtml(b.id||'')}">${escapeHtml(b.title||'住宿預訂')}</option>`).join('');
   reservationSelect.value=event?.reservationId||'';
+  reservationSelect.dataset.reservationIds=JSON.stringify(Array.isArray(event?.reservationIds)?event.reservationIds:(event?.reservationId?[event.reservationId]:[]));
   qs('#stayReservationLinkRow').hidden=(event?.type||'spot')!=='stay';
   qs('#editItemSubtitle').value=event?.subtitle||'';
   qs('#editItemNote').value=event?.note||'';
@@ -2791,6 +2792,11 @@ async function saveItemEditor(e){
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
     reservationId:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?qs('#editItemReservation').value:null,
+    reservationIds:(()=>{
+      const existing=JSON.parse(qs('#editItemReservation').dataset.reservationIds||'[]');
+      const chosen=(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?[qs('#editItemReservation').value]:[];
+      return Array.from(new Set([...(Array.isArray(existing)?existing:[]),...chosen].filter(Boolean)));
+    })(),
     address:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemAddress').value.trim(),
     lat:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?null:(qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value)),
     lng:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?null:(qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value)),
