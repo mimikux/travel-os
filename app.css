@@ -1421,3 +1421,17 @@ body.timeline-dragging *{
 /* Trip alert / opening-hours conflict */
 .hours-conflict-warning{background:#fff0e8!important;border-color:#e9b49a!important;color:#9b4529!important;font-weight:850}
 .trip-alert-count{min-width:25px;height:25px;border-radius:999px;background:#b84d32;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:950}
+
+/* Keep notification badge above the hero/menu button instead of clipping it. */
+.hero-menu-group{position:relative!important;z-index:8!important;overflow:visible!important}
+.hero-menu-btn.has-mail-badge,
+.subview-menu-btn.has-mail-badge,
+#tripMenuBtn.has-mail-badge{
+  overflow:visible!important;
+}
+.hero-menu-btn .menu-mail-badge,
+.subview-menu-btn .menu-mail-badge,
+#tripMenuBtn .menu-mail-badge{
+  z-index:999!important;
+  pointer-events:none;
+}
