@@ -1452,3 +1452,9 @@ body.timeline-dragging *{
 .mail-import-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 12px}
 .mail-reparse-btn{white-space:nowrap;align-self:flex-start}
 @media(max-width:640px){.mail-import-toolbar{align-items:flex-start;flex-direction:column}.mail-reparse-btn{width:auto}}
+
+.map-link-display{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.map-link-display[hidden]{display:none!important}
+.map-open-link,.map-edit-link{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.map-edit-link{cursor:pointer}
+#editItemMapEditRow[hidden],#editBookingMapEditRow[hidden]{display:none!important}
