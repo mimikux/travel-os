@@ -441,22 +441,81 @@ function eventClosedWarning(event,dateString){
   const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'));
   return event.closedWeekdays.includes(weekday)?`⚠️ ${dateString}（${weekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
 }
+function timeToMinutes(value,meridiem=''){
+  const m=String(value||'').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if(!m)return null;
+  let h=Number(m[1]),min=Number(m[2]);
+  const ap=String(m[3]||meridiem||'').toUpperCase();
+  if(ap==='AM'&&h===12)h=0;
+  if(ap==='PM'&&h!==12)h+=12;
+  return h*60+min;
+}
+function parseBusinessWindow(text){
+  const raw=String(text||'').replace(/\u202f/g,' ').trim();
+  if(!raw||/closed/i.test(raw))return {closed:true};
+  if(/open 24 hours/i.test(raw))return {open24:true,open:0,close:1440};
+  const parts=raw.split(/\s*[–—-]\s*/);
+  if(parts.length<2)return null;
+  const endPart=parts.at(-1).trim();
+  const endMer=(endPart.match(/\b(AM|PM)\b/i)||[])[1]||'';
+  let startPart=parts[0].trim();
+  let startMer=(startPart.match(/\b(AM|PM)\b/i)||[])[1]||'';
+  if(!startMer&&endMer){
+    const sh=Number((startPart.match(/^(\d{1,2})/)||[])[1]);
+    const eh=Number((endPart.match(/^(\d{1,2})/)||[])[1]);
+    if(endMer.toUpperCase()==='PM'){
+      if(sh===12) startMer='PM';
+      else startMer=(Number.isFinite(sh)&&Number.isFinite(eh)&&sh<eh)?'PM':'AM';
+    }else startMer='AM';
+  }
+  const open=timeToMinutes(startPart,startMer),close=timeToMinutes(endPart,endMer);
+  if(open===null||close===null)return null;
+  return {open,close:close<=open?close+1440:close};
+}
+function hoursForVisitDay(event,dateString){
+  const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'));
+  return (event?.openingHours||[]).find(x=>String(x?.day||'').toLowerCase()===weekday.toLowerCase())||null;
+}
+function eventHoursConflictWarning(event,dateString){
+  if(!event||!dateString||!event.time)return '';
+  const row=hoursForVisitDay(event,dateString);
+  if(!row)return '';
+  const w=parseBusinessWindow(row.hours);
+  if(!w)return '';
+  if(w.closed)return `⚠️ 當日公休 · Google Places 顯示 ${row.day} Closed，請調整行程。`;
+  if(w.open24)return '';
+  const visit=timeToMinutes(String(event.time).slice(0,5));
+  if(visit===null)return '';
+  const fmt=m=>String(Math.floor((m%1440)/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  if(visit<w.open)return `⚠️ 營業時間衝突 · 預計 ${String(event.time).slice(0,5)} 抵達，但 ${fmt(w.open)} 才開門。`;
+  if(visit>=w.close)return `⚠️ 營業時間衝突 · 預計 ${String(event.time).slice(0,5)} 抵達，但 ${fmt(w.close)} 已關門。`;
+  return '';
+}
 function demoHoursConflict(event,dateString){
   if(!demoMode||window.TRAVEL_CONFIG?.tripSlug!=='iceland-2026'||dateString!=='2026-11-23')return '';
-  if(!event?.time)return '';
-  // Demo-only visual fixture. Never writes fake hours to Supabase.
-  if(/diamond beach|鑽石沙灘/i.test(String(event.title||''))) return '⚠️ 營業時間有變動 · DEMO：預計 18:30 抵達，但最新營業時間為 17:00 關閉。';
-  const candidates=(currentDay()?.events||[]).filter(e=>e?.time&&['spot','food','shop','tour'].includes(e.type));
-  if(candidates[0]===event) return '⚠️ 營業時間有變動 · DEMO：預計 '+event.time+' 抵達，但最新營業時間較早結束，請調整行程。';
+  if(/diamond beach|鑽石沙灘/i.test(String(event?.title||''))) return '⚠️ 營業時間有變動 · DEMO：原本 24 小時，最新改為 17:00 關閉；示範通知與球標。';
   return '';
+}
+function hoursChangeWarning(event){
+  if(!event?.hoursChangePending)return '';
+  const changed=event.hoursChangedAt?new Date(event.hoursChangedAt).toLocaleString():'最近';
+  return `🔄 Google 營業時間有變動 · ${changed} 更新，請確認行程是否仍適用。`;
 }
 function tripPlaceAlerts(){
   const alerts=[];
   (TRIP?.days||[]).forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
-    const closed=eventClosedWarning(event,day.date);
-    const demo=demoHoursConflict(event,day.date);
-    if(closed) alerts.push({dayIndex,eventIndex,title:event.title,message:closed});
-    if(demo) alerts.push({dayIndex,eventIndex,title:event.title,message:demo});
+    const seen=new Set();
+    for(const [kind,message] of [
+      ['closed',eventClosedWarning(event,day.date)],
+      ['conflict',eventHoursConflictWarning(event,day.date)],
+      ['changed',hoursChangeWarning(event)],
+      ['demo',demoHoursConflict(event,day.date)]
+    ]){
+      if(message&&!seen.has(message)){
+        seen.add(message);
+        alerts.push({kind,dayIndex,eventIndex,itemId:event.id,title:event.title,message});
+      }
+    }
   }));
   return alerts;
 }
@@ -676,7 +735,7 @@ function renderToday(){
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
   const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
@@ -1700,6 +1759,56 @@ function cloudTripToUi(data){
   };
 }
 
+let placeAutoCheckRunning=false;
+function daysBetweenISO(a,b){return isoDayNumber(a)-isoDayNumber(b)}
+function placeAutoCheckPlan(){
+  const today=icelandTodayISO();
+  const start=TRIP?.startDate||TRIP?.days?.[0]?.date;
+  const end=TRIP?.endDate||TRIP?.days?.at(-1)?.date;
+  if(!start||!end||today>end)return {enabled:false,reason:'trip_ended'};
+  const until=daysBetweenISO(start,today);
+  if(until>30)return {enabled:false,reason:'more_than_30_days'};
+  if(until>=8)return {enabled:true,maxAgeDays:14,scope:'all'};
+  if(until>=2)return {enabled:true,maxAgeDays:7,scope:'all'};
+  if(until===1)return {enabled:true,maxAgeDays:1,scope:'all'};
+  return {enabled:true,maxAgeDays:1,scope:'today_tomorrow'};
+}
+async function maybeAutoCheckPlaceHours(){
+  if(placeAutoCheckRunning||!cloudLoaded||!canEditTrip()||demoMode)return;
+  const plan=placeAutoCheckPlan();
+  if(!plan.enabled)return;
+  const today=icelandTodayISO();
+  const tomorrow=new Date(today+'T00:00:00Z');tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
+  const tomorrowISO=tomorrow.toISOString().slice(0,10);
+  const cutoff=Date.now()-plan.maxAgeDays*86400000;
+  const eligible=new Set(['spot','food','shop','stay','car','tour']);
+  const due=[];
+  (TRIP.days||[]).forEach(day=>(day.events||[]).forEach(event=>{
+    if(!event?.id||!event.googleMapsUrl||!eligible.has(event.type))return;
+    if(plan.scope==='today_tomorrow'&&![today,tomorrowISO].includes(day.date))return;
+    const checked=event.hoursCheckedAt?new Date(event.hoursCheckedAt).getTime():0;
+    if(!checked||checked<=cutoff)due.push({day,event});
+  }));
+  if(!due.length)return;
+  placeAutoCheckRunning=true;
+  try{
+    for(const {event} of due){
+      try{
+        const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl,title:event.title,lat:event.lat,lng:event.lng});
+        if(data?.hoursLookup?.status==='api_error')continue;
+        await travelEditor('save_place_hours',{
+          id:event.id,googleMapsUrl:event.googleMapsUrl,
+          googleMapsResolvedUrl:data.finalUrl||event.googleMapsResolvedUrl||'',
+          openingHours:Array.isArray(data.weeklyHours)?data.weeklyHours:[],
+          closedWeekdays:Array.isArray(data.closedDays)?data.closedDays:[],
+          hoursSource:data.hoursSource||null
+        });
+      }catch(_){}
+    }
+    await hydratePrivateCloudData();
+  }finally{placeAutoCheckRunning=false}
+}
+
 async function hydratePrivateCloudData(){
   const client=window.TravelAuth?.getClient?.();
   const authSnapshot=window.TravelAuth?.snapshot?.()||{};
@@ -1738,6 +1847,7 @@ async function hydratePrivateCloudData(){
     renderAll();
     updateEditAvailability();
     refreshGlobalMailBadge().catch(()=>{});
+    setTimeout(()=>maybeAutoCheckPlaceHours().catch(()=>{}),1200);
     return true;
   }catch(err){
     cloudLoaded=false;
@@ -2027,10 +2137,13 @@ function updateEditAvailability(){
     alertBtn=document.createElement('button');
     alertBtn.id='tripAlertBtn';alertBtn.type='button';alertBtn.className='sheet-action-card';
     qs('#membersBtn').before(alertBtn);
-    alertBtn.onclick=()=>{
+    alertBtn.onclick=async()=>{
       const alerts=tripPlaceAlerts();
       if(!alerts.length)return;
       const x=alerts[0];
+      if(x.kind==='changed'&&x.itemId){
+        try{await travelEditor('ack_place_alert',{id:x.itemId});await hydratePrivateCloudData();}catch(_){}
+      }
       closeSheet();
       selectedDay=x.dayIndex;mapPrimaryDay=x.dayIndex;mapSelectedDays=new Set([x.dayIndex]);
       showView('today');renderAll();
@@ -2215,114 +2328,52 @@ async function auditTripPlaceHours(){
   }));
   const linked=all.filter(x=>x.event.googleMapsUrl);
   const missing=all.filter(x=>!x.event.googleMapsUrl);
-
   if(!linked.length){
-    status.textContent=`尚無可檢查資料 · ${missing.length} 筆待補 Google Maps 連結`;
-    alert(`目前有 ${missing.length} 筆地點型行程尚未補 Google Maps 連結。\n\n為避免用名稱/GPS 模糊搜尋配錯地點，系統暫時不自動猜測；請先在編輯活動中逐筆貼上正確 Google Maps 連結。`);
+    status.textContent=`沒有可檢查的 Google Maps 地點 · 待補 ${missing.length}`;
     return;
   }
-
-  const probe=linked.find(x=>/blue\s*lagoon/i.test(String(x.event?.title||'')))||linked[0];
-  if(probe){
-    btn.disabled=true;
-    status.textContent='先測試 Places API…';
-    try{
-      const p=await travelEditor('resolve_google_map',{
-        url:probe.event.googleMapsUrl,
-        title:probe.event.title,
-        lat:probe.event.lat,
-        lng:probe.event.lng
-      });
-      const lookup=p?.hoursLookup||{};
-      const diag=[
-        'Places API 單筆測試',
-        '',
-        '測試地點：'+(probe.event.title||'—'),
-        'Secret：'+(lookup.configured?'已讀取':'未讀取'),
-        'Status：'+(lookup.status||'unknown'),
-        'Place ID：'+(lookup.placeId||'—'),
-        'Google 配對：'+(lookup.matchedName||'—'),
-        'Business：'+(lookup.businessStatus||'—'),
-        'Regular hours：'+(lookup.hasRegularHours?'有':'無'),
-        'Current hours：'+(lookup.hasCurrentHours?'有':'無'),
-        '營業時間：'+(Array.isArray(p?.weeklyHours)?p.weeklyHours.length:0)+' 天',
-        ...(Array.isArray(lookup.rawRegularDescriptions)&&lookup.rawRegularDescriptions.length
-          ?['Google 原始 hours：'+lookup.rawRegularDescriptions.map(x=>typeof x==='string'?x:(x?.text||JSON.stringify(x))).join(' / ')]
-          :[]),
-        '收到標題：'+(p?.debug?.receivedTitle||'—'),
-        'GPS：'+([p?.debug?.receivedLat,p?.debug?.receivedLng].every(Number.isFinite)?p.debug.receivedLat+', '+p.debug.receivedLng:'—')
-      ].join('\n');
-      if(!['ok','ok_current_fallback'].includes(lookup.status)){
-        status.textContent='Places API 單筆測試未通過';
-        alert(diag+'\n\n先停止整批檢查，避免重複查 32 筆。');
-        btn.disabled=false;
-        return;
-      }
-      if(!confirm(diag+`\n\n單筆測試正常。要繼續檢查其餘 ${linked.length} 筆嗎？`)){
-        btn.disabled=false;
-        status.textContent='單筆測試正常 · 尚未執行整批';
-        return;
-      }
-    }catch(err){
-      btn.disabled=false;
-      status.textContent='Places API 單筆測試失敗';
-      alert('Places API 單筆測試失敗：'+(err.code||err.message||'unknown'));
-      return;
-    }
-  }else if(!confirm(`將重新檢查 ${linked.length} 筆已有 Google Maps 來源的行程。\n另有 ${missing.length} 筆尚未補連結，本次會略過。\n\n是否開始？`))return;
-
+  if(!confirm(`將立即重新檢查 ${linked.length} 筆地點。\n這會呼叫 Google Places API；平常自動查核會依低頻規則執行。\n\n是否繼續？`))return;
   btn.disabled=true;
-  let done=0,withHours=0,warnings=0,failed=0;
-  const issues=[];
+  let done=0,withHours=0,noHours=0,failed=0,changed=0;
   for(const row of linked){
-    const {day,event}=row;
+    const {event}=row;
     try{
+      const before=JSON.stringify(event.openingHours||[]);
       const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl,title:event.title,lat:event.lat,lng:event.lng});
       const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
       const closed=Array.isArray(data.closedDays)?data.closedDays:[];
-      const lookup=data?.hoursLookup||null;
-
-      if(lookup&&lookup.configured===false){
-        btn.disabled=false;
-        status.textContent='尚未啟用 Google Places API';
-        alert('目前尚未設定 Google Places API Key，因此無法可靠取得營業時間。\n\nGoogle Maps 連結仍可用來解析地點、地址與 GPS；營業時間檢查需要另外啟用 Google Places API (New)。');
-        return;
-      }
-      if(lookup&&lookup.status==='api_error'){
-        failed++;
-        issues.push(`${day.label} · ${event.title}：Google Places API 查詢失敗`);
-        continue;
-      }
-
+      const lookup=data?.hoursLookup||{};
+      if(lookup.configured===false) throw new Error('places_api_not_configured');
+      if(lookup.status==='api_error'){failed++;continue;}
       await travelEditor('save_place_hours',{
-        id:event.id,
-        googleMapsUrl:event.googleMapsUrl,
+        id:event.id,googleMapsUrl:event.googleMapsUrl,
         googleMapsResolvedUrl:data.finalUrl||event.googleMapsResolvedUrl||'',
-        openingHours:hours,
-        closedWeekdays:closed,
-        hoursSource:data.hoursSource||null
+        openingHours:hours,closedWeekdays:closed,hoursSource:data.hoursSource||null
       });
-      if(hours.length) withHours++;
-      const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(day.date+'T00:00:00Z'));
-      if(closed.includes(weekday)){
-        warnings++;
-        issues.push(`${day.label} · ${event.title}：${weekday} 公休`);
-      }
-    }catch(err){
-      failed++;
-      issues.push(`${day.label} · ${event.title}：檢查失敗（${err.code||err.message}）`);
-    }finally{
+      if(hours.length)withHours++;else noHours++;
+      if(event.hoursCheckedAt&&before!==JSON.stringify(hours))changed++;
+    }catch(err){failed++}
+    finally{
       done++;
-      status.textContent=`檢查中 ${done}/${linked.length} · 有營業資料 ${withHours} · 警示 ${warnings}`;
+      status.textContent=`檢查中 ${done}/${linked.length} · 有資料 ${withHours} · 無資料 ${noHours}`;
     }
   }
-
   await hydratePrivateCloudData();
+  const alerts=tripPlaceAlerts();
+  const conflictCount=alerts.filter(x=>x.kind==='closed'||x.kind==='conflict').length;
+  const changeCount=alerts.filter(x=>x.kind==='changed').length;
   btn.disabled=false;
-  status.textContent=`完成 · 已檢查 ${linked.length} · 警示 ${warnings} · 待補連結 ${missing.length}`;
-  let msg=`營業時間檢查完成\n\n已檢查：${linked.length}\n取得營業時間：${withHours}\n公休日警示：${warnings}\n查詢失敗：${failed}\n待補 Google Maps 連結：${missing.length}`;
-  if(issues.length) msg+='\n\n'+issues.slice(0,12).join('\n')+(issues.length>12?`\n…另有 ${issues.length-12} 項`:'');
-  alert(msg);
+  status.textContent=`完成 · 有營業資料 ${withHours} · 衝突 ${conflictCount} · 變動 ${changeCount}`;
+  alert([
+    '營業時間檢查完成','',
+    `已檢查：${linked.length}`,
+    `✅ 有營業時間：${withHours}`,
+    `ℹ️ Google 無營業時間資料：${noHours}`,
+    `⚠️ 行程衝突 / 公休：${conflictCount}`,
+    `🔄 營業時間變動：${changeCount}`,
+    `❌ API 查詢失敗：${failed}`,
+    `🔗 待補 Google Maps：${missing.length}`
+  ].join('\n'));
 }
 
 function syncEditModeChrome(){
