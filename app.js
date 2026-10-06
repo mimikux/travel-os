@@ -1656,7 +1656,8 @@ function cloudTripToUi(data){
     version:data.trip?.version||1,
     role:data.role||'viewer',
     days,
-    bookings:(data.reservations||[]).map(normalizeReservation)
+    bookings:(data.reservations||[]).map(normalizeReservation),
+    mailImports:Array.isArray(data.mailImports)?data.mailImports:[]
   };
 }
 
@@ -1827,9 +1828,144 @@ function updateEditAvailability(){
     audit.onclick=auditTripPlaceHours;
   }
   if(audit) audit.hidden=!canEditTrip();
+  let mailBtn=qs('#mailImportBtn');
+  if(!mailBtn&&qs('#membersBtn')){
+    mailBtn=document.createElement('button');
+    mailBtn.id='mailImportBtn';mailBtn.type='button';mailBtn.className='sheet-action-card';
+    qs('#membersBtn').before(mailBtn);
+    mailBtn.onclick=()=>{closeSheet();openMailImportSheet();};
+  }
+  if(mailBtn){
+    const pending=Array.isArray(TRIP?.mailImports)?TRIP.mailImports.length:0;
+    mailBtn.hidden=!canEditTrip();
+    mailBtn.innerHTML='<span><small>MAIL IMPORT</small><strong>信箱匯入</strong><em>'+(pending?pending+' 筆待確認':'目前沒有待確認')+'</em></span><span>→</span>';
+  }
   const publicShare=qs('#publicShareBtn');
   if(publicShare) publicShare.hidden=currentTripRole!=='owner';
   syncTripLabels();
+}
+
+
+function ensureMailImportSheet(){
+  let sheet=qs('#mailImportSheet');
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='mailImportBackdrop';
+  sheet=document.createElement('aside');
+  sheet.className='members-sheet mail-import-sheet';
+  sheet.id='mailImportSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">MAIL IMPORT</span><h2>信箱匯入</h2><p>來自 mTripPlan Gmail。先比較差異，確認後才更新正式預訂。</p></div>
+      <button class="round-btn" id="closeMailImport">×</button>
+    </div>
+    <div class="mail-import-status" id="mailImportStatus"></div>
+    <div class="mail-import-list" id="mailImportList"></div>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeMailImport').onclick=close;
+  backdrop.onclick=close;
+  return sheet;
+}
+
+function mailValue(value){
+  if(value===null||value===undefined||value==='')return '—';
+  if(typeof value==='object')return JSON.stringify(value);
+  return String(value);
+}
+function mailExistingReservation(mail){
+  if(!mail?.matched_reservation_id)return null;
+  return (TRIP.bookings||[]).find(b=>String(b.id)===String(mail.matched_reservation_id))||null;
+}
+function mailReviewRows(mail){
+  const d=mail?.parsed_data||{};
+  const existing=mailExistingReservation(mail);
+  const raw=existing?._raw||{};
+  const rows=[];
+  const add=(label,oldValue,newValue)=>{
+    if(newValue===null||newValue===undefined||newValue==='')return;
+    rows.push([label,mailValue(oldValue),mailValue(newValue)]);
+  };
+  add('名稱',raw.title||existing?.title,d.title);
+  add('訂位代碼',raw.confirmation_code||existing?.code,d.confirmationCode);
+  add('PIN',raw.pin_code||existing?.secret,d.pinCode);
+  add('金額',raw.amount,d.amount!==undefined&&d.amount!==null?(d.currency?d.amount+' '+d.currency:d.amount):'');
+  add('付款',raw.payment_status,d.paymentStatus);
+  add('開始',raw.starts_at,[d.startDate||d.date,d.startTime||d.time||d.departureTime].filter(Boolean).join(' '));
+  add('結束',raw.ends_at,[d.endDate||d.date,d.endTime||d.arrivalTime].filter(Boolean).join(' '));
+  add('地址',raw.address,d.address);
+  add('取消期限',raw.cancellation_policy,d.cancellationDeadline?.date?[d.cancellationDeadline.date,d.cancellationDeadline.time].filter(Boolean).join(' '):d.cancellationPolicy);
+  if(d.flightNo)add('航班',raw.title,d.flightNo+' '+(d.departureAirport||'')+' → '+(d.arrivalAirport||''));
+  if(d.participants)add('人數 / 方案','',d.participants);
+  if(d.vehicle)add('車型',raw.title,d.vehicle);
+  return rows;
+}
+function renderMailImportSheet(){
+  const list=qs('#mailImportList'),status=qs('#mailImportStatus');
+  if(!list||!status)return;
+  const mails=Array.isArray(TRIP?.mailImports)?TRIP.mailImports:[];
+  status.textContent=mails.length?mails.length+' 筆待確認':'目前沒有待確認信件';
+  if(!mails.length){
+    list.innerHTML='<div class="booking-empty">新的旅遊確認信進來後會出現在這裡。</div>';
+    return;
+  }
+  list.innerHTML=mails.map(mail=>{
+    const d=mail.parsed_data||{};
+    const existing=mailExistingReservation(mail);
+    const rows=mailReviewRows(mail);
+    const diff=rows.length?rows.map(([label,oldValue,newValue])=>`
+      <div class="mail-diff-row">
+        <span>${escapeHtml(label)}</span>
+        <div><small>目前</small><strong>${escapeHtml(oldValue)}</strong></div>
+        <div><small>信件</small><strong>${escapeHtml(newValue)}</strong></div>
+      </div>`).join(''):'<div class="mail-no-diff">已解析，但沒有新的可套用欄位。</div>';
+    return `
+      <article class="mail-import-card" data-mail-id="${escapeHtml(mail.id)}">
+        <div class="mail-import-head">
+          <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
+          <h3>${escapeHtml(d.title||mail.subject||'待確認信件')}</h3>
+          <p>${existing?'已配對：'+escapeHtml(existing.title):'尚未找到既有預訂'}</p></div>
+          <span class="mail-import-badge">${existing?'MATCHED':'NEW'}</span>
+        </div>
+        <div class="mail-diff-list">${diff}</div>
+        <div class="mail-import-actions">
+          <button type="button" class="mail-ignore" data-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
+          <button type="button" class="mail-apply" data-mail-apply="${escapeHtml(mail.id)}" ${existing?'':'disabled'}>套用更新</button>
+        </div>
+      </article>`;
+  }).join('');
+  list.querySelectorAll('[data-mail-ignore]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailIgnore,'ignore',btn));
+  list.querySelectorAll('[data-mail-apply]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailApply,'apply',btn));
+}
+async function openMailImportSheet(){
+  if(!canEditTrip())return;
+  const sheet=ensureMailImportSheet();
+  renderMailImportSheet();
+  qs('#mailImportBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+}
+async function reviewMailImport(mailId,mode,button){
+  if(!mailId||!canEditTrip())return;
+  const verb=mode==='apply'?'套用這封信解析到的欄位到既有預訂？\n\n未解析到的原資料會保留。':'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
+  if(!confirm(verb))return;
+  button.disabled=true;
+  try{
+    await travelEditor(mode==='apply'?'mail_apply':'mail_ignore',{mailId});
+    await hydratePrivateCloudData();
+    renderMailImportSheet();
+    updateEditAvailability();
+  }catch(err){
+    alert('處理失敗：'+(err.code||err.message||'unknown'));
+    button.disabled=false;
+  }
 }
 
 async function auditTripPlaceHours(){
