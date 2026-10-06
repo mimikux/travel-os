@@ -1827,6 +1827,8 @@ function updateEditAvailability(){
     audit.onclick=auditTripPlaceHours;
   }
   if(audit) audit.hidden=!canEditTrip();
+  const publicShare=qs('#publicShareBtn');
+  if(publicShare) publicShare.hidden=currentTripRole!=='owner';
   syncTripLabels();
 }
 
@@ -2640,6 +2642,79 @@ async function deleteCurrentBooking(){
   catch(err){qs('#bookingEditStatus').textContent='刪除失敗：'+err.message}
 }
 
+async function loadPublicShareStatus(){
+  const status=qs('#publicShareStatus');
+  try{
+    const data=await tripAdmin('public_share_status');
+    const active=Boolean(data?.active);
+    if(status) status.textContent=active?'已開啟':'尚未開啟';
+    qs('#publicShareInactive').hidden=active;
+    qs('#publicShareActive').hidden=!active;
+    if(active){
+      // Token itself is never returned by status lookup. Existing links can only
+      // be copied in the browser session that created/reset them.
+      const cached=localStorage.getItem('travelPublicShareUrl:'+window.TRAVEL_CONFIG.tripSlug)||'';
+      qs('#publicShareUrl').value=cached;
+      qs('#copyPublicShare').disabled=!cached;
+      qs('#publicShareMessage').textContent=cached?'':'安全起見，伺服器只保存 token hash；若要重新取得可分享網址，請按「重設連結」。';
+    }
+    return active;
+  }catch(err){
+    if(status) status.textContent='讀取失敗';
+    return false;
+  }
+}
+
+async function createOrResetPublicShare(){
+  const msg=qs('#publicShareMessage');
+  if(msg) msg.textContent='建立中…';
+  try{
+    const data=await tripAdmin('create_public_share');
+    const url=data?.url||'';
+    if(url){
+      localStorage.setItem('travelPublicShareUrl:'+window.TRAVEL_CONFIG.tripSlug,url);
+      qs('#publicShareUrl').value=url;
+      qs('#copyPublicShare').disabled=false;
+    }
+    qs('#publicShareInactive').hidden=true;
+    qs('#publicShareActive').hidden=false;
+    qs('#publicShareStatus').textContent='已開啟';
+    if(msg) msg.textContent='公開連結已建立。舊連結（若有）已失效。';
+  }catch(err){
+    if(msg) msg.textContent='建立失敗：'+(err.message||'unknown');
+  }
+}
+
+async function revokePublicShare(){
+  if(!confirm('停止公開分享？目前的公開連結會立即失效。')) return;
+  const msg=qs('#publicShareMessage');
+  if(msg) msg.textContent='停止分享中…';
+  try{
+    await tripAdmin('revoke_public_share');
+    localStorage.removeItem('travelPublicShareUrl:'+window.TRAVEL_CONFIG.tripSlug);
+    qs('#publicShareUrl').value='';
+    qs('#publicShareInactive').hidden=false;
+    qs('#publicShareActive').hidden=true;
+    qs('#publicShareStatus').textContent='尚未開啟';
+  }catch(err){
+    if(msg) msg.textContent='停止分享失敗：'+(err.message||'unknown');
+  }
+}
+
+async function openPublicShareSheet(){
+  closeSheet();
+  qs('#publicShareBackdrop').classList.add('show');
+  qs('#publicShareSheet').classList.add('show');
+  qs('#publicShareSheet').setAttribute('aria-hidden','false');
+  await loadPublicShareStatus();
+}
+
+function closePublicShareSheet(){
+  qs('#publicShareBackdrop').classList.remove('show');
+  qs('#publicShareSheet').classList.remove('show');
+  qs('#publicShareSheet').setAttribute('aria-hidden','true');
+}
+
 async function tripAdmin(action='list',payload={}){
   const client=window.TravelAuth?.getClient?.();
   if(!client) throw new Error('auth_not_ready');
@@ -2725,6 +2800,19 @@ async function loadMembers(){
     status.textContent='';
   }catch(err){console.warn(err);status.textContent='無法讀取成員資料。'}
 }
+qs('#publicShareBtn').onclick=openPublicShareSheet;
+qs('#closePublicShare').onclick=closePublicShareSheet;
+qs('#publicShareBackdrop').onclick=closePublicShareSheet;
+qs('#createPublicShare').onclick=createOrResetPublicShare;
+qs('#resetPublicShare').onclick=()=>{if(confirm('重設公開連結？舊連結會立即失效。')) createOrResetPublicShare()};
+qs('#revokePublicShare').onclick=revokePublicShare;
+qs('#copyPublicShare').onclick=async()=>{
+  const url=qs('#publicShareUrl').value;
+  if(!url)return;
+  try{await navigator.clipboard.writeText(url);qs('#publicShareMessage').textContent='已複製公開連結。'}
+  catch(_){qs('#publicShareUrl').select();document.execCommand('copy');qs('#publicShareMessage').textContent='已複製公開連結。'}
+};
+
 qs('#membersBtn').onclick=async()=>{
   closeSheet();qs('#membersBackdrop').classList.add('show');qs('#membersSheet').classList.add('show');qs('#membersSheet').setAttribute('aria-hidden','false');await loadMembers();
 };
