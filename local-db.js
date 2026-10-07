@@ -360,6 +360,32 @@
         return rows?.length?rows:fast;
       }catch(_){return fast}
     },
+    async setTripDirectory(rows){
+      const normalized=(Array.isArray(rows)?rows:[]).map(x=>({
+        id:x.id||x.slug,slug:x.slug||x.id,title:x.title||x.slug||'Travel OS',
+        start_date:x.start_date||x.startDate||null,end_date:x.end_date||x.endDate||null,
+        timezone:x.timezone||'UTC',role:x.role||'viewer',source:x.source||'cloud',
+        updated_at:x.updated_at||new Date().toISOString()
+      }));
+      writeFastTripDirectory(normalized);
+      const db=await dbOrNull();
+      if(db){
+        try{
+          const tx=db.transaction('trips','readwrite');
+          const store=tx.objectStore('trips');
+          normalized.forEach(x=>{
+            const req=store.get(x.slug);
+            req.onsuccess=()=>{
+              const prev=req.result||{};
+              store.put({...prev,id:x.slug,slug:x.slug,title:x.title,start_date:x.start_date,end_date:x.end_date,
+                timezone:x.timezone,role:x.role,source:prev.source||'directory',updated_at:x.updated_at,deleted_at:null});
+            };
+          });
+          await txDone(tx);
+        }catch(err){console.warn('Trip directory IndexedDB sync skipped',err)}
+      }
+      return normalized;
+    },
     async saveUiTrip(trip){
       const db=await dbOrNull();if(!db)return null;
       return withTimeout(saveUiTrip(db,trip),2500,'save_ui_trip_timeout');
