@@ -2410,11 +2410,13 @@ async function saveTripSettings(e){
   if(!title){status.textContent='請輸入旅程名稱。';return}
   if(startDate&&endDate&&endDate<startDate){status.textContent='結束日期不可早於開始日期。';return}
   status.textContent='儲存中…';
+  let attemptedCreateSlug='';
   try{
     if(mode==='create'){
       const suggested=title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||('trip-'+Date.now());
       const slug=prompt('網址名稱（英文/數字/連字號）',suggested);
       if(!slug){status.textContent='已取消建立。';return}
+      attemptedCreateSlug=slug;
       const device=await window.TravelStore.getDevice();
       const data=await travelTripsApi('create',{title,slug,startDate,endDate,timezone,theme,devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label});
       try{await globalMailApi('reroute')}catch(err){console.warn('Mail reroute after trip create failed',err)}
@@ -2426,6 +2428,19 @@ async function saveTripSettings(e){
     qs('#tripSettingsSheet').classList.remove('show');qs('#tripSettingsBackdrop').classList.remove('show');
     await hydratePrivateCloudData();
   }catch(err){
+    // A network/runtime error can happen after the backend has already committed
+    // the new trip. Reconcile once before telling the traveler that creation failed.
+    if(mode==='create'&&attemptedCreateSlug){
+      try{
+        const trips=await fetchAuthorizedTrips();
+        const created=trips.find(t=>String(t.slug)===String(attemptedCreateSlug));
+        if(created){
+          status.textContent='旅程已建立，正在開啟…';
+          location.href=tripHref(created.slug);
+          return;
+        }
+      }catch(reconcileErr){console.warn('Trip create reconciliation failed',reconcileErr)}
+    }
     status.textContent='儲存失敗：'+(err.code||err.message||'unknown');
   }
 }
