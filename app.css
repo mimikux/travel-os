@@ -1034,7 +1034,7 @@ body.timeline-dragging *{
 
 
 /* inline tonight booking r110ak */
-.stay-booking-inline{margin-top:14px;border-top:1px solid #ded4c2;padding-top:10px}.stay-booking-toggle{width:100%;padding:10px 0!important;background:transparent!important}.stay-booking-panel{margin-top:8px;background:#fffdf8;border:1px solid #ded4c2;border-radius:16px;padding:14px}.stay-booking-summary{display:grid;gap:3px;margin-bottom:12px;color:var(--muted);font-size:13px}.stay-booking-summary strong{color:var(--gold);font-size:12px;letter-spacing:.05em}
+.stay-booking-inline{margin-top:14px;border-top:1px solid #ded4c2;padding-top:10px}.stay-booking-toggle{width:100%;padding:10px 0!important;background:transparent!important}.stay-booking-panel{margin-top:8px;background:#fffdf8;border:1px solid #ded4c2;border-radius:16px;padding:14px}.stay-booking-summary{display:grid;gap:3px;margin-bottom:12px;color:var(--muted);font-size:13px}.stay-booking-summary strong{color:var(--gold);font-size:12px;letter-spacing:.05em}.stay-booking-list{display:grid;gap:12px;margin-top:8px}.stay-booking-list[hidden]{display:none}.stay-booking-list .stay-booking-panel{margin-top:0}
 
 
 /* departure time editor r110am */
