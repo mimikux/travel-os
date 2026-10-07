@@ -4011,8 +4011,22 @@ async function tripAdmin(action='list',payload={}){
   const client=window.TravelAuth?.getClient?.();
   if(!client) throw new Error('auth_not_ready');
   const response=await client.functions.invoke('trip-admin',{body:{tripSlug:window.TRAVEL_CONFIG.tripSlug,action,...payload}});
-  if(response.error) throw response.error;
-  if(response.data?.error) throw new Error(response.data.error);
+  if(response.error){
+    let body=null;
+    try{body=response.error.context?await response.error.context.clone().json():null}catch(_){}
+    const code=body?.error||response.error.code||'edge_function_error';
+    const err=new Error(code);
+    err.code=code;
+    err.status=Number(response.error.context?.status||0);
+    err.invitePending=Boolean(body?.invitePending);
+    throw err;
+  }
+  if(response.data?.error){
+    const err=new Error(response.data.error);
+    err.code=response.data.error;
+    err.invitePending=Boolean(response.data.invitePending);
+    throw err;
+  }
   return response.data;
 }
 function closeMembersSheet(){
@@ -4079,12 +4093,29 @@ async function loadMembers(){
       const head=document.createElement('div');head.className='member-head';
       const who=document.createElement('div');
       const strong=document.createElement('strong');strong.textContent=i.email;
-      const small=document.createElement('small');small.textContent='邀請中 · '+i.role;
+      const small=document.createElement('small');small.textContent='待完成登入 · '+String(i.role||'viewer').toUpperCase();
       who.append(strong,small);head.append(who);
       if(owner){
+        const actions=document.createElement('div');actions.className='member-actions';
+        const resend=document.createElement('button');resend.className='mini-btn';resend.textContent='重新寄送';
+        resend.onclick=async()=>{
+          resend.disabled=true;status.textContent='正在重新寄送邀請信…';
+          try{
+            const result=await tripAdmin('resend_invite',{inviteId:i.id});
+            status.textContent=result.mode==='existing_user_allowed'
+              ?'此 Email 已有帳號，不需邀請信；請對方直接用相同 Email 登入。'
+              :'邀請信已重新寄出。';
+            await loadMembers();
+          }catch(err){
+            console.warn(err);
+            status.textContent=err.code==='invite_email_rate_limited'
+              ?'Supabase 寄信頻率已達上限，邀請仍保留。請稍後再按「重新寄送」。'
+              :'邀請信寄送失敗，邀請仍保留，可稍後重新寄送。';
+          }finally{resend.disabled=false}
+        };
         const cancel=document.createElement('button');cancel.className='member-remove';cancel.textContent='取消邀請';
         cancel.onclick=async()=>{await tripAdmin('revoke_invite',{inviteId:i.id});await loadMembers()};
-        head.append(cancel);
+        actions.append(resend,cancel);head.append(actions);
       }
       card.append(head);box.append(card);
     }
@@ -4115,13 +4146,29 @@ qs('#dayNoteEditBtn').onclick=e=>{e.stopPropagation();openDayEditor(selectedDay)
 qs('#inviteMemberForm').onsubmit=async e=>{
   e.preventDefault();
   const email=qs('#inviteEmail').value.trim(),role=qs('#inviteRole').value;
-  qs('#memberStatus').textContent='正在建立邀請…';
+  const status=qs('#memberStatus');
+  status.textContent='正在建立邀請…';
   try{
     const result=await tripAdmin('invite',{email,role});
     qs('#inviteEmail').value='';
-    qs('#memberStatus').textContent=result.mode==='invite_sent'?'邀請信已寄出。':'已授權此成員；對方可使用相同 Email 登入。';
+    status.textContent=result.mode==='invite_sent'
+      ?'邀請信已寄出。'
+      :'已授權此成員；對方可使用相同 Email 登入。';
     await loadMembers();
-  }catch(err){console.warn(err);qs('#memberStatus').textContent='邀請失敗。'}
+  }catch(err){
+    console.warn(err);
+    if(err.code==='invite_email_rate_limited'){
+      status.textContent='成員權限已保留，但 Supabase 寄信頻率已達上限。稍後可在「待完成登入」旁按重新寄送。';
+      qs('#inviteEmail').value='';
+      await loadMembers();
+    }else if(err.invitePending){
+      status.textContent='成員權限已保留，但邀請信沒有成功寄出。稍後可按重新寄送。';
+      qs('#inviteEmail').value='';
+      await loadMembers();
+    }else{
+      status.textContent='邀請失敗：'+(err.code||err.message||'unknown');
+    }
+  }
 };
 
 async function initCloudShell(){
