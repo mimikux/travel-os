@@ -883,19 +883,24 @@ function tripPlaceAlerts(){
 }
 
 function renderTimelineEvent(e,eventIndex,d,dayIndex){
-  const flight=e.type==='flight'?flightPresentation(e,d.date):null;
-  const title=flight?.title||e.title||'';
-  const subtitle=flight?.subtitle||e.subtitle||'';
-  const time=flight?.time??(e.time||'');
-  const actionButton=e.type==='flight'
-    ?'<button class="mini-btn flight-status-btn" type="button" onclick="event.stopPropagation();const p=document.getElementById(\'eventFlightBookings-'+dayIndex+'-'+eventIndex+'\');if(p){const btn=p.previousElementSibling;const open=p.hidden;p.hidden=!open;btn?.classList.toggle(\'open\',open)}">航班動態</button>'
-    :(hasNavigationTarget(e)?`<button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${dayIndex},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}`:'');
+  const p=eventPresentation(e,d.date);
+  const title=p.title||e.title||'';
+  const subtitle=p.subtitle||e.subtitle||'';
+  const note=p.note||'';
+  const time=p.time??(e.time||'');
+  let actionButton='';
+  if(e.type==='flight'){
+    const statusUrl=flightStatusUrl(e,d.date);
+    if(statusUrl)actionButton='<button class="mini-btn flight-status-btn" type="button" onclick="event.stopPropagation();openFlightStatus('+dayIndex+','+eventIndex+')">航班動態 ↗</button>';
+  }else if(hasNavigationTarget(e)){
+    actionButton='<button class="mini-btn" onclick="event.stopPropagation();openMapsEvent('+dayIndex+','+eventIndex+')">導航</button>';
+  }
   return `<div class="timeline-item" data-event-index="${eventIndex}">
     <div class="timeline-dot" aria-hidden="true"></div>
     <article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''} ${e.type==='flight'?'flight-event-card':''}" onclick="handleTimelineCardClick(event,${dayIndex},${eventIndex})">
       <div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${escapeHtml(title)}</h3></div><div class="time">${escapeHtml(time)}</div></div>
-      <div class="sub">${escapeHtml(subtitle)}</div>
-      ${e.note?`<div class="note">${escapeHtml(e.note)}</div>`:''}
+      ${subtitle?`<div class="sub">${escapeHtml(subtitle)}</div>`:''}
+      ${note?`<div class="note">${escapeHtml(note)}</div>`:''}
       ${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}
       ${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}
       ${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}
@@ -1015,7 +1020,7 @@ function renderTonightBooking(stay){
   const linked=tonightBookings(stay);
   if(!linked.length)return '';
   const panels=linked.map(({b,idx},n)=>renderTonightBookingPanel(b,idx,n+1)).join('');
-  return `<div class="stay-booking-inline"><button class="booking-detail-toggle stay-booking-toggle" id="today-booking-toggle" type="button" onclick="event.stopPropagation();toggleTodayBookingDetails()"><span>住宿預訂細節 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span></button><div class="stay-booking-list" id="today-booking-detail" hidden>${panels}</div></div>`;
+  return `<div class="stay-booking-inline"><button class="booking-detail-toggle stay-booking-toggle" id="today-booking-toggle" type="button" onclick="event.stopPropagation();toggleTodayBookingDetails()"><span>預訂資訊 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span></button><div class="stay-booking-list" id="today-booking-detail" hidden>${panels}</div></div>`;
 }
 
 function toggleTodayBookingDetails(){
@@ -1024,7 +1029,7 @@ function toggleTodayBookingDetails(){
   const open=panel.hidden;panel.hidden=!open;btn.classList.toggle('open',open);
   const count=panel.querySelectorAll('.stay-booking-panel').length;
   const label=btn.querySelector('span:first-child');
-  if(label)label.textContent=open?'收起住宿預訂細節':`住宿預訂細節 · ${count} 筆`;
+  if(label)label.textContent=open?'收起預訂資訊':`預訂資訊 · ${count} 筆`;
 }
 
 function toggleTodayCode(idx){
