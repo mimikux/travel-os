@@ -343,14 +343,43 @@ function driveText(day){
   const h=Math.floor(mins/60),m=mins%60;
   return h?`${h}h ${String(m).padStart(2,'0')}m`:`${m}m`;
 }
+const TRIP_THEMES={
+  ice:{name:'Ice',desc:'冰藍 × 深海軍藍'},
+  earth:{name:'Earth',desc:'淡土黃 × 深褐色'},
+  forest:{name:'Forest',desc:'鼠尾草綠 × 深森林綠'},
+  sakura:{name:'Sakura',desc:'淡粉米 × 酒紅'},
+  lavender:{name:'Lavender',desc:'淡灰紫 × 深紫灰'},
+  slate:{name:'Slate',desc:'冷灰 × 深藍灰'}
+};
+function suggestTripTheme(title=''){
+  const s=String(title).toLowerCase();
+  if(/iceland|冰島|snow|雪|nordic|北歐/.test(s))return 'ice';
+  if(/forest|森林|山林|hike|健行/.test(s))return 'forest';
+  if(/sakura|櫻|spring|春/.test(s))return 'sakura';
+  if(/city|urban|東京|大阪|首爾|london|paris/.test(s))return 'slate';
+  if(/lavender|薰衣草|purple/.test(s))return 'lavender';
+  return 'earth';
+}
+function currentTripTheme(){
+  const saved=TRIP?.settings?.theme;
+  return TRIP_THEMES[saved]?saved:suggestTripTheme(TRIP?.title||'');
+}
+function applyTripTheme(theme){
+  const key=TRIP_THEMES[theme]?theme:'earth';
+  document.documentElement.dataset.tripTheme=key;
+  const meta=document.querySelector('meta[name="theme-color"]');
+  const color={ice:'#173b5d',earth:'#5b4630',forest:'#204b3a',sakura:'#70404a',lavender:'#51445f',slate:'#33485a'}[key];
+  if(meta&&color)meta.setAttribute('content',color);
+}
 function currentTripTitle(){return TRIP?.title||'Travel OS'}
 function syncTripLabels(){
   const title=currentTripTitle();
+  applyTripTheme(currentTripTheme());
   qsa('[data-trip-title]').forEach(el=>el.textContent=title);
   const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripSlug?title:'Travel OS';
   const dateSummary=qs('#tripDateSummary');
   if(dateSummary) dateSummary.textContent=[TRIP?.startDate||TRIP?.days?.[0]?.date,TRIP?.endDate||TRIP?.days?.at(-1)?.date].filter(Boolean).join(' → ')||'—';
-  const dateEdit=qs('#editTripDatesBtn'); if(dateEdit) dateEdit.hidden=!canEditTrip();
+  const dateEdit=qs('#editTripDatesBtn'); if(dateEdit){dateEdit.hidden=currentTripRole!=='owner';const em=dateEdit.querySelector('em');if(em)em.textContent='編輯旅程';}
   const roleSummary=qs('#tripRoleSummary'); if(roleSummary) roleSummary.textContent=String(currentTripRole||TRIP?.role||'viewer').toUpperCase();
   const syncSummary=qs('#tripSyncSummary');
   if(syncSummary){
@@ -1814,7 +1843,7 @@ qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
 if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
 if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
 if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
-if(qs('#editTripDatesBtn')) qs('#editTripDatesBtn').onclick=openTripDatesEditor;
+if(qs('#editTripDatesBtn')) qs('#editTripDatesBtn').onclick=()=>openTripSettingsEditor('edit');
 if(qs('#closeTripDates')) qs('#closeTripDates').onclick=closeTripDatesEditor;
 if(qs('#tripDatesBackdrop')) qs('#tripDatesBackdrop').onclick=closeTripDatesEditor;
 if(qs('#tripDatesForm')) qs('#tripDatesForm').onsubmit=saveTripDates;
@@ -1954,6 +1983,7 @@ function cloudTripToUi(data){
     timezone:data.trip?.timezone||'UTC',
     startDate:data.trip?.startDate,
     endDate:data.trip?.endDate,
+    settings:data.trip?.settings&&typeof data.trip.settings==='object'?data.trip.settings:{},
     version:data.trip?.version||1,
     role:data.role||'viewer',
     days,
@@ -2309,24 +2339,98 @@ async function rerouteGlobalMail(){
     return result;
   }finally{if(btn)btn.disabled=false;}
 }
-async function createNewTrip(){
-  const title=prompt('新旅程名稱，例如 Kumamoto 2027');
-  if(!title)return;
-  const suggested=title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'new-trip';
-  const slug=prompt('網址名稱（英文/數字/連字號）',suggested);
-  if(!slug)return;
-  const startDate=prompt('開始日期 YYYY-MM-DD（可留空）','')||null;
-  const endDate=prompt('結束日期 YYYY-MM-DD（可留空）','')||null;
-  const device=await window.TravelStore.getDevice();
-  const client=window.TravelAuth?.getClient?.();
-  const {data,error}=await client.functions.invoke('travel-trips',{body:{
-    action:'create',title,slug,startDate,endDate,timezone:'UTC',
-    devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label
-  }});
-  if(error||data?.error){alert('建立旅程失敗：'+(data?.error||error?.message||'unknown'));return;}
-  try{await globalMailApi('reroute');}catch(err){console.warn('Mail reroute after trip create failed',err);}
-  location.href=tripHref(data.trip.slug);
+function themeOptions(selected='earth'){
+  return Object.entries(TRIP_THEMES).map(([key,t])=>`<option value="${key}" ${key===selected?'selected':''}>${t.name} · ${t.desc}</option>`).join('');
 }
+function ensureTripSettingsSheet(){
+  let sheet=qs('#tripSettingsSheet');
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';backdrop.id='tripSettingsBackdrop';
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet trip-settings-sheet';sheet.id='tripSettingsSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP SETTINGS</span><h2 id="tripSettingsTitle">編輯旅程</h2><p>名稱、日期、時區與配色都可以之後再調整。</p></div><button class="round-btn" id="closeTripSettings">×</button></div>
+    <form class="edit-form" id="tripSettingsForm">
+      <input type="hidden" id="tripSettingsMode">
+      <label><span>旅程名稱</span><input id="tripSettingsName" required></label>
+      <div class="edit-form-grid">
+        <label><span>開始日期</span><input id="tripSettingsStart" type="date"></label>
+        <label><span>結束日期</span><input id="tripSettingsEnd" type="date"></label>
+      </div>
+      <label><span>時區</span><input id="tripSettingsTimezone" placeholder="Asia/Tokyo"></label>
+      <label><span>配色模板</span><select id="tripSettingsTheme"></select></label>
+      <div class="theme-preview-grid" id="tripThemePreview"></div>
+      <div class="edit-form-actions"><button type="submit" class="edit-save" id="tripSettingsSave">儲存</button></div>
+      <p class="edit-status" id="tripSettingsStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeTripSettings').onclick=close;backdrop.onclick=close;
+  qs('#tripSettingsForm').onsubmit=saveTripSettings;
+  qs('#tripSettingsTheme').onchange=()=>renderTripThemePreview(qs('#tripSettingsTheme').value);
+  return sheet;
+}
+function renderTripThemePreview(selected){
+  const host=qs('#tripThemePreview');if(!host)return;
+  host.innerHTML=Object.entries(TRIP_THEMES).map(([key,t])=>`
+    <button type="button" class="theme-preview ${selected===key?'active':''}" data-theme-pick="${key}">
+      <span class="theme-swatch theme-${key}"></span><strong>${t.name}</strong><small>${t.desc}</small>
+    </button>`).join('');
+  host.querySelectorAll('[data-theme-pick]').forEach(btn=>btn.onclick=()=>{
+    qs('#tripSettingsTheme').value=btn.dataset.themePick;
+    renderTripThemePreview(btn.dataset.themePick);
+  });
+}
+function openTripSettingsEditor(mode='edit'){
+  ensureTripSettingsSheet();
+  const creating=mode==='create';
+  qs('#tripSettingsMode').value=mode;
+  qs('#tripSettingsTitle').textContent=creating?'建立新旅程':'編輯旅程';
+  const title=creating?'':(TRIP?.title||'');
+  const suggested=creating?suggestTripTheme(title):currentTripTheme();
+  qs('#tripSettingsName').value=title;
+  qs('#tripSettingsStart').value=creating?'':(TRIP?.startDate||'');
+  qs('#tripSettingsEnd').value=creating?'':(TRIP?.endDate||'');
+  qs('#tripSettingsTimezone').value=creating?'Asia/Tokyo':(TRIP?.timezone||'UTC');
+  qs('#tripSettingsTheme').innerHTML=themeOptions(suggested);
+  renderTripThemePreview(suggested);
+  qs('#tripSettingsStatus').textContent='';
+  qs('#tripSettingsBackdrop').classList.add('show');qs('#tripSettingsSheet').classList.add('show');qs('#tripSettingsSheet').setAttribute('aria-hidden','false');
+}
+async function saveTripSettings(e){
+  e.preventDefault();
+  const mode=qs('#tripSettingsMode').value;
+  const title=qs('#tripSettingsName').value.trim();
+  const startDate=qs('#tripSettingsStart').value||null,endDate=qs('#tripSettingsEnd').value||null;
+  const timezone=qs('#tripSettingsTimezone').value.trim()||'UTC';
+  const theme=qs('#tripSettingsTheme').value||'earth';
+  const status=qs('#tripSettingsStatus');
+  if(!title){status.textContent='請輸入旅程名稱。';return}
+  if(startDate&&endDate&&endDate<startDate){status.textContent='結束日期不可早於開始日期。';return}
+  status.textContent='儲存中…';
+  try{
+    if(mode==='create'){
+      const suggested=title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||('trip-'+Date.now());
+      const slug=prompt('網址名稱（英文/數字/連字號）',suggested);
+      if(!slug){status.textContent='已取消建立。';return}
+      const device=await window.TravelStore.getDevice();
+      const data=await travelTripsApi('create',{title,slug,startDate,endDate,timezone,theme,devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label});
+      try{await globalMailApi('reroute')}catch(err){console.warn('Mail reroute after trip create failed',err)}
+      location.href=tripHref(data.trip.slug);
+      return;
+    }
+    await travelTripsApi('update',{tripSlug:window.TRAVEL_CONFIG.tripSlug,title,timezone,theme});
+    if(startDate&&endDate)await travelEditor('set_trip_dates',{startDate,endDate});
+    qs('#tripSettingsSheet').classList.remove('show');qs('#tripSettingsBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    status.textContent='儲存失敗：'+(err.code||err.message||'unknown');
+  }
+}
+async function createNewTrip(){openTripSettingsEditor('create')}
+
 
 async function renderTripSwitchList(){
   let host=qs('#tripSwitchList');
@@ -2367,37 +2471,63 @@ async function travelEditor(action,payload={}){
 
 function canEditTrip(){return currentTripRole==='owner'||currentTripRole==='editor'}
 
+function ensureDeleteTripSheet(){
+  let sheet=qs('#deleteTripSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='deleteTripBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet delete-trip-sheet';sheet.id='deleteTripSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker danger-kicker">DANGER ZONE</span><h2>刪除旅程</h2><p>這個動作不能復原。</p></div><button class="round-btn" id="closeDeleteTrip">×</button></div>
+    <div class="delete-trip-summary" id="deleteTripSummary"></div>
+    <label class="delete-confirm-label"><span>輸入完整旅程名稱以確認</span><input id="deleteTripConfirmName" autocomplete="off"></label>
+    <button type="button" class="delete-trip-confirm" id="deleteTripConfirmBtn" disabled>永久刪除旅程</button>
+    <p class="edit-status" id="deleteTripStatus"></p>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeDeleteTrip').onclick=close;backdrop.onclick=close;
+  qs('#deleteTripConfirmName').oninput=()=>{
+    qs('#deleteTripConfirmBtn').disabled=qs('#deleteTripConfirmName').value.trim()!==String(TRIP?.title||'');
+  };
+  qs('#deleteTripConfirmBtn').onclick=confirmDeleteCurrentTrip;
+  return sheet;
+}
+let deleteTripPreview=null;
 async function deleteCurrentTrip(){
-  if(currentTripRole!=='owner'||!TRIP?.title)return;
-  const title=String(TRIP.title);
-  const first=confirm(
-    '刪除「'+title+'」？\n\n'+
-    '此動作會永久刪除這個 Trip 的行程、預訂、地圖、成員與裝置資料。\n'+
-    '原始信件只有在已解除 Trip 綁定時才會保留。'
-  );
-  if(!first)return;
-  const typed=prompt('最後確認：請輸入完整旅程名稱\n\n'+title,'');
-  if(typed===null)return;
-  if(typed.trim()!==title){
-    alert('旅程名稱不一致，已取消刪除。');
-    return;
-  }
-  const btn=qs('#deleteTripBtn');
-  if(btn){btn.disabled=true;btn.querySelector('strong').textContent='刪除中…';}
+  if(currentTripRole!=='owner')return;
+  ensureDeleteTripSheet();
+  qs('#deleteTripStatus').textContent='讀取資料中…';
+  qs('#deleteTripConfirmName').value='';qs('#deleteTripConfirmBtn').disabled=true;
+  qs('#deleteTripBackdrop').classList.add('show');qs('#deleteTripSheet').classList.add('show');qs('#deleteTripSheet').setAttribute('aria-hidden','false');
   try{
-    await travelTripsApi('delete',{tripSlug:window.TRAVEL_CONFIG.tripSlug,confirmTitle:title});
+    deleteTripPreview=await travelTripsApi('delete_preview',{tripSlug:window.TRAVEL_CONFIG.tripSlug});
+    const n=Number(deleteTripPreview.linkedMailCount||0);
+    qs('#deleteTripSummary').innerHTML=`
+      <div><span>旅程</span><strong>${escapeHtml(deleteTripPreview.trip?.title||TRIP?.title||'')}</strong></div>
+      <div><span>行程項目</span><strong>${Number(deleteTripPreview.itineraryCount||0)}</strong></div>
+      <div><span>正式預訂</span><strong>${Number(deleteTripPreview.reservationCount||0)}</strong></div>
+      <div class="${n?'mail-warning':''}"><span>原始信件</span><strong>${n} 封</strong></div>
+      ${n?`<p class="delete-mail-note">刪除時會先把這 ${n} 封信解除 Trip 關聯，退回「更多 → 未分類信件」，再刪除旅程。Email 本身不會刪除。</p>`:''}`;
+    qs('#deleteTripConfirmBtn').textContent=n?'解除信件關聯並刪除旅程':'永久刪除旅程';
+    qs('#deleteTripStatus').textContent='';
+  }catch(err){
+    qs('#deleteTripStatus').textContent='無法讀取刪除資訊：'+(err.code||err.message||'unknown');
+  }
+}
+async function confirmDeleteCurrentTrip(){
+  if(!deleteTripPreview)return;
+  const btn=qs('#deleteTripConfirmBtn'),status=qs('#deleteTripStatus');
+  btn.disabled=true;status.textContent='刪除中…';
+  try{
+    const n=Number(deleteTripPreview.linkedMailCount||0);
+    await travelTripsApi('delete',{tripSlug:window.TRAVEL_CONFIG.tripSlug,confirmTitle:TRIP.title,detachMail:n>0});
     try{await window.TravelStore?.clearTrip?.(window.TRAVEL_CONFIG.tripSlug)}catch(err){console.warn('Local trip cache cleanup failed',err)}
     location.href=window.TRAVEL_CONFIG?.appBasePath||'/travel-os/';
   }catch(err){
-    if(err.code==='linked_mail_exists'){
-      alert('目前仍有 '+Number(err.linkedMailCount||0)+' 封原始信件綁在這個 Trip，為避免信件被一起刪除，系統已阻止刪除。');
-    }else{
-      alert('刪除旅程失敗：'+(err.code||err.message||'unknown'));
-    }
-  }finally{
-    if(btn){btn.disabled=false;btn.querySelector('strong').textContent='刪除旅程';}
+    status.textContent='刪除失敗：'+(err.code||err.message||'unknown');
+    btn.disabled=false;
   }
 }
+
 
 function updateEditAvailability(){
   let btn=qs('#editModeBtn');
