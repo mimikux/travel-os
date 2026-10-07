@@ -623,18 +623,22 @@ function flightBaggageSummaryForBooking(b){
 function flightPresentation(event,dateString){
   const linked=eventBookings(event);
   const booking=linked[0]?.b||null;
+  const imported=booking?.imported||{};
   const seg=booking?flightSegmentForDay(booking,dateString):null;
   const titleText=String(event?.title||'');
   const subtitleText=String(event?.subtitle||'');
+  const importedRoute=(imported?.departureAirport&&imported?.arrivalAirport)
+    ?[imported.departureAirport,imported.arrivalAirport]
+    :null;
   const routeMatch=(seg?.departureAirport&&seg?.arrivalAirport)
     ?[seg.departureAirport,seg.arrivalAirport]
-    :(titleText.match(/\b([A-Z]{3})\s*(?:→|->|↔|–|-)\s*([A-Z]{3})\b/i)||[]).slice(1,3);
+    :(importedRoute||(titleText.match(/\b([A-Z]{3})\s*(?:→|->|↔|–|-)\s*([A-Z]{3})\b/i)||[]).slice(1,3));
   const dep=routeMatch?.[0]||'';
   const arr=routeMatch?.[1]||'';
   const timeMatch=subtitleText.match(/(\d{1,2}:\d{2})\s*(?:→|–|-)\s*(\d{1,2}:\d{2})/);
-  const depTime=seg?.departureTime||event?.time||timeMatch?.[1]||'';
-  const arrTime=seg?.arrivalTime||timeMatch?.[2]||'';
-  const flightNo=seg?.flightNo||booking?.imported?.flightNo||
+  const depTime=seg?.departureTime||imported?.departureTime||event?.time||timeMatch?.[1]||'';
+  const arrTime=seg?.arrivalTime||imported?.arrivalTime||timeMatch?.[2]||'';
+  const flightNo=seg?.flightNo||imported?.flightNo||
     (titleText.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||subtitleText.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||[])[1]||'';
   const airlineNames=[...new Set(linked.map(({b})=>flightAirlineName(b)).filter(Boolean))];
   const baggage=[...new Set(linked.map(({b})=>flightBaggageSummaryForBooking(b)).filter(Boolean))];
@@ -644,7 +648,9 @@ function flightPresentation(event,dateString){
     title:[flightNo?flightNo.replace(/\s+/g,''):'',depTime&&arrTime?depTime+'–'+arrTime:''].filter(Boolean).join(' · ')||titleText,
     subtitle:dep&&arr?dep+' → '+arr:subtitleText,
     note,
-    time:'',
+    // Keep the scheduled departure visible in the timeline's right-hand time
+    // column; the full departure-arrival range remains in the flight title.
+    time:event?.time||depTime||'',
     linked,
     flightNo:flightNo?flightNo.replace(/\s+/g,''):'',
     segment:seg
@@ -683,7 +689,9 @@ function stayPresentation(event){
     title:event.title||bookings[0]?.title||'住宿',
     subtitle:[nights?nights+' 晚':'',rooms?rooms+' 房':'',people?people+' 人':''].filter(Boolean).join(' · ')||event.subtitle||'',
     note,
-    time:''
+    // First-night check-in stays visible; subsequent nightly stay rows with no
+    // itinerary time remain untimed by design.
+    time:event?.time||''
   };
 }
 function carPresentation(event){
@@ -698,7 +706,9 @@ function carPresentation(event){
     title:p.rentalCompany||b.provider||event.title||'租車',
     subtitle:[p.vehicleModel||p.title||b.title||'',days?days+' 天':'',shortDateRange(start,end)?'('+shortDateRange(start,end)+')':''].filter(Boolean).join(' · '),
     note:note||event.note||'',
-    time:''
+    // Preserve the itinerary pickup/drop-off time even when reservation data
+    // is linked to the card.
+    time:event?.time||''
   };
 }
 function tourPresentation(event){
