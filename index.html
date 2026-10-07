@@ -246,7 +246,7 @@
     <div class="sheet-handle"></div>
     <div class="sheet-title"><div><span class="section-kicker">TRIP</span><h2 data-trip-title>Iceland 2026</h2></div><button class="round-btn" id="closeSheet">×</button></div>
     <div class="sheet-grid">
-      <div><small>旅行日期</small><strong id="tripDateSummary">—</strong></div>
+      <button class="trip-date-card" id="editTripDatesBtn" type="button"><span><small>旅行日期</small><strong id="tripDateSummary">—</strong></span><em>編輯</em></button>
       <div><small>我的權限</small><strong id="tripRoleSummary">—</strong></div>
       <button class="sheet-toggle-card sheet-toggle-wide" id="demoModeToggle" type="button" aria-pressed="false">
         <small>DEMO 模式</small><strong id="demoModeState">關閉</strong>
@@ -259,6 +259,21 @@
   <span><small>TRIP ACCESS</small><strong>成員與裝置</strong></span><span>→</span>
 </button>
 <div class="info-note">此 Trip 的 Owner 可邀請 Editor / Viewer，並管理每位成員的 Trusted Device。</div>
+  </aside>
+
+  <div class="modal-backdrop" id="tripDatesBackdrop"></div>
+  <aside class="edit-sheet" id="tripDatesSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP DATES</span><h2>編輯旅行日期</h2><p>空白日可以縮短；已有行程或預訂的日期會自動保留。</p></div><button class="round-btn" id="closeTripDates">×</button></div>
+    <form class="edit-form" id="tripDatesForm">
+      <div class="edit-form-grid">
+        <label><span>開始日期</span><input id="tripStartDateInput" type="date" required></label>
+        <label><span>結束日期</span><input id="tripEndDateInput" type="date" required></label>
+      </div>
+      <div class="info-note">新增超出目前範圍的行程時，Travel OS 仍會自動向前／向後增加天數；不會因為某天暫時沒有行程就自動刪除。</div>
+      <div class="edit-form-actions"><button type="submit" class="edit-save">儲存日期</button></div>
+      <p class="edit-status" id="tripDatesStatus"></p>
+    </form>
   </aside>
 
   <div class="modal-backdrop" id="publicShareBackdrop"></div>
