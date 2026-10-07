@@ -1890,3 +1890,21 @@ html.item-editor-open .global-edit-toolbar{
     grid-template-columns:1fr 1fr 1fr;
   }
 }
+
+
+/* Hero forecast right-align v40 */
+.hero-card .weather-inline{
+  right:18px!important;
+  top:66px!important;
+  bottom:auto!important;
+  width:38px!important;
+  min-width:38px!important;
+  max-width:38px!important;
+  justify-items:center!important;
+  align-content:start!important;
+  text-align:center!important;
+}
+.hero-card .weather-inline .weather-copy{
+  width:38px!important;
+  align-items:center!important;
+}
