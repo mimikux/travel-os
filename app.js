@@ -3755,6 +3755,18 @@ async function saveDepartureTimeEditor(e){
   }
 }
 
+function setItemEditorOpen(open){
+  document.documentElement.classList.toggle('item-editor-open',Boolean(open));
+}
+function closeItemEditor(){
+  const sheet=qs('#itemEditSheet'),backdrop=qs('#itemEditBackdrop');
+  if(sheet){
+    sheet.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  }
+  if(backdrop)backdrop.classList.remove('show');
+  setItemEditorOpen(false);
+}
 function ensureItemEditor(){
   let sheet=qs('#itemEditSheet');
   if(sheet)return sheet;
@@ -3762,13 +3774,24 @@ function ensureItemEditor(){
   sheet=document.createElement('aside');sheet.className='edit-sheet';sheet.id='itemEditSheet';sheet.setAttribute('aria-hidden','true');
   sheet.innerHTML=`
     <div class="sheet-handle"></div>
-    <div class="sheet-title"><div><span class="section-kicker">ITINERARY EDITOR</span><h2 id="itemEditTitle">新增行程</h2></div><button class="round-btn" id="closeItemEdit">×</button></div>
+    <div class="sheet-title"><div><span class="section-kicker">ITINERARY EDITOR</span><h2 id="itemEditTitle">新增行程</h2></div><button class="round-btn" id="closeItemEdit" type="button" aria-label="取消編輯">×</button></div>
     <form class="edit-form" id="itemEditForm">
       <input type="hidden" id="editItemId"><input type="hidden" id="editItemVersion">
       <div class="edit-form-grid">
         <label><span>日期</span><input id="editItemDate" type="date" required></label>
         <label><span>時間</span><input id="editItemTime" type="time"></label>
       </div>
+
+      <label class="google-map-primary-field">
+        <span>Google Maps 連結 <small class="inline-field-help">（貼上後會自動抓取資料）</small></span>
+        <div class="map-link-display" id="itemMapLinkDisplay" hidden>
+          <a class="mini-btn map-open-link" id="editItemMapOpen" target="_blank" rel="noopener">開啟 Google Maps ↗</a>
+          <button type="button" class="mini-btn map-edit-link" id="editItemMapEdit">編輯</button>
+        </div>
+        <div class="map-import-row" id="editItemMapEditRow"><input id="editItemMapUrl" inputmode="url" placeholder="貼上 Google Maps 連結"></div>
+      </label>
+      <p class="edit-status map-import-status" id="mapImportStatus"></p>
+
       <div class="edit-form-grid">
         <label><span>類型</span><select id="editItemType"><option value="spot">景點</option><option value="drive">移動</option><option value="stay">住宿</option><option value="food">餐食</option><option value="tour">Tour</option><option value="flight">航班</option><option value="car">租車</option><option value="shop">補給</option><option value="plan">備案</option><option value="other">其他</option></select></label>
         <label><span>名稱</span><input id="editItemName" required></label>
@@ -3784,21 +3807,19 @@ function ensureItemEditor(){
         <label><span>Latitude</span><input id="editItemLat" type="number" step="any"></label>
         <label><span>Longitude</span><input id="editItemLng" type="number" step="any"></label>
       </div>
-      <label><span>Google Maps</span>
-        <div class="map-link-display" id="itemMapLinkDisplay" hidden>
-          <a class="mini-btn map-open-link" id="editItemMapOpen" target="_blank" rel="noopener">開啟 Google Maps ↗</a>
-          <button type="button" class="mini-btn map-edit-link" id="editItemMapEdit">編輯</button>
-        </div>
-        <div class="map-import-row" id="editItemMapEditRow"><input id="editItemMapUrl" inputmode="url" placeholder="貼上 Google Maps 連結，會自動帶入"></div>
-      </label>
-      <p class="edit-status map-import-status" id="mapImportStatus"></p>
       <label><span>導航搜尋（可留空）</span><input id="editItemNav"></label>
-      <div class="edit-form-actions"><button type="button" class="edit-delete" id="deleteItemBtn">刪除</button><button type="submit" class="edit-save">儲存</button></div>
+
+      <div class="edit-form-actions item-edit-actions">
+        <button type="button" class="edit-delete" id="deleteItemBtn">刪除</button>
+        <button type="button" class="edit-cancel" id="cancelItemEdit">取消</button>
+        <button type="submit" class="edit-save">確認</button>
+      </div>
       <p class="edit-status" id="itemEditStatus"></p>
     </form>`;
   document.body.append(backdrop,sheet);
-  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
-  qs('#closeItemEdit').onclick=close;backdrop.onclick=close;
+  qs('#closeItemEdit').onclick=closeItemEditor;
+  qs('#cancelItemEdit').onclick=closeItemEditor;
+  backdrop.onclick=closeItemEditor;
   qs('#itemEditForm').onsubmit=saveItemEditor;
   qs('#deleteItemBtn').onclick=deleteCurrentItem;
   qs('#editItemMapEdit').onclick=()=>setItemMapEditMode(true);
@@ -3867,6 +3888,7 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemNav').value=event?.navQuery||'';
   qs('#deleteItemBtn').hidden=!event;
   qs('#itemEditStatus').textContent='';
+  setItemEditorOpen(true);
   qs('#itemEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
 }
 
@@ -4010,7 +4032,7 @@ async function saveItemEditor(e){
   qs('#itemEditStatus').textContent='儲存中…';
   try{
     await travelEditor('save_item',{item});
-    qs('#itemEditSheet').classList.remove('show');qs('#itemEditBackdrop').classList.remove('show');
+    closeItemEditor();
     await hydratePrivateCloudData();
     const savedDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
     if(savedDayIndex>=0){selectedDay=savedDayIndex;mapPrimaryDay=savedDayIndex;mapSelectedDays=new Set([savedDayIndex]);renderAll();}
@@ -4028,7 +4050,7 @@ async function saveItemEditor(e){
       );
       if(saved){
         qs('#itemEditStatus').textContent='已儲存。';
-        setTimeout(()=>{qs('#itemEditSheet')?.classList.remove('show');qs('#itemEditBackdrop')?.classList.remove('show')},250);
+        setTimeout(()=>closeItemEditor(),250);
         return;
       }
     }catch(_){}
