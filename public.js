@@ -51,9 +51,15 @@ function renderTimeline(){
 }
 
 function routeCoord(e){
-  const lat=Number(e?.routeLat ?? e?.lat);
-  const lng=Number(e?.routeLng ?? e?.lng);
-  return Number.isFinite(lat)&&Number.isFinite(lng)?{lat,lng}:null;
+  const rawLat=(e?.routeLat!==null&&e?.routeLat!==undefined&&String(e.routeLat).trim()!=='')?e.routeLat:e?.lat;
+  const rawLng=(e?.routeLng!==null&&e?.routeLng!==undefined&&String(e.routeLng).trim()!=='')?e.routeLng:e?.lng;
+  if(rawLat===null||rawLat===undefined||rawLng===null||rawLng===undefined)return null;
+  if(String(rawLat).trim()===''||String(rawLng).trim()==='')return null;
+  const lat=Number(rawLat),lng=Number(rawLng);
+  if(!Number.isFinite(lat)||!Number.isFinite(lng))return null;
+  if(Math.abs(lat)>90||Math.abs(lng)>180)return null;
+  if(Math.abs(lat)<1e-9&&Math.abs(lng)<1e-9)return null;
+  return {lat,lng};
 }
 
 function publicStops(){
