@@ -2863,7 +2863,15 @@ async function saveTripSettings(e){
       attemptedCreateSlug=slug;
       const device=await window.TravelStore.getDevice();
       const data=await travelTripsApi('create',{title,slug,startDate,endDate,timezone,theme,devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label});
-      try{await globalMailApi('reroute')}catch(err){console.warn('Mail reroute after trip create failed',err)}
+      try{
+        await globalMailApi('reroute');
+        const client=window.TravelAuth?.getClient?.();
+        if(client&&data?.trip?.id){
+          const {error}=await client.functions.invoke('travel-mail-ingest',{body:{action:'reparse',tripId:data.trip.id}});
+          if(error)console.warn('Mail reparse after trip create failed',error);
+          await globalMailApi('reroute');
+        }
+      }catch(err){console.warn('Mail reroute/reparse after trip create failed',err)}
       location.href=tripHref(data.trip.slug);
       return;
     }
