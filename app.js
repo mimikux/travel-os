@@ -4632,6 +4632,7 @@ async function initCloudShell(){
         cloudLoaded=false;
         cloudSyncState='cache';
         syncTripLabels();
+        if(!window.TRAVEL_CONFIG?.tripSlug)renderTripChooser();
       }else if(s.state==='ready'){
         if(window.TRAVEL_CONFIG?.tripSlug) hydratePrivateCloudData();
         else renderTripChooser();
@@ -4642,6 +4643,8 @@ async function initCloudShell(){
     if(authState.state==='ready'){
       if(window.TRAVEL_CONFIG?.tripSlug) await hydratePrivateCloudData();
       else await renderTripChooser();
+    }else if(authState.state==='offline_ready'&&!window.TRAVEL_CONFIG?.tripSlug){
+      await renderTripChooser();
     }
   }
 }
