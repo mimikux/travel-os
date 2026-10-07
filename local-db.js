@@ -235,6 +235,40 @@
     const rows=await requestToPromise(tx.objectStore('sync_queue').index('status').getAll('pending'));
     await txDone(tx);return rows.sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
   }
+  async function completeOperation(db,opId){
+    const tx=db.transaction('sync_queue','readwrite');
+    tx.objectStore('sync_queue').delete(opId);
+    await txDone(tx);
+  }
+  async function updateOperation(db,opId,patch){
+    const tx=db.transaction('sync_queue','readwrite');
+    const store=tx.objectStore('sync_queue');
+    const row=await requestToPromise(store.get(opId));
+    if(row)store.put({...row,...clone(patch)});
+    await txDone(tx);
+  }
+  async function listTrips(db){
+    const tx=db.transaction('trips','readonly');
+    const rows=await requestToPromise(tx.objectStore('trips').getAll());
+    await txDone(tx);
+    return (rows||[]).filter(x=>!x.deleted_at).sort((a,b)=>String(a.start_date||'').localeCompare(String(b.start_date||''))).map(x=>({
+      id:x.id,slug:x.slug||x.id,title:x.title,start_date:x.start_date,end_date:x.end_date,
+      timezone:x.timezone,role:x.role||'viewer',source:x.source||'local',updated_at:x.updated_at
+    }));
+  }
+  async function saveUiTrip(db,trip){
+    if(!trip?.slug&&!currentTripId())throw new Error('trip_required');
+    return replaceTrip(db,{
+      trip:{
+        slug:trip.slug||currentTripId(),title:trip.title||'Travel OS',timezone:trip.timezone||'UTC',
+        startDate:trip.startDate||trip.days?.[0]?.date||null,endDate:trip.endDate||trip.days?.at(-1)?.date||null,
+        settings:trip.settings||{},version:trip.version||1
+      },
+      role:trip.role||null,
+      days:clone(trip.days||[]),
+      bookings:clone(trip.bookings||[])
+    });
+  }
 
   let dbPromise=null;
   async function dbOrNull(){
@@ -256,6 +290,14 @@
     async getTrip(tripId){
       const db=await dbOrNull();if(!db)return null;
       try{return await withTimeout(loadTrip(db,tripId||currentTripId()),1800,'load_trip_timeout')}catch(_){return null}
+    },
+    async listTrips(){
+      const db=await dbOrNull();if(!db)return [];
+      try{return await withTimeout(listTrips(db),1800,'list_trips_timeout')}catch(_){return []}
+    },
+    async saveUiTrip(trip){
+      const db=await dbOrNull();if(!db)return null;
+      return withTimeout(saveUiTrip(db,trip),2500,'save_ui_trip_timeout');
     },
     async replaceTrip(payload){
       const db=await dbOrNull();if(!db)return null;
@@ -301,6 +343,8 @@
     },
     async queueOperation(op){const db=await dbOrNull();if(!db)throw new Error('offline_cache_unavailable');return queueOperation(db,op)},
     async getPendingOperations(){const db=await dbOrNull();if(!db)return [];return getPendingOperations(db)},
+    async completeOperation(opId){const db=await dbOrNull();if(!db)return;return completeOperation(db,opId)},
+    async updateOperation(opId,patch){const db=await dbOrNull();if(!db)return;return updateOperation(db,opId,patch)},
     get currentTripId(){return currentTripId()},
     dbName:DB_NAME
   };
