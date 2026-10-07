@@ -773,9 +773,14 @@ function renderLinkedBookings(event,dayIndex,eventIndex,dateString=''){
 }
 
 function renderEventDetails(e,dayIndex,eventIndex){
-  const detail=e.details;
-  if(!detail) return '';
-  const tips=(detail.tips||[]).map(t=>`<li>${escapeHtml(t)}</li>`).join('');
+  const detail=e.details||{intro:'',tips:[]};
+  const tipList=Array.isArray(detail.tips)?[...detail.tips]:[];
+  if(Array.isArray(e.openingHours)&&e.openingHours.length){
+    const hoursText='營業時間：'+e.openingHours.map(x=>`${x.day} ${x.hours}`).join('；');
+    if(!tipList.some(x=>String(x).startsWith('營業時間：')))tipList.push(hoursText);
+  }
+  if(!detail.intro&&!tipList.length)return '';
+  const tips=tipList.map(t=>`<li>${escapeHtml(t)}</li>`).join('');
   return `<div class="event-detail-wrap">
     <button class="detail-toggle" type="button" aria-expanded="false" onclick="event.stopPropagation();toggleEventDetails(${dayIndex},${eventIndex},this)">
       <span>景點介紹與注意事項</span><span class="detail-chevron">⌄</span>
@@ -783,7 +788,7 @@ function renderEventDetails(e,dayIndex,eventIndex){
     <div class="event-details" id="eventDetails-${dayIndex}-${eventIndex}" hidden>
       ${detail.intro?`<div class="detail-section"><div class="detail-label">景點介紹</div><p>${escapeHtml(detail.intro)}</p></div>`:''}
       ${tips?`<div class="detail-section"><div class="detail-label warn">注意事項</div><ul>${tips}</ul></div>`:''}
-      <div class="detail-source">來源：原行程表備註 · 後續可在系統內編輯</div>
+      <div class="detail-source">來源：原行程表備註 / Google Places · 後續可在系統內編輯</div>
     </div>
   </div>`;
 }
