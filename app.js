@@ -297,6 +297,7 @@ function syncTripLabels(){
   const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripSlug?title:'Travel OS';
   const dateSummary=qs('#tripDateSummary');
   if(dateSummary) dateSummary.textContent=[TRIP?.startDate||TRIP?.days?.[0]?.date,TRIP?.endDate||TRIP?.days?.at(-1)?.date].filter(Boolean).join(' → ')||'—';
+  const dateEdit=qs('#editTripDatesBtn'); if(dateEdit) dateEdit.hidden=!canEditTrip();
   const roleSummary=qs('#tripRoleSummary'); if(roleSummary) roleSummary.textContent=String(currentTripRole||TRIP?.role||'viewer').toUpperCase();
   const syncSummary=qs('#tripSyncSummary');
   if(syncSummary){
@@ -1707,6 +1708,40 @@ if(qs('#exportGoogleRoute')) qs('#exportGoogleRoute').onclick=openGoogleDayRoute
 if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
 updateRouteMetricToggle();
 qs('#mapMultiToggle').onclick=toggleMapMultiMode;
+function closeTripDatesEditor(){
+  qs('#tripDatesSheet')?.classList.remove('show');
+  qs('#tripDatesBackdrop')?.classList.remove('show');
+  qs('#tripDatesSheet')?.setAttribute('aria-hidden','true');
+}
+function openTripDatesEditor(){
+  if(!canEditTrip())return;
+  qs('#tripStartDateInput').value=TRIP?.startDate||TRIP?.days?.[0]?.date||'';
+  qs('#tripEndDateInput').value=TRIP?.endDate||TRIP?.days?.at(-1)?.date||'';
+  qs('#tripDatesStatus').textContent='';
+  qs('#tripDatesBackdrop').classList.add('show');
+  qs('#tripDatesSheet').classList.add('show');
+  qs('#tripDatesSheet').setAttribute('aria-hidden','false');
+}
+async function saveTripDates(e){
+  e.preventDefault();
+  const startDate=qs('#tripStartDateInput').value,endDate=qs('#tripEndDateInput').value;
+  const status=qs('#tripDatesStatus');
+  if(!startDate||!endDate||endDate<startDate){status.textContent='結束日期不可早於開始日期。';return}
+  status.textContent='儲存中…';
+  try{
+    const data=await travelEditor('set_trip_dates',{startDate,endDate});
+    closeTripDatesEditor();
+    await hydratePrivateCloudData();
+    syncTripLabels();
+    renderAll();
+    if(data?.adjusted){
+      alert('日期已儲存。因為範圍外仍有既有行程或正式預訂，Travel OS 已自動保留那些日期，沒有刪除資料。');
+    }
+  }catch(err){
+    status.textContent='儲存失敗：'+(err.code||err.message||'unknown');
+  }
+}
+
 const openTripSheet=()=>{
   updateEditAvailability();
   qs('#tripSheet').classList.add('show');
@@ -1723,6 +1758,10 @@ qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
 if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
 if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
 if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
+if(qs('#editTripDatesBtn')) qs('#editTripDatesBtn').onclick=openTripDatesEditor;
+if(qs('#closeTripDates')) qs('#closeTripDates').onclick=closeTripDatesEditor;
+if(qs('#tripDatesBackdrop')) qs('#tripDatesBackdrop').onclick=closeTripDatesEditor;
+if(qs('#tripDatesForm')) qs('#tripDatesForm').onsubmit=saveTripDates;
 function closeSheet(){qs('#tripSheet').classList.remove('show');qs('#sheetBackdrop').classList.remove('show')}
 qs('#closeSheet').onclick=closeSheet;
 qs('#sheetBackdrop').onclick=closeSheet;
