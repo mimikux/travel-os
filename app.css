@@ -2027,12 +2027,25 @@ html.item-editor-open .global-edit-toolbar{
   border-color:var(--theme-accent-border)!important;
 }
 .mail-diff-row>div:nth-child(2){
-  background:var(--theme-surface)!important;
-  color:var(--muted)!important;
+  /* Current value = read-only/reference, deliberately neutral and muted. */
+  background:#eef0f1!important;
+  border-color:#d9dddf!important;
+  color:#697278!important;
+}
+.mail-diff-row>div:nth-child(2) small{
+  color:#8a9296!important;
+}
+.mail-diff-row>div:nth-child(2) strong{
+  color:#4f585d!important;
 }
 .mail-diff-row>div:nth-child(3){
-  background:var(--paper)!important;
+  /* Incoming mail value = the value that will be applied after approval. */
+  background:#fff!important;
+  border-color:var(--theme-accent-border)!important;
   color:var(--ink)!important;
+}
+.mail-diff-row>div:nth-child(3) small{
+  color:var(--gold)!important;
 }
 
 /* Global Mail / More dialogs and controls. */
