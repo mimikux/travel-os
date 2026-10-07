@@ -2111,6 +2111,23 @@ async function fetchAuthorizedTrips(){
   authorizedTrips=Array.isArray(data?.trips)?data.trips:[];
   return authorizedTrips;
 }
+async function travelTripsApi(action,payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const {data,error}=await client.functions.invoke('travel-trips',{body:{action,...payload}});
+  if(error){
+    let body=null;
+    try{body=error.context?await error.context.clone().json():null}catch(_){}
+    const e=new Error(body?.error||error.message||'edge_function_error');
+    e.code=body?.error||error.code||'edge_function_error';
+    e.linkedMailCount=body?.linkedMailCount;
+    throw e;
+  }
+  if(data?.error){
+    const e=new Error(data.error);e.code=data.error;e.linkedMailCount=data.linkedMailCount;throw e;
+  }
+  return data||{};
+}
 
 async function renderTripChooser(){
   const chooser=qs('#tripChooser'),shell=qs('.app-shell');
@@ -2350,6 +2367,38 @@ async function travelEditor(action,payload={}){
 
 function canEditTrip(){return currentTripRole==='owner'||currentTripRole==='editor'}
 
+async function deleteCurrentTrip(){
+  if(currentTripRole!=='owner'||!TRIP?.title)return;
+  const title=String(TRIP.title);
+  const first=confirm(
+    '刪除「'+title+'」？\n\n'+
+    '此動作會永久刪除這個 Trip 的行程、預訂、地圖、成員與裝置資料。\n'+
+    '原始信件只有在已解除 Trip 綁定時才會保留。'
+  );
+  if(!first)return;
+  const typed=prompt('最後確認：請輸入完整旅程名稱\n\n'+title,'');
+  if(typed===null)return;
+  if(typed.trim()!==title){
+    alert('旅程名稱不一致，已取消刪除。');
+    return;
+  }
+  const btn=qs('#deleteTripBtn');
+  if(btn){btn.disabled=true;btn.querySelector('strong').textContent='刪除中…';}
+  try{
+    await travelTripsApi('delete',{tripSlug:window.TRAVEL_CONFIG.tripSlug,confirmTitle:title});
+    try{await window.TravelStore?.clearTrip?.(window.TRAVEL_CONFIG.tripSlug)}catch(err){console.warn('Local trip cache cleanup failed',err)}
+    location.href=window.TRAVEL_CONFIG?.appBasePath||'/travel-os/';
+  }catch(err){
+    if(err.code==='linked_mail_exists'){
+      alert('目前仍有 '+Number(err.linkedMailCount||0)+' 封原始信件綁在這個 Trip，為避免信件被一起刪除，系統已阻止刪除。');
+    }else{
+      alert('刪除旅程失敗：'+(err.code||err.message||'unknown'));
+    }
+  }finally{
+    if(btn){btn.disabled=false;btn.querySelector('strong').textContent='刪除旅程';}
+  }
+}
+
 function updateEditAvailability(){
   let btn=qs('#editModeBtn');
   if(!btn&&qs('#membersBtn')){
@@ -2411,6 +2460,18 @@ function updateEditAvailability(){
   }
   const publicShare=qs('#publicShareBtn');
   if(publicShare) publicShare.hidden=currentTripRole!=='owner';
+
+  let deleteTripBtn=qs('#deleteTripBtn');
+  if(!deleteTripBtn&&qs('#tripSheet')){
+    deleteTripBtn=document.createElement('button');
+    deleteTripBtn.id='deleteTripBtn';
+    deleteTripBtn.type='button';
+    deleteTripBtn.className='sheet-action-card trip-delete-card';
+    deleteTripBtn.innerHTML='<span><small>DANGER ZONE</small><strong>刪除旅程</strong><em>永久刪除這個 Trip 與其行程 / 預訂資料</em></span><span>→</span>';
+    qs('#tripSheet').append(deleteTripBtn);
+    deleteTripBtn.onclick=deleteCurrentTrip;
+  }
+  if(deleteTripBtn) deleteTripBtn.hidden=currentTripRole!=='owner';
   syncTripLabels();
 }
 
