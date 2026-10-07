@@ -2331,12 +2331,18 @@ function normalizeReservation(row){
   const rows=Array.isArray(nested.rows)?[...nested.rows]:[];
   if(row?.public_price_text&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('費用'))) rows.push(['費用',row.public_price_text]);
   if(row?.cancellation_policy&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('取消'))) rows.push(['取消條款',row.cancellation_policy]);
-  const imported=row?.details?.mailImport?.parsed||null;
+  const mailImportMeta=row?.details?.mailImport&&typeof row.details.mailImport==='object'?row.details.mailImport:{};
+  const imported=mailImportMeta?.parsed||null;
   const pushImported=(label,value)=>{
     if(value===null||value===undefined||value==='')return;
     if(rows.some(x=>Array.isArray(x)&&String(x[0])===label))return;
     rows.push([label,String(value)]);
   };
+  const forwarders=Array.isArray(mailImportMeta?.forwardedByHistory)
+    ?mailImportMeta.forwardedByHistory.filter(Boolean)
+    :(mailImportMeta?.forwardedBy?[mailImportMeta.forwardedBy]:[]);
+  if(forwarders.length)pushImported('轉寄自',Array.from(new Set(forwarders)).join('、'));
+
   if(imported){
     pushImported('房型',imported.roomType);
     pushImported('主要住客',imported.leadGuest);
@@ -3440,6 +3446,7 @@ function mailReviewRows(mail){
     if(newValue===null||newValue===undefined||newValue==='')return;
     rows.push([label,mailValue(oldValue),mailValue(newValue)]);
   };
+  add('轉寄自','',mail?.envelope_from);
   add('名稱',raw.title||existing?.title,d.title);
   add('訂位代碼',raw.confirmation_code||existing?.code,d.confirmationCode);
   add('PIN',raw.pin_code||existing?.secret,d.pinCode);
