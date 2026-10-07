@@ -1889,7 +1889,7 @@ async function renderWeatherSheet(){
       qs('#weatherSummary').innerHTML=`
         <div class="weather-unavailable">
           <strong>目前還沒有這一天的真實預報</strong>
-          <p>Open-Meteo 最長提供 16 天預報。${d.short} 的逐小時預報預計從 <b>${zhDate(w.availableFrom)}</b> 起開始出現；到時重新打開 App 就會自動抓最新資料。</p>
+          <p>Open-Meteo 最長提供 16 天預報。這一天的逐小時預報預計從 <b>${zhDate(w.availableFrom)}</b> 起開始出現；到時重新打開 App 就會自動抓最新資料。</p>
         </div>`;
       qs('#weatherHourly').innerHTML='';
       return;
