@@ -2916,7 +2916,124 @@ async function renderTripSwitchList(){
 }
 
 
-async function travelEditor(action,payload={}){
+const OFFLINE_EDITOR_ACTIONS=new Set(['save_item','delete_item','reorder_items','save_day','save_reservation','delete_reservation']);
+function offlineClone(v){return JSON.parse(JSON.stringify(v))}
+function isNetworkEditorError(err){
+  const code=String(err?.code||'').toLowerCase();
+  const msg=String(err?.message||'').toLowerCase();
+  const status=Number(err?.status||0);
+  return !navigator.onLine||status===0||code==='edge_function_error'||code.includes('fetch')||msg.includes('failed to fetch')||msg.includes('network');
+}
+function offlineEventFromItem(item,existing={}){
+  return {
+    ...existing,
+    id:existing.id||item.id||('offline-'+crypto.randomUUID()),
+    version:existing.version||Number(item.baseVersion||1)||1,
+    time:item.time||'',
+    type:item.type||existing.type||'other',
+    title:item.title||'',
+    subtitle:item.subtitle||'',
+    note:item.note||'',
+    intro:item.intro||'',
+    tips:Array.isArray(item.tips)?offlineClone(item.tips):[],
+    reservationId:item.reservationId||null,
+    reservationIds:Array.isArray(item.reservationIds)?offlineClone(item.reservationIds):[],
+    address:item.address||'',
+    lat:item.lat??null,lng:item.lng??null,
+    navQuery:item.navQuery||'',
+    googleMapsUrl:item.googleMapsUrl||'',
+    googleMapsResolvedUrl:item.googleMapsResolvedUrl||'',
+    openingHours:Array.isArray(item.openingHours)?offlineClone(item.openingHours):[],
+    closedWeekdays:Array.isArray(item.closedWeekdays)?offlineClone(item.closedWeekdays):[],
+    hoursSource:item.hoursSource||null,
+    hoursCheckedAt:item.hoursCheckedAt||null,
+    uncertain:Boolean(item.uncertain)
+  };
+}
+function offlineBookingFromReservation(r,existing={}){
+  return {
+    ...existing,
+    id:existing.id||r.id||('offline-'+crypto.randomUUID()),
+    version:existing.version||Number(r.baseVersion||1)||1,
+    type:r.type||existing.type||'other',
+    provider:r.provider||'',
+    title:r.title||'預訂',
+    dates:[r.startsAt?String(r.startsAt).slice(0,10):'',r.endsAt?String(r.endsAt).slice(0,10):''].filter(Boolean).join(' → '),
+    meta:r.summary||'',
+    code:r.confirmationCode||'',
+    secret:r.pinCode||'',
+    status:r.status||'confirmed',
+    notice:r.privateNotes||'',
+    details:existing.details||{rows:[],amenities:[],tips:[],source:'離線編輯'},
+    imported:existing.imported||null,
+    amount:r.amount??existing.amount??null,
+    currency:r.currency||existing.currency||'',
+    paymentStatus:r.paymentStatus||existing.paymentStatus||'',
+    _raw:{...(existing._raw||{}),starts_at:r.startsAt||null,ends_at:r.endsAt||null,address:r.address||'',latitude:r.lat??null,longitude:r.lng??null,nav_query:r.navQuery||'',google_maps_url:r.googleMapsUrl||'',google_maps_resolved_url:r.googleMapsResolvedUrl||''}
+  };
+}
+async function applyOfflineEditorAction(action,payload){
+  if(!TRIP||!OFFLINE_EDITOR_ACTIONS.has(action))return null;
+  let entityId=action,baseVersion=1,localTempId=null;
+  if(action==='save_item'){
+    const item=offlineClone(payload.item||{});
+    let day=TRIP.days.find(d=>d.id===item.dayId)||(item.date?TRIP.days.find(d=>d.date===item.date):null);
+    if(!day)throw Object.assign(new Error('offline_day_missing'),{code:'offline_day_missing'});
+    let idx=item.id?day.events.findIndex(e=>e.id===item.id):-1;
+    const existing=idx>=0?day.events[idx]:{};
+    const local=offlineEventFromItem(item,existing);
+    if(idx>=0)day.events[idx]=local;else day.events.push(local);
+    entityId=local.id;baseVersion=Number(item.baseVersion||existing.version||1)||1;
+    if(String(entityId).startsWith('offline-')){
+      localTempId=entityId;
+      item.id=null;
+      payload={...payload,item};
+    }
+  }else if(action==='delete_item'){
+    entityId=String(payload.id||'');baseVersion=Number(payload.baseVersion||1)||1;
+    for(const day of TRIP.days){const i=day.events.findIndex(e=>e.id===entityId);if(i>=0){day.events.splice(i,1);break}}
+  }else if(action==='reorder_items'){
+    const day=TRIP.days.find(d=>d.id===payload.dayId);
+    if(day){
+      const map=new Map(day.events.map(e=>[e.id,e]));
+      day.events=(payload.orderedIds||[]).map((id,i)=>{const e=map.get(id);if(e)e.sortOrder=i;return e}).filter(Boolean);
+    }
+    entityId=String(payload.dayId||'');
+  }else if(action==='save_day'){
+    const d=payload.day||{};
+    const day=TRIP.days.find(x=>x.id===d.id)||TRIP.days.find(x=>x.date===d.date);
+    if(!day)throw Object.assign(new Error('offline_day_missing'),{code:'offline_day_missing'});
+    entityId=day.id;baseVersion=Number(d.baseVersion||day.version||1)||1;
+    Object.assign(day,{
+      name:d.name,short:d.short??d.notes??day.short,heroImageUrl:d.heroImageUrl??day.heroImageUrl,
+      km:d.km??day.km,driveMinutes:d.driveMinutes??day.driveMinutes,departureTime:d.departureTime??day.departureTime,
+      sunrise:d.sunrise??day.sunrise,sunset:d.sunset??day.sunset
+    });
+  }else if(action==='save_reservation'){
+    const r=offlineClone(payload.reservation||{});
+    let idx=r.id?TRIP.bookings.findIndex(b=>b.id===r.id):-1;
+    const existing=idx>=0?TRIP.bookings[idx]:{};
+    const local=offlineBookingFromReservation(r,existing);
+    if(idx>=0)TRIP.bookings[idx]=local;else TRIP.bookings.push(local);
+    entityId=local.id;baseVersion=Number(r.baseVersion||existing.version||1)||1;
+    if(String(entityId).startsWith('offline-')){
+      localTempId=entityId;r.id=null;payload={...payload,reservation:r};
+    }
+  }else if(action==='delete_reservation'){
+    entityId=String(payload.id||'');baseVersion=Number(payload.baseVersion||1)||1;
+    TRIP.bookings=TRIP.bookings.filter(b=>b.id!==entityId);
+  }
+  await window.TravelStore?.saveUiTrip?.(TRIP);
+  await window.TravelStore?.queueOperation?.({
+    entity_type:'editor_action',entity_id:entityId||action,action,base_version:baseVersion,
+    patch:{payload:offlineClone(payload),localTempId}
+  });
+  cloudLoaded=false;cloudSyncState='cache';
+  cloudLastError='離線變更已儲存在此裝置；恢復網路後會自動同步。';
+  syncTripLabels();renderAll();updateEditAvailability();
+  return {ok:true,offlineQueued:true};
+}
+async function invokeTravelEditorOnline(action,payload={}){
   const client=window.TravelAuth?.getClient?.();
   if(!client) throw new Error('auth_not_ready');
   const device=await window.TravelStore.getDevice();
@@ -2936,6 +3053,53 @@ async function travelEditor(action,payload={}){
     const e=new Error(data.error);e.code=data.error;e.currentVersion=data.currentVersion;throw e;
   }
   return data;
+}
+let offlineFlushRunning=false;
+async function flushOfflineEditorQueue(){
+  if(offlineFlushRunning||!navigator.onLine||!window.TRAVEL_CONFIG?.tripSlug)return;
+  const pending=await window.TravelStore?.getPendingOperations?.();
+  if(!pending?.length)return;
+  offlineFlushRunning=true;
+  cloudSyncState='syncing';cloudLastError='正在同步離線變更…';syncTripLabels();
+  try{
+    for(const op of pending){
+      if(op.entity_type!=='editor_action')continue;
+      const payload=offlineClone(op.patch?.payload||{});
+      if(op.action==='save_item'&&String(payload.item?.id||'').startsWith('offline-'))payload.item.id=null;
+      if(op.action==='save_reservation'&&String(payload.reservation?.id||'').startsWith('offline-'))payload.reservation.id=null;
+      try{
+        await invokeTravelEditorOnline(op.action,payload);
+        await window.TravelStore?.completeOperation?.(op.op_id);
+      }catch(err){
+        await window.TravelStore?.updateOperation?.(op.op_id,{attempts:Number(op.attempts||0)+1,last_error:String(err?.code||err?.message||err),last_attempt_at:new Date().toISOString()});
+        if(err?.code==='version_conflict'){
+          cloudLastError='離線變更與雲端版本衝突；已保留待處理變更。';
+        }else{
+          cloudLastError='離線變更尚未同步，稍後會再試。';
+        }
+        throw err;
+      }
+    }
+    await hydratePrivateCloudData();
+    cloudLastError='';
+  }catch(err){
+    console.warn('Offline editor sync paused',err);
+    cloudSyncState='cache';syncTripLabels();
+  }finally{offlineFlushRunning=false}
+}
+
+async function travelEditor(action,payload={}){
+  if(OFFLINE_EDITOR_ACTIONS.has(action)&&!navigator.onLine){
+    return applyOfflineEditorAction(action,payload);
+  }
+  try{
+    return await invokeTravelEditorOnline(action,payload);
+  }catch(err){
+    if(OFFLINE_EDITOR_ACTIONS.has(action)&&isNetworkEditorError(err)){
+      return applyOfflineEditorAction(action,payload);
+    }
+    throw err;
+  }
 }
 
 function canEditTrip(){return currentTripRole==='owner'||currentTripRole==='editor'}
