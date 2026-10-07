@@ -2580,8 +2580,15 @@ function tripHref(slug){
 }
 
 async function fetchAuthorizedTrips(){
+  if(!navigator.onLine){
+    authorizedTrips=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+    return authorizedTrips;
+  }
   const client=window.TravelAuth?.getClient?.();
-  if(!client) return [];
+  if(!client){
+    authorizedTrips=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+    return authorizedTrips;
+  }
   const {data,error}=await client.functions.invoke('travel-trips',{body:{action:'list'}});
   if(error) throw error;
   authorizedTrips=Array.isArray(data?.trips)?data.trips:[];
