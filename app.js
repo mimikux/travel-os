@@ -722,7 +722,8 @@ function flightStatusUrl(event,dateString){
   const date=String(p.segment?.date||dateString||'').slice(0,10);
   const dm=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(!m||!dm)return '';
-  return 'https://www.flightstats.com/v2/flight-tracker/'+encodeURIComponent(m[1])+'/'+encodeURIComponent(m[2])+
+  const carrier=({IT:'TTW'})[m[1]]||m[1];
+  return 'https://www.flightstats.com/v2/flight-tracker/'+encodeURIComponent(carrier)+'/'+encodeURIComponent(m[2])+
     '?year='+Number(dm[1])+'&month='+Number(dm[2])+'&date='+Number(dm[3]);
 }
 function openFlightStatus(dayIndex,eventIndex){
@@ -746,7 +747,7 @@ function renderTimelineBookingCard(b,idx,n){
   const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong>${escapeHtml(maskCode(b.code,b.secret))}</strong></div><button class="reveal-btn" type="button" onclick="event.stopPropagation();toggleInlineBookingCode(this,${idx})">顯示</button></div>`:'';
   return `<article class="timeline-booking-card">
     <div class="booking-top">
-      <div class="booking-icon" data-booking-type="${escapeHtml(b.type||'other')}"></div>
+      <div class="booking-icon">${iconSVG(b.type==='stay'?'house':(b.type||'booking'))}</div>
       <div><div class="booking-provider">BOOKING ${n+1} · ${escapeHtml(b.provider||'')}</div><h3>${escapeHtml(b.title||'預訂')}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div>
       <div class="code-pill">${escapeHtml(String(b.status||'confirmed').toUpperCase())}</div>
     </div>
@@ -2332,6 +2333,7 @@ function normalizeReservation(row){
     pushImported('房間數',imported.roomCount?imported.roomCount+' 間':'');
     pushImported('住宿晚數',imported.nightCount?imported.nightCount+' 晚':'');
     pushImported('方案 / 餐食',imported.mealPlan||imported.amenities);
+    if(imported.mealPlan&&imported.amenities)pushImported('包含 / 設施',imported.amenities);
 
     pushImported('租車公司',imported.rentalCompany);
     pushImported('車型',imported.vehicleModel);
