@@ -261,6 +261,25 @@
       const db=await dbOrNull();if(!db)return null;
       return withTimeout(replaceTrip(db,payload),2200,'replace_trip_timeout');
     },
+    async clearTrip(tripId){
+      const id=tripId||currentTripId();if(!id)return;
+      try{localStorage.removeItem(META_PREFIX+'cloud_state:'+id);localStorage.removeItem(META_PREFIX+'last_sync:'+id)}catch(_){}
+      const db=await dbOrNull();if(!db)return;
+      const tx=db.transaction(['trips','days','itinerary_items','bookings','sync_queue','conflicts','meta'],'readwrite');
+      await deleteByIndex(tx.objectStore('days'),tx.objectStore('days').index('trip_id'),id);
+      await deleteByIndex(tx.objectStore('itinerary_items'),tx.objectStore('itinerary_items').index('trip_id'),id);
+      await deleteByIndex(tx.objectStore('bookings'),tx.objectStore('bookings').index('trip_id'),id);
+      tx.objectStore('trips').delete(id);
+      tx.objectStore('meta').delete('cloud_state:'+id);
+      tx.objectStore('meta').delete('last_sync:'+id);
+      const syncStore=tx.objectStore('sync_queue');
+      const syncRows=await requestToPromise(syncStore.getAll());
+      syncRows.filter(x=>x.trip_id===id).forEach(x=>syncStore.delete(x.op_id));
+      const conflictStore=tx.objectStore('conflicts');
+      const conflictRows=await requestToPromise(conflictStore.getAll());
+      conflictRows.filter(x=>x.trip_id===id).forEach(x=>conflictStore.delete(x.id));
+      await txDone(tx);
+    },
     async getDevice(){return getFastDevice()},
     async getCloudState(){
       const id=currentTripId();if(!id)return null;
