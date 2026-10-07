@@ -67,14 +67,27 @@
   async function init(){
     if(initPromise) return initPromise;
     initPromise=(async()=>{
-    if(!window.supabase?.createClient){ setState('sdk_error'); return snapshot(); }
+    let localOfflineAccess=false;
     try{
       const device=await window.TravelStore.getDevice();
-      const cloudState=await window.TravelStore.getCloudState?.();
-      if(device?.device_public_id && (cloudState==="trusted_device" || cloudState?.state==="trusted_device")){
-        setState('offline_ready');
+      if(cfg.tripSlug){
+        const cloudState=await window.TravelStore.getCloudState?.();
+        const cachedTrip=await window.TravelStore.getTrip?.();
+        localOfflineAccess=Boolean(
+          device?.device_public_id &&
+          (cloudState==="trusted_device" || cloudState?.state==="trusted_device") &&
+          cachedTrip?.days?.length
+        );
+      }else{
+        const cachedTrips=await window.TravelStore.listTrips?.();
+        localOfflineAccess=Boolean(cachedTrips?.length);
       }
+      if(localOfflineAccess&&!navigator.onLine)setState('offline_ready');
     }catch(_){ }
+    if(!window.supabase?.createClient){
+      if(localOfflineAccess){setState('offline_ready');return snapshot();}
+      setState('sdk_error'); return snapshot();
+    }
     client=window.supabase.createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{
       auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
     });
@@ -109,6 +122,8 @@
       }else{
         setState('ready');
       }
+    }else if(state==='offline_ready'&&!navigator.onLine){
+      setState('offline_ready');
     }else if(state==='offline_ready'){
       setState('reauth_required');
     }else if(state!=='ready') setState('signed_out');
