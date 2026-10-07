@@ -1,5 +1,5 @@
-const CACHE='travel-os-cathay-v45';
-const ASSETS=['./','./index.html','./app.css?v=20261007-cathay-v45','./app.js?v=20261007-cathay-v45','./data.js?v=20261007-cathay-v45','./config.js?v=20261007-cathay-v45','./auth.js?v=20261007-cathay-v45','./local-db.js?v=20261007-cathay-v45','./sync-engine.js?v=20261007-cathay-v45','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-mailtheme-v46';
+const ASSETS=['./','./index.html','./app.css?v=20261008-mailtheme-v46','./app.js?v=20261008-mailtheme-v46','./data.js?v=20261008-mailtheme-v46','./config.js?v=20261008-mailtheme-v46','./auth.js?v=20261008-mailtheme-v46','./local-db.js?v=20261008-mailtheme-v46','./sync-engine.js?v=20261008-mailtheme-v46','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
