@@ -1776,3 +1776,14 @@ body.timeline-dragging *{
   border-color:var(--theme-accent-border)!important;
   color:var(--green)!important;
 }
+
+
+/* Stay accordion + Google-hours placement fix v35 */
+.stay-booking-inline{
+  border-top:0!important;
+  padding-top:0!important;
+}
+.stay-booking-toggle{
+  border-top:1px solid var(--theme-accent-border)!important;
+  margin-top:10px!important;
+}
