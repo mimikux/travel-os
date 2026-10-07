@@ -2575,7 +2575,12 @@ function updateEditAvailability(){
     qs('#membersBtn').before(audit);
     audit.onclick=auditTripPlaceHours;
   }
-  if(audit) audit.hidden=!canEditTrip();
+  if(audit){
+    audit.hidden=!canEditTrip();
+    const placeNoticeCount=placeAlerts.length;
+    const auditStatus=qs('#placeAuditStatus')?.textContent||'檢查已補 Google Maps 連結的行程';
+    audit.innerHTML='<span><small>PLACE CHECK</small><strong>檢查營業時間 / 公休日</strong><em id="placeAuditStatus">'+escapeHtml(auditStatus)+'</em></span>'+(placeNoticeCount?'<span class="trip-alert-count">'+placeNoticeCount+'</span>':'<span>→</span>');
+  }
   let mailBtn=qs('#mailImportBtn');
   if(!mailBtn&&qs('#membersBtn')){
     mailBtn=document.createElement('button');
@@ -2586,7 +2591,7 @@ function updateEditAvailability(){
   if(mailBtn){
     const pending=Array.isArray(TRIP?.mailImports)?TRIP.mailImports.length:0;
     mailBtn.hidden=!canEditTrip();
-    mailBtn.innerHTML='<span><small>MAIL IMPORT</small><strong>信箱匯入</strong><em>'+(pending?pending+' 筆待確認':'目前沒有待確認')+'</em></span><span>→</span>';
+    mailBtn.innerHTML='<span><small>MAIL IMPORT</small><strong>信箱匯入</strong><em>'+(pending?pending+' 筆待確認':'目前沒有待確認')+'</em></span>'+(pending?'<span class="trip-alert-count">'+pending+'</span>':'<span>→</span>');
   }
   const publicShare=qs('#publicShareBtn');
   if(publicShare) publicShare.hidden=currentTripRole!=='owner';
