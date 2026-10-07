@@ -227,8 +227,15 @@
 
   async function queueOperation(db,{entity_type,entity_id,action='update',base_version=1,patch={}}){
     const tripId=currentTripId();if(!tripId)throw new Error('trip_required');
+    const tx=db.transaction('sync_queue','readwrite');
+    const store=tx.objectStore('sync_queue');
+    const all=await requestToPromise(store.getAll());
+    // Coalesce repeated offline edits of the same entity/action to the latest state.
+    // This avoids replaying several updates with the same server baseVersion.
+    (all||[]).filter(x=>x.trip_id===tripId&&x.status==='pending'&&x.entity_type===entity_type&&x.entity_id===entity_id&&x.action===action)
+      .forEach(x=>store.delete(x.op_id));
     const op={op_id:crypto.randomUUID(),trip_id:tripId,entity_type,entity_id,action,base_version,patch:clone(patch),status:'pending',created_at:new Date().toISOString(),attempts:0};
-    const tx=db.transaction('sync_queue','readwrite');tx.objectStore('sync_queue').put(op);await txDone(tx);return op;
+    store.put(op);await txDone(tx);return op;
   }
   async function getPendingOperations(db){
     const tx=db.transaction('sync_queue','readonly');
