@@ -268,21 +268,74 @@ function iconSVG(name,cls=''){
   return icons[name]||'';
 }
 
+const heroPhotoCache=new Map();
+let heroPhotoRenderToken=0;
+function heroPrimaryEvent(d){
+  const events=Array.isArray(d?.events)?d.events:[];
+  const usable=events.filter(e=>e&&!e.uncertain);
+  // A destination/activity beats transport, food and accommodation.
+  return usable.find(e=>e.type==='spot'||e.type==='tour')
+    ||usable.find(e=>e.type==='stay')
+    ||null;
+}
+function heroFallbackQuery(d){
+  const primary=heroPrimaryEvent(d);
+  if(primary) return {itemId:primary.id||'',placeId:primary.placeId||'',query:[primary.title,primary.address].filter(Boolean).join(', '),source:primary.type};
+  const dayName=String(d?.name||'').trim();
+  if(dayName&&!['未命名行程','尚未建立行程','第一天'].includes(dayName)) return {itemId:'',placeId:'',query:dayName,source:'day'};
+  return {itemId:'',placeId:'',query:currentTripTitle(),source:'trip'};
+}
+function staticHeroFallback(d){
+  // Preserve the established Iceland artwork only as a last-resort visual.
+  // Other trips get a neutral background instead of inheriting Iceland imagery.
+  if(TRIP?.slug==='iceland-2026') return (DAY_UI[d?.label]||DAY_UI.D0).photo;
+  return 'linear-gradient(135deg,#23423e 0%,#4f7169 48%,#b08a55 100%)';
+}
 function dayUi(d){
-  const fallback=DAY_UI[d.label]||DAY_UI.D0;
-  const tripFallback=TRIP?.slug==='kumamoto-2027'
-    ?{
-      photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Mount%20Aso%20%2849647957171%29.jpg?width=1600')",
-      sunrise:'07:13',sunset:'17:45'
-    }
-    :fallback;
+  const fallback=DAY_UI[d?.label]||DAY_UI.D0;
+  const cached=heroPhotoCache.get(String(d?.id||d?.date||d?.label||''));
+  const autoPhoto=cached?.photoUrl?`url("${String(cached.photoUrl).replace(/"/g,'%22')}")`:null;
   return {
     ...fallback,
-    ...tripFallback,
-    photo:d?.heroImageUrl?`url('${d.heroImageUrl}')`:tripFallback.photo,
-    sunrise:d?.sunrise||tripFallback.sunrise,
-    sunset:d?.sunset||tripFallback.sunset
+    photo:d?.heroImageUrl?`url('${d.heroImageUrl}')`:(autoPhoto||staticHeroFallback(d)),
+    sunrise:d?.sunrise||fallback.sunrise||'--:--',
+    sunset:d?.sunset||fallback.sunset||'--:--'
   };
+}
+async function refreshHeroPhoto(dayIndex){
+  const d=TRIP?.days?.[dayIndex];
+  if(!d||d.heroImageUrl)return;
+  const key=String(d.id||d.date||d.label||dayIndex);
+  const hero=qs('#heroCard');
+  const apply=result=>{
+    if(selectedDay!==dayIndex||!result?.photoUrl)return;
+    const photo=`url("${String(result.photoUrl).replace(/"/g,'%22')}")`;
+    hero.style.setProperty('--hero-photo',photo);
+    hero.style.backgroundImage=photo;
+    hero.dataset.heroSource=result.source||'google_places';
+    hero.dataset.heroSubject=result.subject||'';
+  };
+  if(heroPhotoCache.has(key)){apply(heroPhotoCache.get(key));return;}
+  const token=++heroPhotoRenderToken;
+  const primary=heroFallbackQuery(d);
+  try{
+    const result=await travelEditor('hero_photo',{
+      itemId:primary.itemId||undefined,
+      placeId:primary.placeId||undefined,
+      query:primary.query,
+      fallbackQuery:currentTripTitle()
+    });
+    if(token!==heroPhotoRenderToken||selectedDay!==dayIndex)return;
+    if(result?.photoUrl){
+      const cached={...result,subject:primary.query,selectionSource:primary.source};
+      heroPhotoCache.set(key,cached);
+      apply(cached);
+    }else{
+      heroPhotoCache.set(key,{status:result?.status||'not_found'});
+    }
+  }catch(err){
+    console.warn('Hero photo lookup failed',err?.code||err?.message||err);
+  }
 }
 function driveText(day){
   if(day?.drive) return day.drive;
@@ -771,6 +824,9 @@ function renderToday(){
   const hero=qs('#heroCard');
   hero.style.setProperty('--hero-photo',ui.photo);
   hero.style.backgroundImage=ui.photo;
+  hero.dataset.heroSource=d.heroImageUrl?'manual':'fallback';
+  hero.dataset.heroSubject='';
+  refreshHeroPhoto(dayIndex);
   qs('#todayKm').textContent=`${d.km} km`;
   qs('#todayDrive').textContent=driveText(d);
   qs('#todaySunrise').textContent=ui.sunrise;
