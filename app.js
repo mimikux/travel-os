@@ -2331,7 +2331,25 @@ function normalizeReservation(row){
     pushImported('入住人數',imported.guests||(imported.guestCount?imported.guestCount+' 人':''));
     pushImported('房間數',imported.roomCount?imported.roomCount+' 間':'');
     pushImported('住宿晚數',imported.nightCount?imported.nightCount+' 晚':'');
-    pushImported('方案 / 餐食',imported.amenities);
+    pushImported('方案 / 餐食',imported.mealPlan||imported.amenities);
+
+    pushImported('租車公司',imported.rentalCompany);
+    pushImported('車型',imported.vehicleModel);
+    pushImported('租車天數',imported.rentalDays?imported.rentalDays+' 天':'');
+    pushImported('取車地點',imported.pickupLocation);
+    pushImported('還車地點',imported.dropoffLocation);
+    pushImported('變速箱',imported.transmission);
+    pushImported('租車方案',imported.plan);
+    pushImported('租車包含',imported.extras);
+    pushImported('保險',imported.insurances);
+
+    pushImported('營運公司',imported.activityProvider);
+    pushImported('集合地點',imported.meetingPoint||imported.address);
+    pushImported('集合時間',imported.meetingTime||imported.time);
+    pushImported('活動備註',imported.providerNote||imported.importantInfo);
+
+    pushImported('航空公司',imported.airlineName);
+    pushImported('行李',imported.baggageSummary);
 
     if(Array.isArray(imported.segments)&&imported.segments.length){
       imported.segments.forEach((seg,i)=>{
