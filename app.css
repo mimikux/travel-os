@@ -1458,3 +1458,8 @@ body.timeline-dragging *{
 .map-open-link,.map-edit-link{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 .map-edit-link{cursor:pointer}
 #editItemMapEditRow[hidden],#editBookingMapEditRow[hidden]{display:none!important}
+
+.trip-date-card{border:0;background:transparent;padding:0;margin:0;text-align:left;color:inherit;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;cursor:pointer}
+.trip-date-card span{min-width:0}.trip-date-card small{display:block}.trip-date-card strong{display:block}
+.trip-date-card em{font-style:normal;color:var(--gold);font-size:11px;font-weight:900;border:1px solid var(--line);background:#fffdf8;border-radius:10px;padding:7px 9px}
+.trip-date-card[hidden]{display:none!important}
