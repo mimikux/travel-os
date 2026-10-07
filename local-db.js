@@ -176,7 +176,7 @@
     const bookings=(await getAllFromIndex(db,'bookings','trip_id',tripId)).filter(x=>!x.deleted_at).sort((a,b)=>a.sort_order-b.sort_order).map(x=>clone(x.payload));
     return {
       id:tripRow.id,slug:tripRow.slug||tripRow.id,title:tripRow.title,timezone:tripRow.timezone,
-      startDate:tripRow.start_date,endDate:tripRow.end_date,role:tripRow.role||null,source:tripRow.source||'local',
+      startDate:tripRow.start_date,endDate:tripRow.end_date,settings:tripRow.settings||{},role:tripRow.role||null,source:tripRow.source||'local',
       days:days.map(day=>({
         id:day.id,date:day.date,label:day.label,short:day.short||'',name:day.name,km:day.km,
         drive:day.drive,driveMinutes:day.driveMinutes,heroImageUrl:day.heroImageUrl,
@@ -197,7 +197,7 @@
     await deleteByIndex(tx.objectStore('bookings'),tx.objectStore('bookings').index('trip_id'),tripId);
     tx.objectStore('trips').put({
       id:tripId,slug:tripId,title:payload.trip.title,timezone:payload.trip.timezone,
-      start_date:payload.trip.startDate,end_date:payload.trip.endDate,role:payload.role||null,
+      start_date:payload.trip.startDate,end_date:payload.trip.endDate,settings:payload.trip.settings||{},role:payload.role||null,
       version:payload.trip.version||1,updated_at:now,deleted_at:null,source:'cloud'
     });
     (payload.days||[]).forEach((day,dayIndex)=>{
