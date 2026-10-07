@@ -1649,3 +1649,77 @@ body.timeline-dragging *{
 .hours-conflict-warning,.hours-change-warning,.trip-delete-card,.delete-mail-note,.delete-trip-confirm{
   /* semantic colors intentionally remain unchanged */
 }
+
+
+/* Theme propagation completion v30 */
+/* Trip action sheet: remove fixed earth borders/surfaces. */
+.sheet-action-card{
+  border-color:var(--theme-accent-border)!important;
+  background:var(--paper)!important;
+}
+.sheet-action-card small{color:var(--gold)!important}
+.sheet-action-card em{color:var(--muted)!important}
+
+/* More page cards + action buttons. */
+.more-trip-card,.more-setting-card,.more-about-card{
+  border-color:var(--theme-accent-border)!important;
+  background:var(--paper)!important;
+}
+.more-trip-card.active{
+  border-color:color-mix(in srgb,var(--gold) 62%,var(--paper))!important;
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 12%,transparent),var(--shadow)!important;
+}
+.more-setting-card button,
+#moreResync,#moreSignOut{
+  border-color:var(--theme-accent-border)!important;
+  background:var(--theme-accent-soft)!important;
+  color:var(--green)!important;
+}
+
+/* Map range controls around multi-select and route summary. */
+.map-range-summary,
+.map-multi-toggle:not(.active){
+  border-color:var(--theme-accent-border)!important;
+  background:var(--theme-accent-soft)!important;
+  color:var(--ink)!important;
+}
+.map-multi-toggle.active{
+  background:var(--green)!important;
+  border-color:var(--green)!important;
+  color:#fff!important;
+}
+
+/* Flight timeline booking details: collapsed card remains compact; expansion mirrors Booking tab. */
+.flight-booking-group{
+  margin-top:12px;
+  border-top:1px solid var(--theme-accent-border);
+  padding-top:2px;
+}
+.flight-booking-toggle{
+  margin-top:0!important;
+}
+.flight-booking-list{
+  display:grid;
+  gap:12px;
+  margin-top:10px;
+}
+.flight-booking-list[hidden]{display:none!important}
+.timeline-booking-card{
+  background:var(--paper);
+  border:1px solid var(--theme-accent-border);
+  border-radius:16px;
+  padding:13px;
+  box-shadow:0 4px 12px color-mix(in srgb,var(--green) 6%,transparent);
+}
+.timeline-booking-card .booking-detail-panel{
+  display:block!important;
+  margin-top:10px;
+}
+.flight-event-card>.card-actions{
+  margin-top:10px;
+}
+.flight-status-btn{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
