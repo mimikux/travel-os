@@ -2384,14 +2384,19 @@ function normalizeReservation(row){
 
     if(Array.isArray(imported.segments)&&imported.segments.length){
       imported.segments.forEach((seg,i)=>{
-        const direction=i===0?'去程':(i===1?'回程':'航段 '+(i+1));
+        const direction='航段 '+(i+1);
         const dep=[seg.departureAirport,seg.departureName].filter(Boolean).join(' ');
         const arr=[seg.arrivalAirport,seg.arrivalName].filter(Boolean).join(' ');
+        const depTerminal=seg.departureTerminal?('T'+String(seg.departureTerminal).replace(/^T/i,'')):'';
+        const arrTerminal=seg.arrivalTerminal?('T'+String(seg.arrivalTerminal).replace(/^T/i,'')):'';
         const when=[seg.date,seg.departureTime].filter(Boolean).join(' ');
-        const arrival=[seg.arrivalTime,arr].filter(Boolean).join(' ');
-        pushImported(direction+' '+(seg.flightNo||''),[when,dep,'→',arrival].filter(Boolean).join(' '));
+        const arrival=[seg.arrivalDate&&seg.arrivalDate!==seg.date?seg.arrivalDate:'',seg.arrivalTime,arr,arrTerminal].filter(Boolean).join(' ');
+        pushImported(direction+' '+(seg.flightNo||''),[when,dep,depTerminal,'→',arrival].filter(Boolean).join(' '));
+        pushImported(direction+' 機型 / 艙等',[seg.aircraft,seg.cabin].filter(Boolean).join(' · '));
+        pushImported(direction+' 座位 / 行李',[seg.seat,seg.carryOn,seg.checkedBaggage].filter(Boolean).join(' · '));
       });
     }
+    if(imported.awardMiles)pushImported('兌換里數',Number(imported.awardMiles).toLocaleString()+' miles');
     let flightPassengers=Array.isArray(imported.passengers)?imported.passengers.filter(Boolean):[];
     if(!flightPassengers.length&&Array.isArray(imported.passengerDetails)){
       flightPassengers=Array.from(new Set(imported.passengerDetails.map(line=>{
@@ -3466,6 +3471,19 @@ function mailReviewRows(mail){
   add('付款',raw.payment_status,d.paymentStatus);
   add('開始',raw.starts_at,[d.startDate||d.date,d.startTime||d.time||d.departureTime].filter(Boolean).join(' '));
   add('結束',raw.ends_at,[d.endDate||d.date,d.endTime||d.arrivalTime].filter(Boolean).join(' '));
+  if(mail?.reservation_type==='flight'){
+    add('航空公司','',d.airlineName||d.provider);
+    if(Array.isArray(d.segments)&&d.segments.length){
+      add('航段','',d.segments.map(seg=>[
+        seg.flightNo,
+        [seg.date,seg.departureTime,seg.departureAirport].filter(Boolean).join(' '),
+        '→',
+        [seg.arrivalDate&&seg.arrivalDate!==seg.date?seg.arrivalDate:'',seg.arrivalTime,seg.arrivalAirport].filter(Boolean).join(' ')
+      ].filter(Boolean).join(' ')).join(' / '));
+    }
+    add('行李','',d.baggageSummary);
+    add('兌換里數','',d.awardMiles?Number(d.awardMiles).toLocaleString():'');
+  }
   add('地址',raw.address,d.address);
   add('取消期限',raw.cancellation_policy,d.cancellationDeadline?.date?[d.cancellationDeadline.date,d.cancellationDeadline.time].filter(Boolean).join(' '):(d.cancellationDeadlineText||d.cancellationPolicy));
   add('房型','',d.roomType);
