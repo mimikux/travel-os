@@ -570,6 +570,50 @@ function detailRowValue(b,labelPattern){
   const row=rows.find(x=>Array.isArray(x)&&labelPattern.test(String(x[0]||'')));
   return row?String(row[1]||'').trim():'';
 }
+function dateDiffDays(start,end){
+  const a=Date.parse(String(start||'').slice(0,10)+'T00:00:00Z');
+  const b=Date.parse(String(end||'').slice(0,10)+'T00:00:00Z');
+  return Number.isFinite(a)&&Number.isFinite(b)&&b>a?Math.round((b-a)/86400000):0;
+}
+function shortDateRange(start,end){
+  const fmt=v=>String(v||'').slice(5,10).replace('-','/');
+  const a=fmt(start),b=fmt(end);
+  return a&&b?a+'–'+b:(a||b);
+}
+function briefText(value,max=150){
+  const s=String(value||'').replace(/\s+/g,' ').trim();
+  return s.length>max?s.slice(0,max-1)+'…':s;
+}
+function flightAirlineName(b){
+  const p=b?.imported||{};
+  if(p.airlineName)return String(p.airlineName);
+  const row=detailRowValue(b,/航空公司|airline/i);
+  if(row)return row;
+  const provider=String(b?.provider||'');
+  if(provider.includes('/'))return provider.split('/').slice(1).join('/').trim();
+  if(provider&&!/trip\.com/i.test(provider))return provider;
+  return '';
+}
+function flightBaggageSummaryForBooking(b){
+  const p=b?.imported||{};
+  if(p.baggageSummary)return String(p.baggageSummary);
+  const detail=detailRowValue(b,/^行李$|行李限額|baggage/i);
+  if(detail)return detail;
+  const parts=[];
+  if(p.carryOnKg)parts.push('隨身 '+p.carryOnKg+'kg');
+  if(p.checkedBaggageIncluded===false)parts.push('無託運');
+  else if(p.checkedBaggageKg)parts.push('託運 '+p.checkedBaggageKg+'kg');
+  if(parts.length)return parts.join(' · ');
+  const weights=[];
+  (Array.isArray(p.passengerDetails)?p.passengerDetails:[]).forEach(line=>{
+    const m=String(line).match(/(\d+)\s*公斤/);
+    if(m)weights.push(Number(m[1]));
+  });
+  const unique=[...new Set(weights.filter(Number.isFinite))];
+  if(unique.length===1)return '託運 '+unique[0]+'kg';
+  if(unique.length>1)return '行李詳預訂資訊';
+  return '';
+}
 function flightPresentation(event,dateString){
   const linked=eventBookings(event);
   const booking=linked[0]?.b||null;
@@ -585,71 +629,146 @@ function flightPresentation(event,dateString){
   const depTime=seg?.departureTime||event?.time||timeMatch?.[1]||'';
   const arrTime=seg?.arrivalTime||timeMatch?.[2]||'';
   const flightNo=seg?.flightNo||booking?.imported?.flightNo||
-    (titleText.match(/\b([A-Z]{2}\s?\d{2,4})\b/i)||subtitleText.match(/\b([A-Z]{2}\s?\d{2,4})\b/i)||[])[1]||'';
-  const terminal=booking?detailRowValue(booking,/航廈|terminal/i):'';
-  const title=[depTime&&arrTime?depTime+'–'+arrTime:'',dep&&arr?dep+' → '+arr:''].filter(Boolean).join(' · ')||titleText;
-  const subtitle=[flightNo?flightNo.replace(/\s+/g,''):'',terminal].filter(Boolean).join(' · ')||subtitleText;
-  return {title,subtitle,time:'',linked};
+    (titleText.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||subtitleText.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||[])[1]||'';
+  const airlineNames=[...new Set(linked.map(({b})=>flightAirlineName(b)).filter(Boolean))];
+  const baggage=[...new Set(linked.map(({b})=>flightBaggageSummaryForBooking(b)).filter(Boolean))];
+  const baggageText=baggage.length>1?'行李詳預訂資訊':(baggage[0]||'');
+  const note=[airlineNames.length===1?airlineNames[0]:(airlineNames.length>1?'航空公司詳預訂資訊':''),baggageText].filter(Boolean).join(' · ');
+  return {
+    title:[flightNo?flightNo.replace(/\s+/g,''):'',depTime&&arrTime?depTime+'–'+arrTime:''].filter(Boolean).join(' · ')||titleText,
+    subtitle:dep&&arr?dep+' → '+arr:subtitleText,
+    note,
+    time:'',
+    linked,
+    flightNo:flightNo?flightNo.replace(/\s+/g,''):'',
+    segment:seg
+  };
 }
-function renderLinkedFlightBookings(event,dayIndex,eventIndex,dateString){
+function stayMealSummary(b){
+  const p=b?.imported||{};
+  const explicit=String(p.mealPlan||'').trim();
+  if(explicit)return explicit;
+  const text=String(p.amenities||'')+' '+detailRowValue(b,/方案|餐食|meal/i);
+  if(/不包括餐|不含餐|no meals?/i.test(text))return '不含餐';
+  const breakfast=/早餐|breakfast/i.test(text);
+  const dinner=/晚餐|dinner/i.test(text);
+  if(breakfast&&dinner)return '含早餐、晚餐';
+  if(breakfast)return '含早餐';
+  if(dinner)return '含晚餐';
+  return '';
+}
+function stayPresentation(event){
   const linked=eventBookings(event);
-  if(!linked.length)return '';
-  const id='eventFlightBookings-'+dayIndex+'-'+eventIndex;
-  const cards=linked.map(({b,idx},n)=>{
-    const d=b.details||{};
-    const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
-    const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}</div></div>`:'';
-    const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`:'';
-    const source=d.source?`<div class="booking-detail-source">資料來源：${escapeHtml(d.source)}</div>`:'';
-    const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION</small><strong>${escapeHtml(maskCode(b.code,b.secret))}</strong></div></div>`:'';
-    return `<article class="timeline-booking-card">
-      <div class="booking-top">
-        <div class="booking-icon">${iconSVG('flight')}</div>
-        <div><div class="booking-provider">BOOKING ${n+1} · ${escapeHtml(b.provider||'')}</div><h3>${escapeHtml(b.title||'航班預訂')}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div>
-        <div class="code-pill">${String(b.status||'confirmed').toUpperCase()}</div>
-      </div>
-      ${b.meta?`<div class="booking-meta">${escapeHtml(b.meta)}</div>`:''}
-      ${code}
-      ${b.alert?`<div class="alert-box">⚠️ ${escapeHtml(b.alert)}</div>`:''}
-      ${b.notice?`<div class="notice">${escapeHtml(b.notice)}</div>`:''}
-      <div class="booking-detail-panel timeline-booking-detail"><div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>
-    </article>`;
-  }).join('');
-  return `<div class="event-booking-group flight-booking-group">
-    <button class="booking-detail-toggle flight-booking-toggle" type="button"
-      onclick="event.stopPropagation();const p=document.getElementById('${id}');const open=p.hidden;p.hidden=!open;this.classList.toggle('open',open);this.querySelector('span:first-child').textContent=open?'收起完整預訂資訊':'完整預訂資訊 · ${linked.length} 筆'">
-      <span>完整預訂資訊 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span>
-    </button>
-    <div class="event-booking-list flight-booking-list" id="${id}" hidden>${cards}</div>
-  </div>`;
+  if(!linked.length)return {title:event.title||'',subtitle:event.subtitle||'',note:event.note||'',time:event.time||''};
+  const bookings=linked.map(x=>x.b);
+  const nightCounts=bookings.map(b=>Number(b.imported?.nightCount)||dateDiffDays(b.imported?.startDate||b._raw?.starts_at,b.imported?.endDate||b._raw?.ends_at)).filter(Boolean);
+  const nights=nightCounts.length?Math.max(...nightCounts):0;
+  let rooms=bookings.reduce((n,b)=>n+(bookingRoomCount(b)||0),0);
+  if(!rooms&&bookings.length)rooms=bookings.length;
+  const people=bookings.reduce((n,b)=>{
+    const p=bookingPeopleCount(b);
+    if(p)return n+p;
+    const m=String(b.imported?.guests||'').match(/(\d+)/);
+    return n+(m?Number(m[1]):0);
+  },0);
+  const plans=[...new Set(bookings.map(stayMealSummary).filter(Boolean))];
+  const note=plans.length>1?'方案詳預訂資訊':(plans[0]||event.note||'');
+  return {
+    title:event.title||bookings[0]?.title||'住宿',
+    subtitle:[nights?nights+' 晚':'',rooms?rooms+' 房':'',people?people+' 人':''].filter(Boolean).join(' · ')||event.subtitle||'',
+    note,
+    time:''
+  };
+}
+function carPresentation(event){
+  const linked=eventBookings(event),b=linked[0]?.b||null,p=b?.imported||{};
+  if(!b)return {title:event.title||'',subtitle:event.subtitle||'',note:event.note||'',time:event.time||''};
+  const start=p.startDate||String(b._raw?.starts_at||'').slice(0,10);
+  const end=p.endDate||String(b._raw?.ends_at||'').slice(0,10);
+  const days=Number(p.rentalDays)||dateDiffDays(start,end);
+  const transmission=/automatic|自排/i.test(String(p.transmission||''))?'自排':(/manual|手排/i.test(String(p.transmission||''))?'手排':String(p.transmission||''));
+  const note=[p.plan||'',transmission,p.extras||'',p.insurances||''].filter(Boolean).map(x=>briefText(x,90)).join(' · ');
+  return {
+    title:p.rentalCompany||b.provider||event.title||'租車',
+    subtitle:[p.vehicleModel||p.title||b.title||'',days?days+' 天':'',shortDateRange(start,end)?'('+shortDateRange(start,end)+')':''].filter(Boolean).join(' · '),
+    note:note||event.note||'',
+    time:''
+  };
+}
+function tourPresentation(event){
+  const linked=eventBookings(event),b=linked[0]?.b||null,p=b?.imported||{};
+  if(!b)return {title:event.title||'',subtitle:event.subtitle||'',note:event.note||'',time:event.time||''};
+  const meetingPoint=p.meetingPoint||p.address||b._raw?.address||'';
+  const meetingTime=p.meetingTime||p.time||event.time||'';
+  const note=[meetingPoint?('集合 '+meetingPoint):'',meetingTime?('集合時間 '+meetingTime):'',p.activityNote||p.providerNote||event.note||''].filter(Boolean).map(x=>briefText(x,120)).join(' · ');
+  return {
+    title:p.title||b.title||event.title||'Tour',
+    subtitle:p.activityProvider||p.operator||event.subtitle||b.provider||'',
+    note,
+    time:''
+  };
+}
+function eventPresentation(event,dateString){
+  if(event?.type==='flight')return flightPresentation(event,dateString);
+  if(event?.type==='stay')return stayPresentation(event);
+  if(event?.type==='car')return carPresentation(event);
+  if(event?.type==='tour')return tourPresentation(event);
+  return {title:event?.title||'',subtitle:event?.subtitle||'',note:event?.note||'',time:event?.time||''};
+}
+function flightStatusUrl(event,dateString){
+  const p=flightPresentation(event,dateString);
+  const compact=String(p.flightNo||'').replace(/\s+/g,'').toUpperCase();
+  const m=compact.match(/^([A-Z0-9]{2})(\d{1,4})$/);
+  const date=String(p.segment?.date||dateString||'').slice(0,10);
+  const dm=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m||!dm)return '';
+  return 'https://www.flightstats.com/v2/flight-tracker/'+encodeURIComponent(m[1])+'/'+encodeURIComponent(m[2])+
+    '?year='+Number(dm[1])+'&month='+Number(dm[2])+'&date='+Number(dm[3]);
+}
+function openFlightStatus(dayIndex,eventIndex){
+  const day=TRIP.days?.[dayIndex],event=day?.events?.[eventIndex];
+  if(!day||!event)return;
+  const url=flightStatusUrl(event,day.date);
+  if(url)window.open(url,'_blank','noopener');
+}
+function toggleInlineBookingCode(button,idx){
+  const b=(TRIP.bookings||[])[idx],strong=button?.closest('.booking-code')?.querySelector('strong');
+  if(!b?.code||!strong)return;
+  const masked=maskCode(b.code,b.secret);
+  strong.textContent=strong.textContent===masked?(b.secret?b.code+' · PIN '+b.secret:b.code):masked;
+}
+function renderTimelineBookingCard(b,idx,n){
+  const d=b.details||{};
+  const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}</div></div>`:'';
+  const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`:'';
+  const source=d.source?`<div class="booking-detail-source">資料來源：${escapeHtml(d.source)}</div>`:'';
+  const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong>${escapeHtml(maskCode(b.code,b.secret))}</strong></div><button class="reveal-btn" type="button" onclick="event.stopPropagation();toggleInlineBookingCode(this,${idx})">顯示</button></div>`:'';
+  return `<article class="timeline-booking-card">
+    <div class="booking-top">
+      <div class="booking-icon" data-booking-type="${escapeHtml(b.type||'other')}"></div>
+      <div><div class="booking-provider">BOOKING ${n+1} · ${escapeHtml(b.provider||'')}</div><h3>${escapeHtml(b.title||'預訂')}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div>
+      <div class="code-pill">${escapeHtml(String(b.status||'confirmed').toUpperCase())}</div>
+    </div>
+    ${b.meta?`<div class="booking-meta">${escapeHtml(b.meta)}</div>`:''}
+    ${code}
+    ${b.alert?`<div class="alert-box">⚠️ ${escapeHtml(b.alert)}</div>`:''}
+    ${b.notice?`<div class="notice">${escapeHtml(b.notice)}</div>`:''}
+    <div class="booking-detail-panel timeline-booking-detail"><div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>
+  </article>`;
 }
 function renderLinkedBookings(event,dayIndex,eventIndex,dateString=''){
-  if(event?.type==='flight')return renderLinkedFlightBookings(event,dayIndex,eventIndex,dateString);
   const linked=eventBookings(event);
   if(!linked.length)return '';
-  const people=linked.reduce((n,x)=>n+bookingPeopleCount(x.b),0);
-  const rooms=linked.reduce((n,x)=>n+bookingRoomCount(x.b),0);
-  const amountGroups=new Map();
-  linked.forEach(({b})=>{
-    if(b.amount!==null&&b.amount!==undefined&&Number.isFinite(Number(b.amount))){
-      const k=b.currency||'';amountGroups.set(k,(amountGroups.get(k)||0)+Number(b.amount));
-    }
-  });
-  const total=[...amountGroups.entries()].map(([c,v])=>(c?c+' ':'')+Number(v).toLocaleString()).join(' + ');
-  const summary=[linked.length+' BOOKINGS',rooms?rooms+' ROOMS':'',people?people+' GUESTS':'',total].filter(Boolean).join(' · ');
-  const rows=linked.map(({b},n)=>{
-    const p=b.imported||{};
-    const detail=[
-      p.roomType||'',
-      p.leadGuest||'',
-      Array.isArray(p.passengers)&&p.passengers.length?p.passengers.join('、'):'',
-      p.guests||'',
-      (b.amount!==null&&b.amount!==undefined)?((b.currency||'')+' '+Number(b.amount).toLocaleString()):''
-    ].filter(Boolean).join(' · ');
-    return '<div class="event-booking-row"><div><small>BOOKING '+(n+1)+'</small><strong>'+escapeHtml(b.provider||'')+' '+(b.code?escapeHtml('#'+b.code):'')+'</strong><span>'+escapeHtml(detail)+'</span></div></div>';
-  }).join('');
   const id='eventBookings-'+dayIndex+'-'+eventIndex;
-  return '<div class="event-booking-group"><button class="booking-detail-toggle" type="button" onclick="event.stopPropagation();const p=document.getElementById(\''+id+'\');p.hidden=!p.hidden;this.classList.toggle(\'open\',!p.hidden)"><span>'+escapeHtml(summary)+'</span><span class="detail-chevron">⌄</span></button><div class="event-booking-list" id="'+id+'" hidden>'+rows+'</div></div>';
+  const cards=linked.map(({b,idx},n)=>renderTimelineBookingCard(b,idx,n)).join('');
+  return `<div class="event-booking-group unified-booking-group">
+    <button class="booking-detail-toggle unified-booking-toggle" type="button"
+      onclick="event.stopPropagation();const p=document.getElementById('${id}');const open=p.hidden;p.hidden=!open;this.classList.toggle('open',open);this.querySelector('span:first-child').textContent=open?'收起預訂資訊':'預訂資訊 · ${linked.length} 筆'">
+      <span>預訂資訊 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span>
+    </button>
+    <div class="event-booking-list unified-booking-list" id="${id}" hidden>${cards}</div>
+  </div>`;
 }
 
 function renderEventDetails(e,dayIndex,eventIndex){
