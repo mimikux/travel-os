@@ -3241,14 +3241,18 @@ async function confirmDeleteCurrentTrip(){
 
 function updateEditAvailability(){
   let btn=qs('#editModeBtn');
-  if(!btn&&qs('#membersBtn')){
+  if(!canEditTrip()){
+    editMode=false;
+    if(btn){btn.remove();btn=null;}
+    qsa('.edit-inline-actions,.edit-chip').forEach(el=>el.remove());
+    syncEditModeChrome();
+  }else if(!btn&&qs('#membersBtn')){
     btn=document.createElement('button');
     btn.id='editModeBtn';btn.type='button';btn.className='sheet-action-card';
     btn.innerHTML='<span><small>ITINERARY</small><strong>編輯行程</strong></span><span>→</span>';
     qs('#membersBtn').before(btn);
     btn.onclick=()=>{closeSheet();toggleEditMode();};
   }
-  if(btn) btn.hidden=!canEditTrip();
 
   let alertBtn=qs('#tripAlertBtn');
   const placeAlerts=tripPlaceAlerts();
@@ -3489,11 +3493,13 @@ function renderMailImportSheet(){
         <div class="mail-diff-list">${diff}</div>
         <div class="mail-import-actions">
           <button type="button" class="mail-ignore" data-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
+          ${existing?`<button type="button" class="mail-save-new" data-mail-save-new="${escapeHtml(mail.id)}">另存</button>`:''}
           <button type="button" class="mail-apply" data-mail-apply="${escapeHtml(mail.id)}">${existing?'套用更新':(mailSuggestedItems(mail).length?'新增訂單並合併':'新增預訂')}</button>
         </div>
       </article>`;
   }).join('');
   list.querySelectorAll('[data-mail-ignore]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailIgnore,'ignore',btn));
+  list.querySelectorAll('[data-mail-save-new]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailSaveNew,'save_new',btn));
   list.querySelectorAll('[data-mail-apply]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailApply,'apply',btn));
 }
 async function openMailImportSheet(){
@@ -3515,18 +3521,21 @@ async function reviewMailImport(mailId,mode,button){
       :suggestions.length
         ?'新增這張預訂，並掛到下列既有行程事件？\n\n'+suggestions.map(x=>'• '+x.event.title).join('\n')+'\n\n不同 PNR / 訂單號仍會保留成不同訂單。'
         :'新增這張預訂，並建立對應的行程事件？')
-    :'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
+    :mode==='save_new'
+      ?'將這封信另存成一張獨立的新預訂？\n\n不會覆蓋目前配對到的既有預訂；系統會依這封信自己的日期建立或連到對應行程。'
+      :'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
   if(!confirm(verb))return;
   const card=button.closest('.mail-import-card');
   button.disabled=true;
   if(card) card.classList.add('mail-processing');
   try{
     const payload={mailId};
-    if(mode==='apply'){
-      payload.itineraryItemIds=suggestions.map(x=>x.event.id);
+    if(mode==='apply'||mode==='save_new'){
+      payload.itineraryItemIds=mode==='apply'?suggestions.map(x=>x.event.id):[];
       payload.createItinerary=true;
+      if(mode==='save_new')payload.forceCreateNew=true;
     }
-    await travelEditor(mode==='apply'?'mail_apply':'mail_ignore',payload);
+    await travelEditor(mode==='ignore'?'mail_ignore':'mail_apply',payload);
     const oldHeight=card?.getBoundingClientRect().height||0;
     if(card){
       card.style.height=oldHeight+'px';
@@ -3615,7 +3624,10 @@ function syncEditModeChrome(){
   }
 }
 function toggleEditMode(force){
-  if(!canEditTrip())return;
+  if(!canEditTrip()){
+    alert('目前帳號為 Viewer，沒有編輯此旅程的權限。');
+    return;
+  }
   editMode=typeof force==='boolean'?force:!editMode;
   renderAll();
   syncEditModeChrome();
