@@ -3887,8 +3887,34 @@ async function importGoogleMapIntoEditor(){
     const existingType=String(typeInput?.value||'').trim();
     const isNew=!String(qs('#editItemId')?.value||'').trim();
 
-    // Never replace a name the traveler already entered.
-    if(!existingTitle&&data.name) nameInput.value=data.name;
+    // Prefer the localized Google Maps title for a new item. If the current
+    // auto-derived title is only a shorter fragment (e.g. "Milch"), enrich it
+    // to the full localized place name. Preserve unrelated user-written names.
+    const localizedName=String(data.localizedName||data.name||'').trim();
+    const originalName=String(data.originalName||'').trim();
+    const currentTitle=String(nameInput?.value||'').trim();
+    const titleLooksLikeFragment=Boolean(
+      currentTitle&&localizedName&&localizedName.toLocaleLowerCase().includes(currentTitle.toLocaleLowerCase())&&localizedName.length>currentTitle.length
+    );
+    if((!currentTitle||titleLooksLikeFragment)&&localizedName) nameInput.value=localizedName;
+
+    const subtitleInput=qs('#editItemSubtitle');
+    const currentSubtitle=String(subtitleInput?.value||'').trim();
+    if(!currentSubtitle&&originalName&&originalName!==localizedName) subtitleInput.value=originalName;
+
+    const rating=Number(data.rating);
+    const ratingCount=Number(data.userRatingCount);
+    const ratingText=Number.isFinite(rating)
+      ?rating.toFixed(1).replace(/\.0$/,'')+'⭐'+(Number.isFinite(ratingCount)?'('+Math.round(ratingCount).toLocaleString('en-US')+')':'')
+      :'';
+    const noteInput=qs('#editItemNote');
+    const currentNote=String(noteInput?.value||'').trim();
+    if(ratingText&&(!currentNote||/^\d(?:\.\d)?⭐(?:\([\d,]+\))?$/.test(currentNote))) noteInput.value=ratingText;
+
+    const introInput=qs('#editItemIntro');
+    const currentIntro=String(introInput?.value||'').trim();
+    if(!currentIntro&&data.editorialSummary) introInput.value=String(data.editorialSummary).trim();
+
     if(data.address) addressInput.value=data.address;
     if(Number.isFinite(data.lat)) qs('#editItemLat').value=data.lat;
     if(Number.isFinite(data.lng)) qs('#editItemLng').value=data.lng;
@@ -3932,7 +3958,10 @@ async function importGoogleMapIntoEditor(){
       .join('\n').trim();
 
     const filled=[
-      (!existingTitle&&data.name)?'店名/地名':'',
+      localizedName?'中文名稱':'',
+      originalName&&originalName!==localizedName?'原文名稱':'',
+      ratingText?'Google 評價':'',
+      data.editorialSummary?'景點介紹':'',
       data.address?'地址':'',
       Number.isFinite(data.lat)&&Number.isFinite(data.lng)?'GPS':'',
       hours.length?'營業時間':''
