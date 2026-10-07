@@ -1,5 +1,5 @@
-const CACHE='travel-os-ui-v36';
-const ASSETS=['./','./index.html','./app.css?v=20261007-ui-v36','./app.js?v=20261007-ui-v36','./data.js?v=20261007-ui-v36','./config.js?v=20261007-ui-v36','./auth.js?v=20261007-ui-v36','./local-db.js?v=20261007-ui-v36','./sync-engine.js?v=20261007-ui-v36','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-dayselect-v37';
+const ASSETS=['./','./index.html','./app.css?v=20261007-dayselect-v37','./app.js?v=20261007-dayselect-v37','./data.js?v=20261007-dayselect-v37','./config.js?v=20261007-dayselect-v37','./auth.js?v=20261007-dayselect-v37','./local-db.js?v=20261007-dayselect-v37','./sync-engine.js?v=20261007-dayselect-v37','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
