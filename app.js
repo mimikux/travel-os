@@ -3894,11 +3894,22 @@ async function importGoogleMapIntoEditor(){
     const hoursText=hours.length?'營業時間：'+hours.map(x=>`${x.day} ${x.hours}`).join('；'):'';
     const closedToday=visitWeekday&&Array.isArray(data.closedDays)&&data.closedDays.includes(visitWeekday);
     const warning=closedToday?`⚠️ 行程日期 ${visitDate}（${visitWeekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
-    const currentNote=qs('#editItemNote').value.trim();
-    const noteParts=[currentNote];
-    if(hoursText&&!currentNote.includes(hoursText)) noteParts.push(hoursText);
-    if(warning&&!currentNote.includes(warning)) noteParts.push(warning);
-    qs('#editItemNote').value=noteParts.filter(Boolean).join('\n');
+
+    // Google Places business hours are reference/attention information, not
+    // the visible itinerary subtitle/note. Put them into the expandable
+    // "注意事項" section so the collapsed card stays concise.
+    const tipsBox=qs('#editItemTips');
+    const currentTips=tipsBox.value.split('\n').map(x=>x.trim()).filter(Boolean);
+    const withoutAutoHours=currentTips.filter(x=>!/^營業時間：/.test(x)&&!/^⚠️ 行程日期 .*為公休日/.test(x));
+    if(hoursText)withoutAutoHours.push(hoursText);
+    if(warning)withoutAutoHours.push(warning);
+    tipsBox.value=Array.from(new Set(withoutAutoHours)).join('\n');
+
+    // Clean old auto-generated hours from Note when resolving the place again.
+    const noteBox=qs('#editItemNote');
+    noteBox.value=noteBox.value.split('\n')
+      .filter(x=>!/^營業時間：/.test(x.trim())&&!/^⚠️ 行程日期 .*為公休日/.test(x.trim()))
+      .join('\n').trim();
 
     const filled=[
       (!existingTitle&&data.name)?'店名/地名':'',
