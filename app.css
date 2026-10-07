@@ -1495,3 +1495,157 @@ body.timeline-dragging *{
 .delete-trip-confirm{width:100%;border:0;border-radius:12px;padding:13px;background:#9a4439;color:#fff;font-weight:900;margin-top:10px}
 .delete-trip-confirm:disabled{opacity:.45}
 .danger-kicker{color:#9a4439}
+
+
+/* Full trip-theme propagation + weather empty-state fix v29 */
+:root{
+  --theme-accent-soft:color-mix(in srgb,var(--gold) 16%,var(--paper));
+  --theme-accent-soft-2:color-mix(in srgb,var(--gold) 24%,var(--paper));
+  --theme-accent-border:color-mix(in srgb,var(--gold) 34%,var(--paper));
+  --theme-accent-ring:color-mix(in srgb,var(--gold) 58%,transparent);
+  --theme-surface:color-mix(in srgb,var(--gold) 8%,var(--paper));
+  --theme-surface-2:color-mix(in srgb,var(--gold) 13%,var(--paper));
+  --theme-header-bg:color-mix(in srgb,var(--paper) 92%,transparent);
+  --theme-hero-accent:color-mix(in srgb,var(--gold) 68%,#fff);
+}
+
+/* Hero: remove fixed earth/gold/green tinting. */
+.hero-card:before{
+  background:linear-gradient(
+    180deg,
+    color-mix(in srgb,var(--green) 20%,transparent),
+    color-mix(in srgb,var(--green) 78%,transparent)
+  )!important;
+}
+.hero-meta-line,.hero-today-word,.demo-badge{color:var(--theme-hero-accent)!important}
+.hero-stat{background:color-mix(in srgb,var(--green) 68%,transparent)!important}
+
+/* Day selectors on Today + Map. */
+.day-btn,.map-day-btn{
+  background:var(--theme-accent-soft)!important;
+  color:var(--muted)!important;
+  border:1px solid color-mix(in srgb,var(--gold) 14%,transparent)!important;
+}
+.day-btn.active,.map-day-btn.active{
+  background:var(--green)!important;
+  color:#fff!important;
+  border-color:var(--green)!important;
+}
+
+/* Timeline rail + marker ring + themed action/navigation controls. */
+.timeline:before{background:var(--theme-accent-border)!important}
+.timeline-dot{
+  background:var(--cream)!important;
+  border-color:var(--theme-accent-ring)!important;
+}
+.timeline-dot:after{background:var(--gold)!important}
+.mini-btn,
+.timeline-card .nav-link,
+.day-note-edit-btn,
+.google-route-btn,
+.weather-source-btn,
+.more-small-btn,
+.trip-date-card em{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
+.timeline-card .nav-link{
+  display:inline-flex!important;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--theme-accent-border);
+  border-radius:13px;
+  padding:9px 13px;
+  text-decoration:none;
+}
+
+/* Accommodation / notes / booking-detail surfaces follow the current trip theme. */
+.stay-card{
+  background:var(--theme-surface-2)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.day-note-wrap{
+  border-color:var(--theme-accent-border)!important;
+  background:linear-gradient(135deg,var(--paper),var(--theme-surface-2))!important;
+}
+.day-note-icon{background:var(--theme-accent-soft)!important}
+.stay-booking-inline,
+.booking-code,
+.booking-detail-toggle,
+.weather-sources{border-color:var(--theme-accent-border)!important}
+.stay-booking-panel,
+.booking-detail-panel,
+.event-details,
+.event-booking-row{
+  background:var(--theme-surface)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.booking-detail-row{border-color:var(--theme-accent-border)!important}
+
+/* Top compact page header + bottom tab bar. */
+.subview-trip-header{
+  background:var(--theme-header-bg)!important;
+  border-bottom:1px solid var(--theme-accent-border);
+}
+.subview-trip-header .round-btn{
+  background:var(--paper)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.bottom-nav{
+  background:var(--theme-header-bg)!important;
+  border-top-color:var(--theme-accent-border)!important;
+}
+.nav-item{color:var(--muted)!important}
+.nav-item.active{color:var(--green)!important}
+
+/* Booking filters, map chips, sheet controls and other previously earth-tinted UI. */
+.filter-row button,
+.route-stops span,
+.sheet-grid>div,
+.sheet-toggle-card,
+.reveal-btn,
+.map-multi-toggle:not(.active),
+.member-remove,
+.device-row button,
+.global-mail-top>span,
+.global-mail-actions .secondary{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
+.filter-row button.active,
+.sheet-toggle-card.active,
+.map-multi-toggle.active{
+  background:var(--green)!important;
+  border-color:var(--green)!important;
+  color:#fff!important;
+}
+
+/* Weather sheet: themed surfaces + full-width loading/unavailable state. */
+.weather-summary-card,.weather-unavailable{
+  background:var(--theme-surface-2)!important;
+  border:1px solid var(--theme-accent-border);
+}
+.weather-loading,.weather-unavailable{
+  grid-column:1/-1!important;
+  width:100%!important;
+  min-width:0!important;
+}
+.weather-unavailable strong{display:block;margin-bottom:8px}
+.weather-unavailable p{
+  margin:0;
+  line-height:1.65;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.weather-source-note{
+  background:var(--theme-accent-soft)!important;
+  color:var(--green)!important;
+}
+.weather-row{border-bottom-color:var(--theme-accent-border)!important}
+
+/* Keep semantic warning/error colors independent from trip theme. */
+.hours-conflict-warning,.hours-change-warning,.trip-delete-card,.delete-mail-note,.delete-trip-confirm{
+  /* semantic colors intentionally remain unchanged */
+}
