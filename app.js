@@ -2580,18 +2580,23 @@ function tripHref(slug){
 }
 
 async function fetchAuthorizedTrips(){
+  const cached=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
   if(!navigator.onLine){
-    authorizedTrips=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+    authorizedTrips=cached;
     return authorizedTrips;
   }
   const client=window.TravelAuth?.getClient?.();
   if(!client){
-    authorizedTrips=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+    authorizedTrips=cached;
     return authorizedTrips;
   }
   const {data,error}=await client.functions.invoke('travel-trips',{body:{action:'list'}});
-  if(error) throw error;
+  if(error){
+    if(cached.length){authorizedTrips=cached;return authorizedTrips}
+    throw error;
+  }
   authorizedTrips=Array.isArray(data?.trips)?data.trips:[];
+  await window.TravelStore?.setTripDirectory?.(authorizedTrips).catch(()=>{});
   return authorizedTrips;
 }
 async function travelTripsApi(action,payload={}){
@@ -2618,7 +2623,21 @@ async function renderTripChooser(){
   chooser.hidden=false;
   if(shell)shell.hidden=true;
   const list=qs('#tripList'),status=qs('#chooserStatus');
-  status.textContent='讀取旅程中…';
+
+  const cached=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+  if(cached.length){
+    authorizedTrips=cached;
+    list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
+    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=tripHref(btn.dataset.tripSlug)});
+    const canCreate=cached.some(t=>t.role==='owner');
+    const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
+    status.textContent=navigator.onLine?'正在更新旅程清單…':'離線模式 · 顯示此裝置已下載的旅程';
+  }else{
+    status.textContent=navigator.onLine?'讀取旅程中…':'離線且此裝置尚未下載任何旅程。請先連線開啟一次旅程。';
+  }
+
+  if(!navigator.onLine)return;
+
   try{
     const trips=await fetchAuthorizedTrips();
     list.innerHTML=trips.length?trips.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join(''):`<div class="booking-empty">目前沒有可使用的旅程。</div>`;
@@ -2942,7 +2961,15 @@ async function renderTripSwitchList(){
     const trips=await fetchAuthorizedTrips();
     host.innerHTML='<div class="section-kicker">SWITCH TRIP</div>'+trips.map(t=>`<button class="sheet-action-card" data-switch-trip="${escapeHtml(t.slug)}"><span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong></span><span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'✓':'→'}</span></button>`).join('');
     host.querySelectorAll('[data-switch-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.switchTrip!==window.TRAVEL_CONFIG.tripSlug)location.href=tripHref(btn.dataset.switchTrip)});
-  }catch(err){host.innerHTML='<p class="member-status">無法讀取旅程清單。</p>'}
+  }catch(err){
+    const cached=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+    if(cached.length){
+      host.innerHTML='<div class="section-kicker">SWITCH TRIP · OFFLINE</div>'+cached.map(t=>`<button class="sheet-action-card" data-switch-trip="${escapeHtml(t.slug)}"><span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong></span><span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'✓':'→'}</span></button>`).join('');
+      host.querySelectorAll('[data-switch-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.switchTrip!==window.TRAVEL_CONFIG.tripSlug)location.href=tripHref(btn.dataset.switchTrip)});
+    }else{
+      host.innerHTML='<p class="member-status">離線且此裝置尚未下載旅程清單。</p>';
+    }
+  }
 }
 
 
