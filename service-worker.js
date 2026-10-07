@@ -1,5 +1,5 @@
-const CACHE='travel-os-editorux-v39';
-const ASSETS=['./','./index.html','./app.css?v=20261007-editorux-v39','./app.js?v=20261007-editorux-v39','./data.js?v=20261007-editorux-v39','./config.js?v=20261007-editorux-v39','./auth.js?v=20261007-editorux-v39','./local-db.js?v=20261007-editorux-v39','./sync-engine.js?v=20261007-editorux-v39','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-weather-v40';
+const ASSETS=['./','./index.html','./app.css?v=20261007-weather-v40','./app.js?v=20261007-weather-v40','./data.js?v=20261007-weather-v40','./config.js?v=20261007-weather-v40','./auth.js?v=20261007-weather-v40','./local-db.js?v=20261007-weather-v40','./sync-engine.js?v=20261007-weather-v40','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
