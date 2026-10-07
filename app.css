@@ -1919,3 +1919,38 @@ html.item-editor-open .global-edit-toolbar{
   color:var(--green)!important;
   border:1px solid var(--theme-accent-border)!important;
 }
+
+
+/* Theme item editor surface v43 */
+.edit-sheet{
+  background:var(--cream)!important;
+  color:var(--ink)!important;
+}
+.edit-sheet .sheet-handle{
+  background:var(--theme-accent-border)!important;
+}
+.edit-sheet .section-kicker,
+.edit-sheet label>span,
+.edit-sheet .sheet-title h2{
+  color:var(--green)!important;
+}
+.edit-sheet input,
+.edit-sheet select,
+.edit-sheet textarea{
+  background:var(--paper)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--ink)!important;
+}
+.edit-sheet .uncertain-row,
+.edit-sheet .map-link-display{
+  background:var(--theme-surface)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.item-edit-actions{
+  background:linear-gradient(
+    to top,
+    color-mix(in srgb,var(--cream) 98%,transparent) 72%,
+    color-mix(in srgb,var(--cream) 92%,transparent)
+  )!important;
+  border-top-color:var(--theme-accent-border)!important;
+}
