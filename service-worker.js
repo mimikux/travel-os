@@ -1,5 +1,5 @@
-const CACHE='travel-os-weather-v40';
-const ASSETS=['./','./index.html','./app.css?v=20261007-weather-v40','./app.js?v=20261007-weather-v40','./data.js?v=20261007-weather-v40','./config.js?v=20261007-weather-v40','./auth.js?v=20261007-weather-v40','./local-db.js?v=20261007-weather-v40','./sync-engine.js?v=20261007-weather-v40','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-mail-v41';
+const ASSETS=['./','./index.html','./app.css?v=20261007-mail-v41','./app.js?v=20261007-mail-v41','./data.js?v=20261007-mail-v41','./config.js?v=20261007-mail-v41','./auth.js?v=20261007-mail-v41','./local-db.js?v=20261007-mail-v41','./sync-engine.js?v=20261007-mail-v41','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
