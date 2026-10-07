@@ -552,7 +552,79 @@ function bookingRoomCount(b){
   const p=b?.imported||{};
   return Number(p.roomCount||0)||0;
 }
-function renderLinkedBookings(event,dayIndex,eventIndex){
+function flightSegmentForDay(b,dateString){
+  const p=b?.imported||{};
+  const segments=Array.isArray(p.segments)?p.segments:[];
+  let seg=segments.find(s=>String(s?.date||'').slice(0,10)===String(dateString||'').slice(0,10));
+  if(!seg&&segments.length===1)seg=segments[0];
+  if(!seg&&segments.length){
+    const start=String(b?._raw?.starts_at||'').slice(0,10);
+    const end=String(b?._raw?.ends_at||'').slice(0,10);
+    if(start===dateString)seg=segments[0];
+    else if(end===dateString)seg=segments[segments.length-1];
+  }
+  return seg||null;
+}
+function detailRowValue(b,labelPattern){
+  const rows=Array.isArray(b?.details?.rows)?b.details.rows:[];
+  const row=rows.find(x=>Array.isArray(x)&&labelPattern.test(String(x[0]||'')));
+  return row?String(row[1]||'').trim():'';
+}
+function flightPresentation(event,dateString){
+  const linked=eventBookings(event);
+  const booking=linked[0]?.b||null;
+  const seg=booking?flightSegmentForDay(booking,dateString):null;
+  const titleText=String(event?.title||'');
+  const subtitleText=String(event?.subtitle||'');
+  const routeMatch=(seg?.departureAirport&&seg?.arrivalAirport)
+    ?[seg.departureAirport,seg.arrivalAirport]
+    :(titleText.match(/\b([A-Z]{3})\s*(?:→|->|↔|–|-)\s*([A-Z]{3})\b/i)||[]).slice(1,3);
+  const dep=routeMatch?.[0]||'';
+  const arr=routeMatch?.[1]||'';
+  const timeMatch=subtitleText.match(/(\d{1,2}:\d{2})\s*(?:→|–|-)\s*(\d{1,2}:\d{2})/);
+  const depTime=seg?.departureTime||event?.time||timeMatch?.[1]||'';
+  const arrTime=seg?.arrivalTime||timeMatch?.[2]||'';
+  const flightNo=seg?.flightNo||booking?.imported?.flightNo||
+    (titleText.match(/\b([A-Z]{2}\s?\d{2,4})\b/i)||subtitleText.match(/\b([A-Z]{2}\s?\d{2,4})\b/i)||[])[1]||'';
+  const terminal=booking?detailRowValue(booking,/航廈|terminal/i):'';
+  const title=[depTime&&arrTime?depTime+'–'+arrTime:'',dep&&arr?dep+' → '+arr:''].filter(Boolean).join(' · ')||titleText;
+  const subtitle=[flightNo?flightNo.replace(/\s+/g,''):'',terminal].filter(Boolean).join(' · ')||subtitleText;
+  return {title,subtitle,time:'',linked};
+}
+function renderLinkedFlightBookings(event,dayIndex,eventIndex,dateString){
+  const linked=eventBookings(event);
+  if(!linked.length)return '';
+  const id='eventFlightBookings-'+dayIndex+'-'+eventIndex;
+  const cards=linked.map(({b,idx},n)=>{
+    const d=b.details||{};
+    const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+    const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}</div></div>`:'';
+    const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`:'';
+    const source=d.source?`<div class="booking-detail-source">資料來源：${escapeHtml(d.source)}</div>`:'';
+    const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION</small><strong>${escapeHtml(maskCode(b.code,b.secret))}</strong></div></div>`:'';
+    return `<article class="timeline-booking-card">
+      <div class="booking-top">
+        <div class="booking-icon">${iconSVG('flight')}</div>
+        <div><div class="booking-provider">BOOKING ${n+1} · ${escapeHtml(b.provider||'')}</div><h3>${escapeHtml(b.title||'航班預訂')}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div>
+        <div class="code-pill">${String(b.status||'confirmed').toUpperCase()}</div>
+      </div>
+      ${b.meta?`<div class="booking-meta">${escapeHtml(b.meta)}</div>`:''}
+      ${code}
+      ${b.alert?`<div class="alert-box">⚠️ ${escapeHtml(b.alert)}</div>`:''}
+      ${b.notice?`<div class="notice">${escapeHtml(b.notice)}</div>`:''}
+      <div class="booking-detail-panel timeline-booking-detail"><div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>
+    </article>`;
+  }).join('');
+  return `<div class="event-booking-group flight-booking-group">
+    <button class="booking-detail-toggle flight-booking-toggle" type="button"
+      onclick="event.stopPropagation();const p=document.getElementById('${id}');const open=p.hidden;p.hidden=!open;this.classList.toggle('open',open);this.querySelector('span:first-child').textContent=open?'收起完整預訂資訊':'完整預訂資訊 · ${linked.length} 筆'">
+      <span>完整預訂資訊 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span>
+    </button>
+    <div class="event-booking-list flight-booking-list" id="${id}" hidden>${cards}</div>
+  </div>`;
+}
+function renderLinkedBookings(event,dayIndex,eventIndex,dateString=''){
+  if(event?.type==='flight')return renderLinkedFlightBookings(event,dayIndex,eventIndex,dateString);
   const linked=eventBookings(event);
   if(!linked.length)return '';
   const people=linked.reduce((n,x)=>n+bookingPeopleCount(x.b),0);
@@ -689,6 +761,31 @@ function tripPlaceAlerts(){
     }
   }));
   return alerts;
+}
+
+function renderTimelineEvent(e,eventIndex,d,dayIndex){
+  const flight=e.type==='flight'?flightPresentation(e,d.date):null;
+  const title=flight?.title||e.title||'';
+  const subtitle=flight?.subtitle||e.subtitle||'';
+  const time=flight?.time??(e.time||'');
+  const actionButton=e.type==='flight'
+    ?'<button class="mini-btn flight-status-btn" type="button" onclick="event.stopPropagation();const p=document.getElementById(\'eventFlightBookings-'+dayIndex+'-'+eventIndex+'\');if(p){const btn=p.previousElementSibling;const open=p.hidden;p.hidden=!open;btn?.classList.toggle(\'open\',open)}">航班動態</button>'
+    :(hasNavigationTarget(e)?`<button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${dayIndex},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}`:'');
+  return `<div class="timeline-item" data-event-index="${eventIndex}">
+    <div class="timeline-dot" aria-hidden="true"></div>
+    <article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''} ${e.type==='flight'?'flight-event-card':''}" onclick="handleTimelineCardClick(event,${dayIndex},${eventIndex})">
+      <div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${escapeHtml(title)}</h3></div><div class="time">${escapeHtml(time)}</div></div>
+      <div class="sub">${escapeHtml(subtitle)}</div>
+      ${e.note?`<div class="note">${escapeHtml(e.note)}</div>`:''}
+      ${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}
+      ${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}
+      ${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}
+      ${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}
+      ${renderLinkedBookings(e,dayIndex,eventIndex,d.date)}
+      ${renderEventDetails(e,dayIndex,eventIndex)}
+      ${actionButton?`<div class="card-actions">${actionButton}</div>`:''}
+    </article>
+  </div>`;
 }
 
 function handleTimelineCardClick(ev,dayIndex,eventIndex){
@@ -964,7 +1061,7 @@ function renderToday(){
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderLinkedBookings(e,selectedDay,eventIndex)}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
+  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>renderTimelineEvent(e,eventIndex,d,selectedDay)).join('');
   const stay=stayForNight(dayIndex);
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div><p style="margin-top:10px">${escapeHtml(stay.note||'')}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
