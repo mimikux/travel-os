@@ -2620,7 +2620,18 @@ async function renderTripChooser(){
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent='';
   }catch(err){
-    console.warn(err);status.textContent='無法讀取旅程清單。';
+    console.warn(err);
+    const cached=await window.TravelStore?.listTrips?.().catch(()=>[]);
+    if(cached?.length){
+      authorizedTrips=cached;
+      list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
+      list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=tripHref(btn.dataset.tripSlug)});
+      const canCreate=cached.some(t=>t.role==='owner');
+      const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
+      status.textContent='離線模式 · 顯示此裝置已下載的旅程';
+    }else{
+      status.textContent='離線且此裝置尚未下載任何旅程。請先連線開啟一次旅程。';
+    }
   }
 }
 
@@ -2672,7 +2683,19 @@ async function renderMoreView(){
     if(qs('#moreNewTrip')) qs('#moreNewTrip').hidden=!canCreate;
     await loadGlobalMailInbox();
   }catch(err){
-    host.innerHTML='<div class="booking-empty">無法讀取旅程清單。</div>';
+    const cached=await window.TravelStore?.listTrips?.().catch(()=>[]);
+    if(cached?.length){
+      authorizedTrips=cached;
+      host.innerHTML=cached.map(t=>`
+        <button class="more-trip-card ${t.slug===window.TRAVEL_CONFIG.tripSlug?'active':''}" type="button" data-more-trip="${escapeHtml(t.slug)}">
+          <span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong><em>${escapeHtml(t.start_date||'')}${t.end_date?' → '+escapeHtml(t.end_date):''}</em></span>
+          <span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'目前':'→'}</span>
+        </button>`).join('');
+      host.querySelectorAll('[data-more-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.moreTrip!==window.TRAVEL_CONFIG.tripSlug)location.href=tripHref(btn.dataset.moreTrip)});
+      if(qs('#moreNewTrip'))qs('#moreNewTrip').hidden=true;
+    }else{
+      host.innerHTML='<div class="booking-empty">離線且此裝置尚未下載旅程清單。</div>';
+    }
     await loadGlobalMailInbox().catch(()=>{});
   }
 }
@@ -4506,7 +4529,7 @@ async function loadMembers(){
       const head=document.createElement('div');head.className='member-head';
       const who=document.createElement('div');
       const strong=document.createElement('strong');strong.textContent=i.email;
-      const small=document.createElement('small');small.textContent='待完成登入 · '+String(i.role||'viewer').toUpperCase();
+      const small=document.createElement('small');small.textContent='待完成登入 · '+String(i.role||'viewer').toUpperCase()+' · 未收到邀請信也可直接登入';
       who.append(strong,small);head.append(who);
       if(owner){
         const actions=document.createElement('div');actions.className='member-actions';
@@ -4565,8 +4588,8 @@ qs('#inviteMemberForm').onsubmit=async e=>{
     const result=await tripAdmin('invite',{email,role});
     qs('#inviteEmail').value='';
     status.textContent=result.mode==='invite_sent'
-      ?'邀請信已寄出。'
-      :'已授權此成員；對方可使用相同 Email 登入。';
+      ?`已授權 ${email} 使用此旅程。邀請信已寄出；若未收到，也可直接前往 Travel OS 使用此 Email 登入。`
+      :`已授權 ${email} 使用此旅程；對方可直接使用相同 Email 登入。`;
     await loadMembers();
   }catch(err){
     console.warn(err);
@@ -4641,6 +4664,7 @@ window.addEventListener('online',async()=>{
   syncTripLabels();
   try{
     await window.TravelAuth?.resumeSessionCheck?.({keepReady:true});
+    await flushOfflineEditorQueue();
     await hydratePrivateCloudData();
     updateEditAvailability();
   }catch(err){
