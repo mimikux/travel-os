@@ -16,6 +16,9 @@ let cloudLastError='';
 let editMode=false;
 let authorizedTrips=[];
 
+const APP_NAME="Matt's Travel OS";
+const APP_VERSION='1.3.0';
+
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
 
@@ -372,11 +375,46 @@ function applyTripTheme(theme){
   if(meta&&color)meta.setAttribute('content',color);
 }
 function currentTripTitle(){return TRIP?.title||'Travel OS'}
+function isPlaceholderDayName(name){
+  const value=String(name||'').trim();
+  return !value||['未命名行程','尚未建立行程','第一天','行程'].includes(value);
+}
+function compactDayTitle(title){
+  return String(title||'').trim()
+    .replace(/\s*[·|｜]\s*/g,' · ')
+    .replace(/\s+/g,' ')
+    .replace(/^(?:移動|前往|住宿)\s*[·:：-]?\s*/,'')
+    .trim();
+}
+function derivedDayTitle(day,dayIndex){
+  if(!day)return '行程待安排';
+  if(!isPlaceholderDayName(day.name))return day.name;
+  const events=(day.events||[]).filter(e=>e&&!e.uncertain);
+  const sightseeing=events.filter(e=>['spot','tour'].includes(e.type));
+  const secondary=events.filter(e=>['food','shop'].includes(e.type));
+  const stays=events.filter(e=>e.type==='stay');
+  const flights=events.filter(e=>e.type==='flight');
+  const pool=sightseeing.length?sightseeing:(secondary.length?secondary:(stays.length?stays:flights));
+  const names=[];
+  for(const e of pool){
+    const name=compactDayTitle(e.title);
+    if(name&&!names.includes(name))names.push(name);
+    if(names.length>=2)break;
+  }
+  if(names.length>=2)return names.join(' · ');
+  if(names.length===1)return names[0];
+  // A multi-night stay may not have a duplicate itinerary item on night 2.
+  // Use the active accommodation only when there is no real itinerary title.
+  const overnight=typeof stayForNight==='function'?stayForNight(dayIndex):null;
+  if(overnight?.title)return compactDayTitle(overnight.title);
+  return '行程待安排';
+}
 function syncTripLabels(){
   const title=currentTripTitle();
   applyTripTheme(currentTripTheme());
   qsa('[data-trip-title]').forEach(el=>el.textContent=title);
-  const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripSlug?title:'Travel OS';
+  const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=`${APP_NAME} V${APP_VERSION}`;
+  const moreVersion=qs('#moreAppVersion'); if(moreVersion) moreVersion.textContent=`V${APP_VERSION}`;
   const dateSummary=qs('#tripDateSummary');
   if(dateSummary) dateSummary.textContent=[TRIP?.startDate||TRIP?.days?.[0]?.date,TRIP?.endDate||TRIP?.days?.at(-1)?.date].filter(Boolean).join(' → ')||'—';
   const dateEdit=qs('#editTripDatesBtn'); if(dateEdit){dateEdit.hidden=currentTripRole!=='owner';const em=dateEdit.querySelector('em');if(em)em.textContent='編輯旅程';}
@@ -898,7 +936,7 @@ function renderToday(){
   const context=dayContext(d.date);
   const weekday=d.date?new Intl.DateTimeFormat('en-US',{weekday:'short',timeZone:'UTC'}).format(new Date(d.date+'T00:00:00Z')).toUpperCase():'';
   qs('#heroDay').textContent=`${d.label} · ${String(d.date||'').slice(5).replace('-','/')} ${weekday}`.trim();
-  qs('#heroTitle').textContent=d.name;
+  qs('#heroTitle').textContent=derivedDayTitle(d,dayIndex);
   const rel=qs('#heroRelativeLabel');
   if(rel) rel.textContent=context.label;
   const heading=qs('#timelineHeading');
@@ -912,8 +950,9 @@ function renderToday(){
   refreshHeroPhoto(dayIndex);
   qs('#todayKm').textContent=`${d.km} km`;
   qs('#todayDrive').textContent=driveText(d);
-  qs('#todaySunrise').textContent=ui.sunrise;
-  qs('#todaySunset').textContent=ui.sunset;
+  const sun=sunTimesForDay(dayIndex);
+  qs('#todaySunrise').textContent=sun.sunrise;
+  qs('#todaySunset').textContent=sun.sunset;
   qs('#weatherTemp').textContent='--°';
   qs('#weatherLabel').textContent='讀取中';
   renderDayNote(d);
@@ -949,8 +988,7 @@ async function refreshHeroWeather(dayIndex){
     qs('#weatherLabel').textContent=wmoLabel(noon?.code??3);
     const icon=qs('#weatherIconWrap');
     if(icon) icon.innerHTML=iconSVG(wmoType(noon?.code??3));
-    qs('#todaySunrise').textContent=hhmm(w.sunrise);
-    qs('#todaySunset').textContent=hhmm(w.sunset);
+    // Sunrise/sunset are astronomical values from date + location and do not wait for forecast.
   }catch(err){
     if(selectedDay!==dayIndex) return;
     console.warn('Weather unavailable',err);
@@ -1621,7 +1659,7 @@ function updateRouteAt(v){
   const d=TRIP.days[indices[0]], stops=getRouteStops(d), t=v/100, pos=positionAlongRoute(t);
   if(pos) routeCar.setLatLng(pos);
   const idx=currentStopIndex(t,stops), stop=stops[idx]||stops[0];
-  qs('#routeCurrent').textContent=stop?stop.title.split('\n')[0]:d.name;
+  qs('#routeCurrent').textContent=stop?stop.title.split('\n')[0]:derivedDayTitle(d,selectedDay);
   qs('#routeMeta').textContent=`${d.label} · ${stop?.time||''}`;
   qs('#routeSlider').value=v;
   updateRouteProgressMetric(t);
@@ -1683,6 +1721,89 @@ function toggleBookingDetails(idx){
 function maskCode(code,secret){if(!code)return '—';return secret?`${code} · PIN ••••`:`${code.length>4?'••••'+code.slice(-4):code}`}
 function toggleCode(i,code,secret){const el=qs('#code-'+i);const masked=maskCode(code,secret);el.textContent=el.textContent===masked?(secret?`${code} · PIN ${secret}`:code):masked}
 
+const AIRPORT_COORDS={
+  KEF:{name:'Keflavík International Airport',lat:63.985,lng:-22.6056},
+  KMJ:{name:'熊本機場',lat:32.8373,lng:130.8551},
+  KHH:{name:'高雄國際機場',lat:22.5771,lng:120.3500}
+};
+function arrivalAirportForDay(day){
+  const flight=(day?.events||[]).find(e=>e?.type==='flight');
+  const text=String(flight?.title||'');
+  const route=text.match(/\b([A-Z]{3})\s*(?:→|->|›|–|-)\s*([A-Z]{3})\b/i);
+  const code=(route?.[2]||'').toUpperCase();
+  return code&&AIRPORT_COORDS[code]?AIRPORT_COORDS[code]:null;
+}
+function sunLocationForDay(dayIndex){
+  const day=TRIP.days?.[dayIndex];
+  if(!day)return null;
+  // Arrival day: sunrise/sunset follows the landing point when known.
+  if(dayIndex===0){
+    const airport=arrivalAirportForDay(day);
+    if(airport)return airport;
+  }
+  // Travel days: use the previous night's accommodation as the local base.
+  if(dayIndex>0){
+    const previousNight=stayForNight(dayIndex-1);
+    if(previousNight&&validCoord(previousNight)){
+      return {name:previousNight.title||'前一晚住宿',lat:previousNight.lat,lng:previousNight.lng};
+    }
+  }
+  const first=(day.events||[]).find(validCoord);
+  if(first)return {name:first.title||derivedDayTitle(day,dayIndex),lat:first.lat,lng:first.lng};
+  if(TRIP?.slug==='iceland-2026')return WEATHER_LOCATIONS[day.label]||null;
+  if(TRIP?.slug==='kumamoto-2027')return {name:'熊本',lat:32.8031,lng:130.7079};
+  return null;
+}
+function dayOfYearUTC(dateString){
+  const [y,m,d]=String(dateString).split('-').map(Number);
+  const start=Date.UTC(y,0,0),current=Date.UTC(y,m-1,d);
+  return Math.floor((current-start)/86400000);
+}
+function normalizeDegrees(v){return ((v%360)+360)%360}
+function timezoneOffsetMinutes(dateString,timeZone){
+  try{
+    const ref=new Date(`${dateString}T12:00:00Z`);
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timeZone||'UTC',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(ref);
+    const get=t=>Number(parts.find(p=>p.type===t)?.value||0);
+    const localAsUtc=Date.UTC(get('year'),get('month')-1,get('day'),get('hour'),get('minute'),get('second'));
+    return Math.round((localAsUtc-ref.getTime())/60000);
+  }catch(_){return 0}
+}
+function solarTimeLocal(dateString,lat,lng,isSunrise,timeZone){
+  const n=dayOfYearUTC(dateString);
+  const lngHour=lng/15;
+  const t=n+(((isSunrise?6:18)-lngHour)/24);
+  const m=0.9856*t-3.289;
+  let l=m+1.916*Math.sin(m*Math.PI/180)+0.020*Math.sin(2*m*Math.PI/180)+282.634;
+  l=normalizeDegrees(l);
+  let ra=Math.atan(0.91764*Math.tan(l*Math.PI/180))*180/Math.PI;
+  ra=normalizeDegrees(ra);
+  const lQuadrant=Math.floor(l/90)*90,raQuadrant=Math.floor(ra/90)*90;
+  ra=(ra+(lQuadrant-raQuadrant))/15;
+  const sinDec=0.39782*Math.sin(l*Math.PI/180);
+  const cosDec=Math.cos(Math.asin(sinDec));
+  const cosH=(Math.cos(90.833*Math.PI/180)-sinDec*Math.sin(lat*Math.PI/180))/(cosDec*Math.cos(lat*Math.PI/180));
+  if(cosH>1||cosH<-1)return '--:--';
+  let h=(isSunrise?360-Math.acos(cosH)*180/Math.PI:Math.acos(cosH)*180/Math.PI)/15;
+  const localMean=h+ra-0.06571*t-6.622;
+  let utc=localMean-lngHour;
+  utc=((utc%24)+24)%24;
+  const offset=timezoneOffsetMinutes(dateString,timeZone)/60;
+  let local=((utc+offset)%24+24)%24;
+  let hour=Math.floor(local),minute=Math.round((local-hour)*60);
+  if(minute===60){minute=0;hour=(hour+1)%24}
+  return String(hour).padStart(2,'0')+':'+String(minute).padStart(2,'0');
+}
+function sunTimesForDay(dayIndex){
+  const day=TRIP.days?.[dayIndex],loc=sunLocationForDay(dayIndex);
+  if(!day||!loc)return {sunrise:'--:--',sunset:'--:--',location:null};
+  return {
+    sunrise:solarTimeLocal(day.date,Number(loc.lat),Number(loc.lng),true,TRIP.timezone||'UTC'),
+    sunset:solarTimeLocal(day.date,Number(loc.lat),Number(loc.lng),false,TRIP.timezone||'UTC'),
+    location:loc
+  };
+}
+
 function weatherLocationForDay(dayIndex){
   const d=TRIP.days?.[dayIndex];
   if(!d) return null;
@@ -1725,7 +1846,7 @@ async function renderWeatherSheet(){
   const dayIndex=selectedDay;
   const d=TRIP.days[dayIndex];
   const loc=weatherLocationForDay(dayIndex);
-  qs('#weatherSheetTitle').textContent=`${d.label} · ${d.name}`;
+  qs('#weatherSheetTitle').textContent=`${d.label} · ${derivedDayTitle(d,dayIndex)}`;
   renderWeatherSources(dayIndex);
   qs('#weatherSheetSubtitle').textContent=`${loc?.name||'今日路線'} · ${demoMode?'DEMO 示意預報':'Open-Meteo 真實預報'}`;
   qs('#weatherSummary').innerHTML=`<div class="weather-loading">正在讀取天氣資料…</div>`;
@@ -4014,7 +4135,7 @@ async function initCloudShell(){
 
 qs('.app-shell')?.classList.add('today-mode');
 const authTitle=qs('#authTripTitle');
-if(authTitle) authTitle.textContent=window.TRAVEL_CONFIG?.tripLabel||'Travel OS';
+if(authTitle) authTitle.textContent=`${APP_NAME} V${APP_VERSION}`;
 if(window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'){
   syncToReferenceTripDay();
   updateDemoModeUI();
