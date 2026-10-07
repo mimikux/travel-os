@@ -1723,3 +1723,56 @@ body.timeline-dragging *{
   border-color:var(--theme-accent-border)!important;
   color:var(--green)!important;
 }
+
+
+/* Final itinerary card polish v31 */
+/* One separator only for collapsed reservation groups. */
+.unified-booking-group{
+  margin-top:12px;
+  border-top:0!important;
+  padding-top:0!important;
+}
+.unified-booking-toggle{
+  margin-top:0!important;
+  border-top:1px solid var(--theme-accent-border)!important;
+}
+.unified-booking-list{
+  display:grid;
+  gap:12px;
+  margin-top:10px;
+}
+.unified-booking-list[hidden]{display:none!important}
+
+/* Reuse Booking-tab visual language inside itinerary expansion. */
+.timeline-booking-card{
+  background:var(--paper)!important;
+  border:1px solid var(--theme-accent-border)!important;
+  border-radius:16px;
+  padding:13px;
+}
+.timeline-booking-card .booking-detail-panel{
+  display:block!important;
+  margin-top:10px;
+}
+
+/* Editor controls must follow the current trip theme too. */
+.edit-chip,
+.edit-mode-banner .edit-chip,
+.edit-mode-banner button,
+.timeline-card .edit-chip{
+  border-color:var(--theme-accent-border)!important;
+  background:var(--theme-accent-soft)!important;
+  color:var(--green)!important;
+}
+.edit-mode-banner{
+  background:var(--theme-surface-2)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
+
+/* Flight-status is an external action, not a reservation expander. */
+.flight-status-btn{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
