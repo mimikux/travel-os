@@ -1463,3 +1463,7 @@ body.timeline-dragging *{
 .trip-date-card span{min-width:0}.trip-date-card small{display:block}.trip-date-card strong{display:block}
 .trip-date-card em{font-style:normal;color:var(--gold);font-size:11px;font-weight:900;border:1px solid var(--line);background:#fffdf8;border-radius:10px;padding:7px 9px}
 .trip-date-card[hidden]{display:none!important}
+
+.trip-delete-card{margin-top:18px;border-color:#e8c8c1;background:#fff7f4;color:#8d3f35}
+.trip-delete-card small,.trip-delete-card strong,.trip-delete-card em{color:inherit}
+.trip-delete-card:disabled{opacity:.6;cursor:wait}
