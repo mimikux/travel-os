@@ -1011,17 +1011,23 @@ function openMapsEvent(dayIndex,eventIndex){
 
 function initMap(){
   if(map) return;
-  map=L.map('map',{zoomControl:false}).setView([64.1,-19.2],6);
+  map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([32.8031,130.7079],8);
   L.control.zoom({position:'bottomright'}).addTo(map);
-  if(typeof L.maplibreGL==='function'){
-    L.maplibreGL({style:'https://tiles.openfreemap.org/styles/liberty'}).addTo(map);
-    map.attributionControl.addAttribution('OpenFreeMap &copy; OpenMapTiles &middot; Data from OpenStreetMap');
-  }else{
-    console.warn('MapLibre basemap bridge failed to load.');
-    const notice=L.control({position:'topright'});
-    notice.onAdd=()=>{const div=L.DomUtil.create('div','map-load-warning');div.textContent='底圖載入失敗，請確認網路後重新整理';return div;};
-    notice.addTo(map);
-  }
+
+  // Use Leaflet raster tiles directly. The previous MapLibre bridge could
+  // occasionally render as a blank/grey canvas on Android WebView/PWA.
+  const base=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,
+    attribution:'&copy; OpenStreetMap contributors',
+    updateWhenIdle:false,
+    keepBuffer:3
+  });
+  let tileErrors=0;
+  base.on('tileerror',()=>{
+    tileErrors++;
+    if(tileErrors===4) console.warn('Basemap tiles are failing to load.');
+  });
+  base.addTo(map);
 }
 
 function markerIcon(label,car=false){
@@ -1057,15 +1063,15 @@ function getRouteStops(d){
   const dayIndex=TRIP.days.indexOf(d);
   const raw=d.events.filter(isRouteStop);
 
-  // Overnight continuity: the previous day's final accommodation is the
-  // next day's route origin, without duplicating it in the next day's timeline.
+  // Overnight continuity: use the actual accommodation for the previous
+  // night, including a multi-night stay that has no duplicate itinerary row.
   if(dayIndex>0){
     const prev=TRIP.days[dayIndex-1];
-    const overnight=[...(prev?.events||[])].reverse().find(e=>e.type==='stay'&&!e.uncertain&&validCoord(e));
-    if(overnight){
+    const overnight=stayForNight(dayIndex-1);
+    if(overnight&&!overnight.uncertain&&validCoord(overnight)){
       const first=raw[0];
       if(!first||Math.abs(first.lat-overnight.lat)>1e-6||Math.abs(first.lng-overnight.lng)>1e-6){
-        raw.unshift({...overnight,_routeCarryover:true,_routeCarryoverFrom:prev.label});
+        raw.unshift({...overnight,_routeCarryover:true,_routeCarryoverFrom:prev?.label||''});
       }
     }
   }
@@ -1539,7 +1545,7 @@ async function renderMapDay(){
   const fallbackTotals=selectionFallbackTotals(indices);
 
   qs('#mapDayLabel').textContent=isMulti?`${indices.length}天`:singleDay.label;
-  qs('#mapDayName').textContent=isMulti?(indices.length===TRIP.days.length?'全程路線':'多日路線'):singleDay.name;
+  qs('#mapDayName').textContent=isMulti?(indices.length===TRIP.days.length?'全程路線':'多日路線'):derivedDayTitle(singleDay,singleIndex);
   clearMapTripLayers();
 
   qs('#playRoute').disabled=isMulti;
@@ -1588,7 +1594,15 @@ async function renderMapDay(){
     }
   });
 
-  if(bounds.isValid()) map.fitBounds(bounds,{padding:[28,28]});
+  if(bounds.isValid()){
+    const uniquePoints=[];
+    indices.forEach(dayIndex=>getRouteStops(TRIP.days[dayIndex]).forEach(e=>{
+      const key=`${Number(e.lat).toFixed(6)},${Number(e.lng).toFixed(6)}`;
+      if(!uniquePoints.some(x=>x.key===key))uniquePoints.push({key,lat:e.lat,lng:e.lng});
+    }));
+    if(uniquePoints.length===1)map.setView([uniquePoints[0].lat,uniquePoints[0].lng],13);
+    else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+  }
 
   if(isMulti){
     qs('#routeCurrent').textContent=`已選 ${indices.length} 天`;
@@ -1635,7 +1649,10 @@ async function renderMapDay(){
   }
 
   if(token!==routeRenderToken) return;
-  if(bounds.isValid()) map.fitBounds(bounds,{padding:[28,28]});
+  if(bounds.isValid()){
+    const pointCount=indices.reduce((n,dayIndex)=>n+getRouteStops(TRIP.days[dayIndex]).length,0);
+    if(pointCount>1)map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+  }
 
   if(isMulti){
     let totalKm=0,totalSec=0;
