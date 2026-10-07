@@ -1954,3 +1954,107 @@ html.item-editor-open .global-edit-toolbar{
   )!important;
   border-top-color:var(--theme-accent-border)!important;
 }
+
+
+/* Theme propagation completion v46
+   All option sheets opened from Trip actions / More must inherit the active
+   trip palette instead of falling back to the old yellow-earth surfaces. */
+.members-sheet,
+.mail-import-sheet,
+.public-share-sheet{
+  background:var(--cream)!important;
+  color:var(--ink)!important;
+}
+.members-sheet .sheet-handle,
+.mail-import-sheet .sheet-handle,
+.public-share-sheet .sheet-handle{
+  background:var(--theme-accent-border)!important;
+}
+.members-sheet .sheet-title h2,
+.mail-import-sheet .sheet-title h2,
+.public-share-sheet .sheet-title h2{
+  color:var(--green)!important;
+}
+
+/* Members & devices. */
+.member-invite-form,
+.member-card{
+  background:var(--paper)!important;
+  border:1px solid var(--theme-accent-border)!important;
+}
+.member-invite-form input,
+.member-invite-form select,
+.member-actions select{
+  background:var(--theme-surface)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--ink)!important;
+}
+.device-list{
+  border-top-color:var(--theme-accent-border)!important;
+}
+
+/* Public share. */
+.public-privacy-list>div{
+  background:var(--paper)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.public-link-row input{
+  background:var(--theme-surface)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--ink)!important;
+}
+.public-link-row button,
+.public-share-actions button{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
+
+/* Mail import review.
+   Current values stay visually muted; values coming from the mail stay on the
+   normal paper surface so the before/after comparison remains obvious. */
+.mail-import-card{
+  background:var(--paper)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.mail-import-badge,
+.mail-ignore{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
+.mail-diff-row>div{
+  border-color:var(--theme-accent-border)!important;
+}
+.mail-diff-row>div:nth-child(2){
+  background:var(--theme-surface)!important;
+  color:var(--muted)!important;
+}
+.mail-diff-row>div:nth-child(3){
+  background:var(--paper)!important;
+  color:var(--ink)!important;
+}
+
+/* Global Mail / More dialogs and controls. */
+.global-mail-card{
+  background:var(--paper)!important;
+  border-color:var(--theme-accent-border)!important;
+}
+.global-mail-actions select{
+  background:var(--theme-surface)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--ink)!important;
+}
+.global-mail-top>span,
+.global-mail-actions .secondary{
+  background:var(--theme-accent-soft)!important;
+  border-color:var(--theme-accent-border)!important;
+  color:var(--green)!important;
+}
+
+/* Generic sheet inputs used by More sub-dialogs. */
+.members-sheet input,
+.members-sheet select,
+.members-sheet textarea{
+  border-color:var(--theme-accent-border)!important;
+}
