@@ -1063,8 +1063,8 @@ function getRouteStops(d){
   const dayIndex=TRIP.days.indexOf(d);
   const raw=d.events.filter(isRouteStop);
 
-  // Overnight continuity: use the actual accommodation for the previous
-  // night, including a multi-night stay that has no duplicate itinerary row.
+  // Start: previous night's accommodation, including multi-night stays that
+  // do not have a duplicated stay itinerary row on the following day.
   if(dayIndex>0){
     const prev=TRIP.days[dayIndex-1];
     const overnight=stayForNight(dayIndex-1);
@@ -1076,6 +1076,19 @@ function getRouteStops(d){
     }
   }
 
+  // End: tonight's accommodation. This is important on the second night of
+  // a multi-night stay: the route should return to the same hotel even though
+  // there is no duplicate stay itinerary item for that date.
+  const tonight=stayForNight(dayIndex);
+  if(tonight&&!tonight.uncertain&&validCoord(tonight)){
+    const last=raw[raw.length-1];
+    if(!last||Math.abs(last.lat-tonight.lat)>1e-6||Math.abs(last.lng-tonight.lng)>1e-6){
+      raw.push({...tonight,_routeReturnStay:true,_routeReturnDay:d.label});
+    }
+  }
+
+  // Only collapse adjacent duplicates. If a day starts and ends at the same
+  // hotel with real stops in between, both hotel points are intentionally kept.
   const out=[];
   for(const e of raw){
     const last=out[out.length-1];
