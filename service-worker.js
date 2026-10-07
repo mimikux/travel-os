@@ -1,4 +1,4 @@
-const CACHE='travel-os-offline-v32';
+const CACHE='travel-os-offline-v33';
 const ASSETS=['./','./index.html','./app.css','./app.js','./data.js','./config.js','./auth.js','./local-db.js','./sync-engine.js','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
@@ -29,7 +29,7 @@ self.addEventListener('fetch',event=>{
   if(url.hostname.endsWith('.supabase.co'))return;
 
   // Cache third-party runtime assets after the first successful online load.
-  if(CDN_HOSTS.has(url.hostname)){
+  if(CDN_HOSTS.has(url.hostname)||url.hostname==='tile.openstreetmap.org'||url.hostname.endsWith('.tile.openstreetmap.org')){
     event.respondWith(
       caches.match(req).then(hit=>{
         if(hit)return hit;
