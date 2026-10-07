@@ -711,7 +711,9 @@ function tourPresentation(event){
     title:p.title||b.title||event.title||'Tour',
     subtitle:p.activityProvider||p.operator||event.subtitle||b.provider||'',
     note,
-    time:''
+    // Timeline time is the scheduled itinerary time. Keep the booking's
+    // meeting time in the note so both values can be shown when they differ.
+    time:event.time||''
   };
 }
 function eventPresentation(event,dateString){
