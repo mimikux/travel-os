@@ -160,7 +160,7 @@ data.js becomes demo/emergency fallback only.
 - [x] New trip gets its own Trusted Device registration and optional D0 when a start date is supplied.
 - [x] Root Travel OS login works without requiring a specific trip first.
 - [x] Login form no longer exposes the owner's email as a prefilled value.
-- [ ] Production smoke test with a second test trip and at least one user who has access to only one of the two trips.
+- [x] Production smoke test with a second test trip and a restricted Editor account: `mimikux@hotmail.com` can access Kumamoto 2027 and cannot see Iceland 2026.
 - [ ] Verify guessed unauthorized URL returns no trip data and cannot edit.
 
 ### v1.1C — Owner / Editor
@@ -423,3 +423,6 @@ Later:
 
 
 - [x] 2026-10-07 Offline cold-start fix v34: the app now persists a lightweight authorized-trip directory in localStorage in addition to IndexedDB, and refreshes it every time the cloud trip list is fetched or a trip snapshot is hydrated. Offline cold starts render cached trips immediately before any cloud/auth refresh, then keep the cached list visible if the network call fails. IndexedDB cold-open timeout was increased and failed opens can retry instead of permanently disabling local cache for the session. The service worker now precaches the exact versioned app-shell assets used by index.html so query-string asset URLs remain available offline. Trip-switch fallback also uses the cached directory. Frontend/service-worker cache bumped to offline-v34.
+
+
+- [x] 2026-10-07 Production verification follow-up: Kumamoto delete/recreate from mail was re-run successfully with the current parser/linking model; restricted Editor access was verified using a second account (Kumamoto visible/editable, Iceland not visible); offline cold-start now reopens cached trips successfully. Remaining highest-value smoke tests are reconnect queue replay to another device, unauthorized direct-URL denial, Viewer write denial, final editor CRUD/reorder regression, Google Maps enriched field mapping, route/uncertain-item behavior, flight-status deep links, and public-share privacy/revocation.
