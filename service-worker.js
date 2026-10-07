@@ -1,5 +1,5 @@
-const CACHE='travel-os-forwarder-v42';
-const ASSETS=['./','./index.html','./app.css?v=20261007-forwarder-v42','./app.js?v=20261007-forwarder-v42','./data.js?v=20261007-forwarder-v42','./config.js?v=20261007-forwarder-v42','./auth.js?v=20261007-forwarder-v42','./local-db.js?v=20261007-forwarder-v42','./sync-engine.js?v=20261007-forwarder-v42','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-tourtheme-v43';
+const ASSETS=['./','./index.html','./app.css?v=20261007-tourtheme-v43','./app.js?v=20261007-tourtheme-v43','./data.js?v=20261007-tourtheme-v43','./config.js?v=20261007-tourtheme-v43','./auth.js?v=20261007-tourtheme-v43','./local-db.js?v=20261007-tourtheme-v43','./sync-engine.js?v=20261007-tourtheme-v43','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
