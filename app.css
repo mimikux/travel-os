@@ -1908,3 +1908,14 @@ html.item-editor-open .global-edit-toolbar{
   width:38px!important;
   align-items:center!important;
 }
+
+
+/* Weather nudge + mail save-as-new v41 */
+.hero-card .weather-inline{
+  top:82px!important;
+}
+.mail-save-new{
+  background:var(--theme-accent-soft)!important;
+  color:var(--green)!important;
+  border:1px solid var(--theme-accent-border)!important;
+}
