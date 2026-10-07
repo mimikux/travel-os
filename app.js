@@ -1,4 +1,5 @@
-let selectedDay=3, currentFilter='all', map, routeLine, routeCar, routeTimer=null;
+let selectedDay=0, currentFilter='all', map, routeLine, routeCar, routeTimer=null;
+let initialTripDaySelectionPending=true;
 let mapSelectedDays=new Set([selectedDay]), mapPrimaryDay=selectedDay, mapRouteLayers=[];
 let mapMultiSelectMode=false;
 let demoMode=(()=>{try{return localStorage.getItem('icelandDemoMode')==='1'}catch(_){return false}})();
@@ -221,7 +222,7 @@ function dayContext(dateString){
 
   return {label,timelineLabel,diff,isPast:diff<0,isToday:diff===0,isFuture:diff>0,tripStarted,tripEnded,today};
 }
-function syncToReferenceTripDay(forceDemo=false){
+function syncToReferenceTripDay(forceDemo=false,fallbackToFirst=false){
   const today=(demoMode||forceDemo)?DEMO_REFERENCE_DATE:icelandTodayISO();
   const idx=TRIP.days.findIndex(d=>d.date===today);
   if(idx>=0){
@@ -229,6 +230,11 @@ function syncToReferenceTripDay(forceDemo=false){
     mapPrimaryDay=idx;
     mapSelectedDays=new Set([idx]);
     return true;
+  }
+  if(fallbackToFirst&&TRIP.days.length){
+    selectedDay=0;
+    mapPrimaryDay=0;
+    mapSelectedDays=new Set([0]);
   }
   return false;
 }
@@ -2548,9 +2554,14 @@ async function hydratePrivateCloudData(){
     cloudLoaded=true;
     cloudSyncState='synced';
     cloudLastError='';
-    selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
-    mapPrimaryDay=selectedDay;
-    mapSelectedDays=new Set(TRIP.days.length?[selectedDay]:[]);
+    if(initialTripDaySelectionPending){
+      syncToReferenceTripDay(false,true);
+      initialTripDaySelectionPending=false;
+    }else{
+      selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
+      mapPrimaryDay=selectedDay;
+      mapSelectedDays=new Set(TRIP.days.length?[selectedDay]:[]);
+    }
     await window.TravelStore?.replaceTrip?.({...data,bookings:normalized.bookings});
     syncTripLabels();
     updateDemoModeUI();
@@ -2570,6 +2581,10 @@ async function hydratePrivateCloudData(){
       if(cached?.days?.length){
         TRIP=cached;
         currentTripRole=cached.role||'viewer';
+        if(initialTripDaySelectionPending){
+          syncToReferenceTripDay(false,true);
+          initialTripDaySelectionPending=false;
+        }
         syncTripLabels();
         renderAll();
         updateEditAvailability();
@@ -4703,7 +4718,7 @@ qs('.app-shell')?.classList.add('today-mode');
 const authTitle=qs('#authTripTitle');
 if(authTitle) authTitle.textContent=`${APP_NAME} V${APP_VERSION}`;
 if(window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'){
-  syncToReferenceTripDay();
+  syncToReferenceTripDay(false,true);
   updateDemoModeUI();
   renderAll();
   updateHeroCollapse();
