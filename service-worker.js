@@ -1,5 +1,5 @@
-const CACHE='travel-os-offline-v33';
-const ASSETS=['./','./index.html','./app.css','./app.js','./data.js','./config.js','./auth.js','./local-db.js','./sync-engine.js','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-offline-v34';
+const ASSETS=['./','./index.html','./app.css?v=20261007-offline-v34','./app.js?v=20261007-offline-v34','./data.js?v=20261007-offline-v34','./config.js?v=20261007-offline-v34','./auth.js?v=20261007-offline-v34','./local-db.js?v=20261007-offline-v34','./sync-engine.js?v=20261007-offline-v34','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
