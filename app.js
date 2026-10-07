@@ -698,25 +698,79 @@ function findStayBooking(stay){
   return bestScore>=16?best:null;
 }
 
-function renderTonightBooking(stay){
+function bookingCoversNight(b,dateString){
+  if(!b||b.type!=='stay'||!dateString)return false;
+  const raw=b._raw||{};
+  const start=String(raw.starts_at||b.imported?.startDate||'').slice(0,10);
+  const end=String(raw.ends_at||b.imported?.endDate||'').slice(0,10);
+  return Boolean(start&&end&&dateString>=start&&dateString<end);
+}
+function stayForNight(dayIndex){
+  const day=TRIP.days?.[dayIndex];
+  if(!day)return null;
+  const explicit=[...(day.events||[])].reverse().find(e=>e.type==='stay');
+  if(explicit)return explicit;
+
+  const dateString=day.date;
+  for(let i=dayIndex-1;i>=0;i--){
+    const stays=[...(TRIP.days?.[i]?.events||[])].reverse().filter(e=>e.type==='stay');
+    for(const stay of stays){
+      const linked=eventBookings(stay);
+      if(linked.some(({b})=>bookingCoversNight(b,dateString)))return stay;
+      const fallback=findStayBooking(stay);
+      if(fallback&&bookingCoversNight(fallback.b,dateString))return stay;
+    }
+  }
+
+  const active=(TRIP.bookings||[]).map((b,idx)=>({b,idx})).filter(x=>bookingCoversNight(x.b,dateString));
+  if(!active.length)return null;
+  const first=active[0].b;
+  return {
+    type:'stay',
+    title:first.title||'住宿',
+    subtitle:'續住',
+    note:'',
+    reservationId:first.id||null,
+    reservationIds:active.map(x=>x.b.id).filter(Boolean),
+    lat:first._raw?.latitude??null,
+    lng:first._raw?.longitude??null,
+    address:first._raw?.address||'',
+    navQuery:first._raw?.nav_query||'',
+    googleMapsUrl:first._raw?.google_maps_url||'',
+    googleMapsResolvedUrl:first._raw?.google_maps_resolved_url||''
+  };
+}
+function tonightBookings(stay){
+  const linked=eventBookings(stay);
+  if(linked.length)return linked;
   const match=findStayBooking(stay);
-  if(!match) return '';
-  const b=match.b,idx=match.idx,d=b.details||{};
+  return match?[match]:[];
+}
+function renderTonightBookingPanel(b,idx,n){
+  const d=b.details||{};
   const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
   const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}</div></div>`:'';
   const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`:'';
   const source=d.source?`<div class="booking-detail-source">資料來源：${escapeHtml(d.source)}</div>`:'';
   const alertHtml=b.alert?`<div class="alert-box">⚠️ ${escapeHtml(b.alert)}</div>`:'';
   const notice=b.notice?`<div class="notice">${escapeHtml(b.notice)}</div>`:'';
-  const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="today-code-${idx}">${escapeHtml(maskCode(b.code,b.secret))}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleTodayCode(${idx})">顯示</button></div>`:'';
-  return `<div class="stay-booking-inline"><button class="booking-detail-toggle stay-booking-toggle" id="today-booking-toggle-${idx}" type="button" onclick="event.stopPropagation();toggleTodayBookingDetails(${idx})"><span>住宿預訂細節</span><span class="detail-chevron">⌄</span></button><div class="booking-detail-panel stay-booking-panel" id="today-booking-detail-${idx}" hidden><div class="stay-booking-summary"><strong>${escapeHtml(b.provider||'')}</strong><span>${escapeHtml(b.dates||'')}</span><span>${escapeHtml(b.meta||'')}</span></div>${code}${alertHtml}${notice}<div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div></div>`;
+  const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION</small><strong id="today-code-${idx}">${escapeHtml(maskCode(b.code,b.secret))}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleTodayCode(${idx})">顯示</button></div>`:'';
+  return `<div class="booking-detail-panel stay-booking-panel"><div class="stay-booking-summary"><strong>BOOKING ${n} · ${escapeHtml(b.provider||'')}</strong><span>${escapeHtml(b.dates||'')}</span><span>${escapeHtml(b.meta||'')}</span></div>${code}${alertHtml}${notice}<div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>`;
+}
+function renderTonightBooking(stay){
+  const linked=tonightBookings(stay);
+  if(!linked.length)return '';
+  const panels=linked.map(({b,idx},n)=>renderTonightBookingPanel(b,idx,n+1)).join('');
+  return `<div class="stay-booking-inline"><button class="booking-detail-toggle stay-booking-toggle" id="today-booking-toggle" type="button" onclick="event.stopPropagation();toggleTodayBookingDetails()"><span>住宿預訂細節 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span></button><div class="stay-booking-list" id="today-booking-detail" hidden>${panels}</div></div>`;
 }
 
-function toggleTodayBookingDetails(idx){
-  const panel=qs('#today-booking-detail-'+idx),btn=qs('#today-booking-toggle-'+idx);
-  if(!panel||!btn) return;
-  const open=panel.hidden; panel.hidden=!open; btn.classList.toggle('open',open);
-  const label=btn.querySelector('span:first-child'); if(label) label.textContent=open?'收起住宿預訂細節':'住宿預訂細節';
+function toggleTodayBookingDetails(){
+  const panel=qs('#today-booking-detail'),btn=qs('#today-booking-toggle');
+  if(!panel||!btn)return;
+  const open=panel.hidden;panel.hidden=!open;btn.classList.toggle('open',open);
+  const count=panel.querySelectorAll('.stay-booking-panel').length;
+  const label=btn.querySelector('span:first-child');
+  if(label)label.textContent=open?'收起住宿預訂細節':`住宿預訂細節 · ${count} 筆`;
 }
 
 function toggleTodayCode(idx){
@@ -865,15 +919,15 @@ function renderToday(){
   renderDayNote(d);
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  const prevStay=dayIndex>0?[...(TRIP.days[dayIndex-1]?.events||[])].reverse().find(e=>e.type==='stay'&&!e.uncertain&&validCoord(e)):null;
+  const prevStay=dayIndex>0?stayForNight(dayIndex-1):null;
   const firstEvent=d.events[0]||null;
   const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
   qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>`<div class="timeline-item" data-event-index="${eventIndex}"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''}" onclick="handleTimelineCardClick(event,${selectedDay},${eventIndex})"><div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${e.title}</h3></div><div class="time">${e.time||''}</div></div><div class="sub">${e.subtitle||''}</div>${e.note?`<div class="note">${e.note}</div>`:''}${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}${renderLinkedBookings(e,selectedDay,eventIndex)}${renderEventDetails(e,selectedDay,eventIndex)}${hasNavigationTarget(e)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();openMapsEvent(${selectedDay},${eventIndex})">導航</button>${e.type==='stay'?'<button class="mini-btn" onclick="event.stopPropagation();document.querySelector(\'#tonightCard\')?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">住宿細節</button>':''}</div>`:''}</article></div>`).join('');
-  const stay=d.events.filter(e=>e.type==='stay').slice(-1)[0];
-  qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${stay.title}</h3><p>${stay.subtitle||''}</p></div></div><p style="margin-top:10px">${stay.note||''}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
+  const stay=stayForNight(dayIndex);
+  qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div><p style="margin-top:10px">${escapeHtml(stay.note||'')}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
   refreshTodayRouteStats(dayIndex);
   refreshHeroWeather(dayIndex);
