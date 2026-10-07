@@ -3,7 +3,7 @@
   const DB_VERSION=3;
   const DEVICE_KEY='travel-os-device-v1';
   const META_PREFIX='travel-os-meta:';
-  const DB_OPEN_TIMEOUT=1800;
+  const DB_OPEN_TIMEOUT=6000;
 
   function currentTripId(){return window.TRAVEL_CONFIG?.tripSlug||null}
   function clone(v){return JSON.parse(JSON.stringify(v))}
@@ -41,6 +41,33 @@
   function setFastMeta(key,value){
     try{localStorage.setItem(META_PREFIX+key,JSON.stringify(value))}catch(_){}
     return value;
+  }
+  const TRIP_DIRECTORY_KEY='travel-os-trip-directory-v1';
+  function readFastTripDirectory(){
+    try{
+      const rows=JSON.parse(localStorage.getItem(TRIP_DIRECTORY_KEY)||'[]');
+      return Array.isArray(rows)?rows:[];
+    }catch(_){return []}
+  }
+  function writeFastTripDirectory(rows){
+    try{localStorage.setItem(TRIP_DIRECTORY_KEY,JSON.stringify(Array.isArray(rows)?rows:[]))}catch(_){}
+    return rows;
+  }
+  function upsertFastTripDirectory(row){
+    if(!row?.slug&&!row?.id)return readFastTripDirectory();
+    const slug=row.slug||row.id;
+    const rows=readFastTripDirectory().filter(x=>(x.slug||x.id)!==slug);
+    rows.push({
+      id:row.id||slug,slug,title:row.title||slug,start_date:row.start_date||row.startDate||null,
+      end_date:row.end_date||row.endDate||null,timezone:row.timezone||'UTC',role:row.role||'viewer',
+      source:row.source||'local',updated_at:row.updated_at||new Date().toISOString()
+    });
+    rows.sort((a,b)=>String(a.start_date||'').localeCompare(String(b.start_date||'')));
+    writeFastTripDirectory(rows);
+    return rows;
+  }
+  function removeFastTripDirectory(slug){
+    writeFastTripDirectory(readFastTripDirectory().filter(x=>(x.slug||x.id)!==slug));
   }
 
   function openDb(){
@@ -222,6 +249,11 @@
     await txDone(tx);
     setFastMeta('cloud_state:'+tripId,'trusted_device');
     setFastMeta('last_sync:'+tripId,now);
+    upsertFastTripDirectory({
+      id:tripId,slug:tripId,title:payload.trip.title,timezone:payload.trip.timezone,
+      start_date:payload.trip.startDate,end_date:payload.trip.endDate,role:payload.role||null,
+      source:'cloud',updated_at:now
+    });
     return loadTrip(db,tripId);
   }
 
@@ -255,13 +287,26 @@
     await txDone(tx);
   }
   async function listTrips(db){
-    const tx=db.transaction('trips','readonly');
-    const rows=await requestToPromise(tx.objectStore('trips').getAll());
-    await txDone(tx);
-    return (rows||[]).filter(x=>!x.deleted_at).sort((a,b)=>String(a.start_date||'').localeCompare(String(b.start_date||''))).map(x=>({
+    const fast=readFastTripDirectory();
+    if(!db)return fast;
+    let rows=[];
+    try{
+      const tx=db.transaction('trips','readonly');
+      rows=await requestToPromise(tx.objectStore('trips').getAll());
+      await txDone(tx);
+    }catch(err){
+      console.warn('IndexedDB trip directory read failed; using fast directory',err);
+      return fast;
+    }
+    const mapped=(rows||[]).filter(x=>!x.deleted_at).map(x=>({
       id:x.id,slug:x.slug||x.id,title:x.title,start_date:x.start_date,end_date:x.end_date,
       timezone:x.timezone,role:x.role||'viewer',source:x.source||'local',updated_at:x.updated_at
     }));
+    const merged=new Map(fast.map(x=>[x.slug||x.id,x]));
+    mapped.forEach(x=>merged.set(x.slug||x.id,x));
+    const result=[...merged.values()].sort((a,b)=>String(a.start_date||'').localeCompare(String(b.start_date||'')));
+    writeFastTripDirectory(result);
+    return result;
   }
   async function saveUiTrip(db,trip){
     if(!trip?.slug&&!currentTripId())throw new Error('trip_required');
@@ -280,8 +325,16 @@
   let dbPromise=null;
   async function dbOrNull(){
     if(!('indexedDB' in window))return null;
-    if(!dbPromise)dbPromise=openDb().catch(err=>{console.warn('Travel OS offline cache unavailable',err);return null});
-    return dbPromise;
+    if(!dbPromise){
+      dbPromise=openDb().catch(err=>{
+        console.warn('Travel OS offline cache unavailable',err);
+        dbPromise=null;
+        return null;
+      });
+    }
+    const db=await dbPromise;
+    if(!db)dbPromise=null;
+    return db;
   }
 
   const api={
@@ -299,8 +352,13 @@
       try{return await withTimeout(loadTrip(db,tripId||currentTripId()),1800,'load_trip_timeout')}catch(_){return null}
     },
     async listTrips(){
-      const db=await dbOrNull();if(!db)return [];
-      try{return await withTimeout(listTrips(db),1800,'list_trips_timeout')}catch(_){return []}
+      const fast=readFastTripDirectory();
+      const db=await dbOrNull();
+      if(!db)return fast;
+      try{
+        const rows=await withTimeout(listTrips(db),4500,'list_trips_timeout');
+        return rows?.length?rows:fast;
+      }catch(_){return fast}
     },
     async saveUiTrip(trip){
       const db=await dbOrNull();if(!db)return null;
@@ -313,6 +371,7 @@
     async clearTrip(tripId){
       const id=tripId||currentTripId();if(!id)return;
       try{localStorage.removeItem(META_PREFIX+'cloud_state:'+id);localStorage.removeItem(META_PREFIX+'last_sync:'+id)}catch(_){}
+      removeFastTripDirectory(id);
       const db=await dbOrNull();if(!db)return;
       const tx=db.transaction(['trips','days','itinerary_items','bookings','sync_queue','conflicts','meta'],'readwrite');
       await deleteByIndex(tx.objectStore('days'),tx.objectStore('days').index('trip_id'),id);
