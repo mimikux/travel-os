@@ -1188,7 +1188,7 @@ function renderToday(){
     : '';
   qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>renderTimelineEvent(e,eventIndex,d,selectedDay)).join('');
   const stay=stayForNight(dayIndex);
-  qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div><p style="margin-top:10px">${escapeHtml(stay.note||'')}</p>${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
+  qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div>${stay.note?`<p style="margin-top:10px">${escapeHtml(stay.note)}</p>`:''}${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
   refreshTodayRouteStats(dayIndex);
   refreshHeroWeather(dayIndex);
