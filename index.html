@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261008-mailtheme-v46" />
+  <link rel="stylesheet" href="app.css?v=20261008-expense-v47" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
@@ -178,6 +178,72 @@
         <div class="booking-list" id="bookingList"></div>
       </section>
 
+      <section class="view expense-view" id="expenseView">
+        <div class="subview-trip-header">
+          <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>花費</h1></div>
+          <button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button>
+        </div>
+
+        <div class="expense-hero">
+          <div>
+            <span class="section-kicker">TRIP LEDGER</span>
+            <h2 id="expenseTotalTitle">旅程總花費</h2>
+            <strong id="expenseTotal">—</strong>
+            <p id="expenseTotalHint">已確認帳目</p>
+          </div>
+          <div class="expense-hero-side">
+            <span>我的身分</span>
+            <button type="button" id="expenseIdentityBtn">設定</button>
+          </div>
+        </div>
+
+        <div class="expense-stats" id="expenseStats">
+          <div><small>事前預訂</small><strong id="expenseBookedTotal">—</strong></div>
+          <div><small>旅途中</small><strong id="expenseTripTotal">—</strong></div>
+          <div><small>帳目</small><strong id="expenseCount">0</strong></div>
+        </div>
+
+        <div class="expense-actions">
+          <button type="button" class="expense-primary" id="addExpenseBtn">＋ 手動記帳</button>
+          <button type="button" class="expense-secondary" id="receiptExpenseBtn">▣ 拍收據</button>
+        </div>
+
+        <div class="expense-tab-row">
+          <button type="button" class="active" data-expense-tab="ledger">帳目</button>
+          <button type="button" data-expense-tab="bookings">預訂費用</button>
+          <button type="button" data-expense-tab="people">分帳人員</button>
+          <button type="button" data-expense-tab="analysis">分析</button>
+        </div>
+
+        <section class="expense-panel active" id="expenseLedgerPanel">
+          <div class="expense-list" id="expenseList"></div>
+        </section>
+
+        <section class="expense-panel" id="expenseBookingsPanel">
+          <div class="expense-section-copy">
+            <h3>從正式預訂納入花費</h3>
+            <p>只有已確認的 Reservation 才會出現在這裡；納入後仍可再修改支付人與分帳。</p>
+          </div>
+          <div class="expense-booking-list" id="expenseBookingList"></div>
+        </section>
+
+        <section class="expense-panel" id="expensePeoplePanel">
+          <div class="expense-section-copy">
+            <h3>分帳人員</h3>
+            <p>登入帳號與分帳身份分開；未登入旅伴可以先手動建立，之後再由本人認領。</p>
+          </div>
+          <div class="expense-people-list" id="expensePeopleList"></div>
+          <button type="button" class="expense-secondary expense-add-person" id="addExpensePersonBtn">＋ 新增分帳人</button>
+        </section>
+
+        <section class="expense-panel" id="expenseAnalysisPanel">
+          <div class="expense-analysis-placeholder" id="expenseAnalysis">
+            <strong>分析會隨帳目自動更新</strong>
+            <p>第一版先顯示逐日與類別摘要；圓餅圖與支付方式圖表接在下一步。</p>
+          </div>
+        </section>
+      </section>
+
       <section class="view more-view" id="moreView">
         <div class="subview-trip-header more-page-header">
           <div><div class="eyebrow">TRAVEL OS</div><h1>更多</h1></div>
@@ -227,7 +293,7 @@
       <button class="nav-item active" data-target="today"><span class="nav-icon" data-icon="today"></span><small>行程</small></button>
       <button class="nav-item" data-target="map"><span class="nav-icon" data-icon="map"></span><small>地圖</small></button>
       <button class="nav-item" data-target="booking"><span class="nav-icon" data-icon="booking"></span><small>預訂</small></button>
-      <button class="nav-item disabled" title="Coming soon"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
+      <button class="nav-item" data-target="expense"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
       <button class="nav-item" data-target="more"><span class="nav-icon" data-icon="more"></span><small>更多</small><span class="global-mail-badge" id="globalMailBadge" hidden>0</span></button>
     </nav>
   </div>
@@ -343,11 +409,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261008-mailtheme-v46"></script>
-  <script src="data.js?v=20261008-mailtheme-v46"></script>
-  <script src="local-db.js?v=20261008-mailtheme-v46"></script>
-  <script src="sync-engine.js?v=20261008-mailtheme-v46"></script>
-  <script src="auth.js?v=20261008-mailtheme-v46"></script>
-  <script src="app.js?v=20261008-mailtheme-v46"></script>
+  <script src="config.js?v=20261008-expense-v47"></script>
+  <script src="data.js?v=20261008-expense-v47"></script>
+  <script src="local-db.js?v=20261008-expense-v47"></script>
+  <script src="sync-engine.js?v=20261008-expense-v47"></script>
+  <script src="auth.js?v=20261008-expense-v47"></script>
+  <script src="app.js?v=20261008-expense-v47"></script>
 </body>
 </html>
