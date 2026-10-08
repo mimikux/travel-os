@@ -2234,6 +2234,7 @@ const EXPENSE_CATEGORY_LABELS={
   food:'餐飲',grocery:'超市',tour:'Tour / 門票',shopping:'購物',other:'其他'
 };
 let expenseTab='ledger';
+let expenseIdentityPrompted=false;
 
 function expensePeople(){return Array.isArray(TRIP?.people)?TRIP.people:[]}
 function expenseRows(){return Array.isArray(TRIP?.expenses)?TRIP.expenses:[]}
@@ -2937,6 +2938,10 @@ async function hydratePrivateCloudData(){
     updateDemoModeUI();
     renderAll();
     updateEditAvailability();
+    if(!TRIP?.currentPersonId&&!expenseIdentityPrompted){
+      expenseIdentityPrompted=true;
+      setTimeout(()=>openExpenseIdentitySheet(),900);
+    }
     refreshGlobalMailBadge().catch(()=>{});
     setTimeout(()=>maybeAutoResolveMissingPlaces().catch(()=>{}),500);
     setTimeout(()=>maybeAutoCheckPlaceHours().catch(()=>{}),1800);
