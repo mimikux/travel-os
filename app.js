@@ -20,7 +20,7 @@ let authorizedTrips=[];
 const APP_NAME="Matt's Travel OS";
 const APP_VERSION='1.3.0';
 
-const titles={today:'行程',map:'旅程地圖',booking:'預訂',more:'更多'};
+const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
 
 const DAY_UI={
@@ -455,6 +455,10 @@ function showView(name){
   if(qs('#pageTitle')) qs('#pageTitle').textContent=titles[name]||'Travel OS';
   if(name==='map') setTimeout(()=>{initMap();map.invalidateSize();renderMapDay()},60);
   if(name==='today') requestAnimationFrame(updateHeroCollapse);
+  if(name==='expense'){
+    renderExpenses();
+    if(!TRIP?.currentPersonId) setTimeout(()=>openExpenseIdentitySheet(),120);
+  }
   if(name==='more') renderMoreView();
 }
 
@@ -2224,11 +2228,346 @@ function toggleDemoMode(){
   requestAnimationFrame(updateHeroCollapse);
 }
 
+
+const EXPENSE_CATEGORY_LABELS={
+  flight:'機票',stay:'住宿',transport:'交通',car:'租車',fuel:'加油',
+  food:'餐飲',grocery:'超市',tour:'Tour / 門票',shopping:'購物',other:'其他'
+};
+let expenseTab='ledger';
+
+function expensePeople(){return Array.isArray(TRIP?.people)?TRIP.people:[]}
+function expenseRows(){return Array.isArray(TRIP?.expenses)?TRIP.expenses:[]}
+function expensePersonName(id){
+  return expensePeople().find(p=>String(p.id)===String(id))?.displayName||'—';
+}
+function expenseMoney(amount,currency){
+  const n=Number(amount||0);
+  return `${currency||''} ${new Intl.NumberFormat('zh-TW',{maximumFractionDigits:2}).format(n)}`.trim();
+}
+function expenseCurrencyTotals(rows=expenseRows()){
+  const map=new Map();
+  rows.forEach(e=>{
+    if(e.reviewStatus!=='confirmed')return;
+    const cur=String(e.currency||'').toUpperCase()||'—';
+    const signed=e.entryType==='refund'?-Math.abs(Number(e.amount||0)):Number(e.amount||0);
+    map.set(cur,(map.get(cur)||0)+signed);
+  });
+  return [...map.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+}
+function expenseTotalsText(rows=expenseRows()){
+  const totals=expenseCurrencyTotals(rows);
+  if(!totals.length)return '—';
+  return totals.map(([cur,amt])=>expenseMoney(amt,cur)).join(' · ');
+}
+function expenseCurrentPerson(){return expensePeople().find(p=>String(p.id)===String(TRIP?.currentPersonId||''))||null}
+
+function renderExpenses(){
+  if(!qs('#expenseView')||!TRIP)return;
+  const rows=expenseRows().filter(e=>e.reviewStatus==='confirmed');
+  const booked=rows.filter(e=>e.sourceType==='reservation_email');
+  const trip=rows.filter(e=>e.sourceType!=='reservation_email');
+  const total=qs('#expenseTotal'); if(total)total.textContent=expenseTotalsText(rows);
+  const bookedEl=qs('#expenseBookedTotal'); if(bookedEl)bookedEl.textContent=expenseTotalsText(booked);
+  const tripEl=qs('#expenseTripTotal'); if(tripEl)tripEl.textContent=expenseTotalsText(trip);
+  const countEl=qs('#expenseCount'); if(countEl)countEl.textContent=String(rows.length);
+  const identity=expenseCurrentPerson();
+  const identityBtn=qs('#expenseIdentityBtn');
+  if(identityBtn)identityBtn.textContent=identity?identity.displayName:'設定';
+
+  qsa('[data-expense-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.expenseTab===expenseTab));
+  const panels={ledger:'#expenseLedgerPanel',bookings:'#expenseBookingsPanel',people:'#expensePeoplePanel',analysis:'#expenseAnalysisPanel'};
+  Object.entries(panels).forEach(([key,sel])=>qs(sel)?.classList.toggle('active',key===expenseTab));
+
+  renderExpenseLedger();
+  renderExpenseBookings();
+  renderExpensePeople();
+  renderExpenseAnalysis();
+
+  const addBtn=qs('#addExpenseBtn'), receiptBtn=qs('#receiptExpenseBtn'), addPerson=qs('#addExpensePersonBtn');
+  const editable=canEditTrip();
+  if(addBtn)addBtn.hidden=!editable;
+  if(receiptBtn)receiptBtn.hidden=!editable;
+  if(addPerson)addPerson.hidden=!editable;
+}
+
+function renderExpenseLedger(){
+  const box=qs('#expenseList'); if(!box)return;
+  const rows=[...expenseRows()].filter(e=>e.reviewStatus==='confirmed')
+    .sort((a,b)=>String(b.expenseDate||'').localeCompare(String(a.expenseDate||''))||String(b.expenseTime||'').localeCompare(String(a.expenseTime||'')));
+  if(!rows.length){box.innerHTML='<div class="booking-empty">還沒有花費。可以手動記帳，或從「預訂費用」納入。</div>';return}
+  box.innerHTML=rows.map(e=>{
+    const splitNames=(e.splits||[]).map(s=>expensePersonName(s.personId)).filter(Boolean).join('、');
+    return `<button type="button" class="expense-card" data-expense-id="${escapeHtml(e.id)}">
+      <div class="expense-card-main">
+        <small>${escapeHtml(EXPENSE_CATEGORY_LABELS[e.category]||e.category||'其他')} · ${escapeHtml(e.expenseDate||'')}${e.expenseTime?' '+escapeHtml(e.expenseTime):''}</small>
+        <strong>${escapeHtml(e.title||'花費')}</strong>
+        <span>${escapeHtml(expenseMoney(e.amount,e.currency))}</span>
+      </div>
+      <div class="expense-card-meta">
+        <em>支付：${escapeHtml(expensePersonName(e.paidByPersonId))}</em>
+        <em>${splitNames?'分帳：'+escapeHtml(splitNames):'未分帳'}</em>
+        <i>${e.sourceType==='reservation_email'?'預訂':e.sourceType==='receipt'?'收據':'手動'}</i>
+      </div>
+    </button>`;
+  }).join('');
+  box.querySelectorAll('[data-expense-id]').forEach(btn=>btn.onclick=()=>{
+    const row=expenseRows().find(e=>String(e.id)===String(btn.dataset.expenseId));
+    if(row)openExpenseEditor(row);
+  });
+}
+
+function bookingHasExpense(id){return expenseRows().some(e=>String(e.reservationId||'')===String(id)&&e.sourceType==='reservation_email')}
+function renderExpenseBookings(){
+  const box=qs('#expenseBookingList'); if(!box)return;
+  const rows=(TRIP.bookings||[]).filter(b=>Number(b.amount)>0&&String(b.currency||'').length===3);
+  if(!rows.length){box.innerHTML='<div class="booking-empty">目前沒有可辨識金額的正式預訂。</div>';return}
+  box.innerHTML=rows.map(b=>{
+    const added=bookingHasExpense(b.id);
+    return `<div class="expense-booking-card">
+      <div><small>${escapeHtml(EXPENSE_CATEGORY_LABELS[b.type]||b.type||'預訂')}</small><strong>${escapeHtml(b.title||b.provider||'預訂')}</strong><span>${escapeHtml(expenseMoney(b.amount,b.currency))}</span></div>
+      <button type="button" data-expense-booking="${escapeHtml(b.id)}" ${added?'disabled':''}>${added?'已納入':'納入花費'}</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-expense-booking]').forEach(btn=>btn.onclick=()=>addReservationExpense(btn.dataset.expenseBooking));
+}
+
+function renderExpensePeople(){
+  const box=qs('#expensePeopleList');if(!box)return;
+  const current=String(TRIP?.currentPersonId||'');
+  const rows=expensePeople();
+  if(!rows.length){box.innerHTML='<div class="booking-empty">尚未建立分帳人員。</div>';return}
+  box.innerHTML=rows.map(p=>`<div class="expense-person-card ${String(p.id)===current?'me':''}">
+    <div><strong>${escapeHtml(p.displayName)}</strong><small>${p.linkedUserId?'已連結登入帳號':'未連結帳號 · 可供之後認領'}</small></div>
+    <span>${String(p.id)===current?'我':p.personType==='member'?'MEMBER':'TRAVELER'}</span>
+  </div>`).join('');
+}
+
+function renderExpenseAnalysis(){
+  const box=qs('#expenseAnalysis');if(!box)return;
+  const rows=expenseRows().filter(e=>e.reviewStatus==='confirmed');
+  if(!rows.length){box.innerHTML='<strong>還沒有足夠資料</strong><p>新增帳目後會在這裡看到逐日與類別摘要。</p>';return}
+  const byDay=new Map(),byCat=new Map();
+  rows.forEach(e=>{
+    const key=e.expenseDate||'未指定';
+    const cur=e.currency||'';
+    const dayKey=key+'|'+cur;
+    byDay.set(dayKey,(byDay.get(dayKey)||0)+Number(e.amount||0));
+    const cat=(EXPENSE_CATEGORY_LABELS[e.category]||e.category||'其他')+'|'+cur;
+    byCat.set(cat,(byCat.get(cat)||0)+Number(e.amount||0));
+  });
+  const dayHtml=[...byDay.entries()].sort().map(([key,v])=>{const [d,c]=key.split('|');return `<div><span>${escapeHtml(d)}</span><strong>${escapeHtml(expenseMoney(v,c))}</strong></div>`}).join('');
+  const catHtml=[...byCat.entries()].sort((a,b)=>b[1]-a[1]).map(([key,v])=>{const [d,c]=key.split('|');return `<div><span>${escapeHtml(d)}</span><strong>${escapeHtml(expenseMoney(v,c))}</strong></div>`}).join('');
+  box.innerHTML=`<section><h3>逐日開銷</h3>${dayHtml}</section><section><h3>類別摘要</h3>${catHtml}</section>`;
+}
+
+function ensureExpenseIdentitySheet(){
+  let sheet=qs('#expenseIdentitySheet'); if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='expenseIdentityBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet expense-identity-sheet';sheet.id='expenseIdentitySheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">EXPENSE IDENTITY</span><h2>你在這趟旅程是誰？</h2><p>這個名稱只用於此 Trip 的付款與分帳。</p></div><button class="round-btn" id="closeExpenseIdentity">×</button></div>
+    <div id="expenseClaimList" class="expense-claim-list"></div>
+    <form class="edit-form" id="expenseIdentityForm">
+      <label><span>或建立新的暱稱</span><input id="expenseNickname" maxlength="80" placeholder="例如 Matt"></label>
+      <div class="edit-form-actions"><button type="submit" class="edit-save">使用這個暱稱</button></div>
+      <p class="edit-status" id="expenseIdentityStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeExpenseIdentity').onclick=close;backdrop.onclick=close;
+  qs('#expenseIdentityForm').onsubmit=async e=>{
+    e.preventDefault();const name=qs('#expenseNickname').value.trim(),status=qs('#expenseIdentityStatus');
+    if(!name){status.textContent='請輸入暱稱。';return}
+    status.textContent='儲存中…';
+    try{await travelEditor('set_expense_identity',{displayName:name});close();await hydratePrivateCloudData();showView('expense')}catch(err){status.textContent='儲存失敗：'+(err.code||err.message)}
+  };
+  return sheet;
+}
+function openExpenseIdentitySheet(){
+  if(!TRIP)return;
+  const sheet=ensureExpenseIdentitySheet(),list=qs('#expenseClaimList');
+  const unclaimed=expensePeople().filter(p=>!p.linkedUserId);
+  list.innerHTML=unclaimed.length?'<p class="expense-claim-hint">如果你已經在清單裡，直接認領：</p>'+unclaimed.map(p=>`<button type="button" data-claim-person="${escapeHtml(p.id)}">${escapeHtml(p.displayName)}<span>認領</span></button>`).join(''):'';
+  list.querySelectorAll('[data-claim-person]').forEach(btn=>btn.onclick=async()=>{
+    const status=qs('#expenseIdentityStatus');status.textContent='認領中…';
+    try{await travelEditor('set_expense_identity',{personId:btn.dataset.claimPerson});sheet.classList.remove('show');qs('#expenseIdentityBackdrop').classList.remove('show');await hydratePrivateCloudData();showView('expense')}catch(err){status.textContent='認領失敗：'+(err.code||err.message)}
+  });
+  qs('#expenseNickname').value=expenseCurrentPerson()?.displayName||'';
+  qs('#expenseIdentityStatus').textContent='';
+  qs('#expenseIdentityBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+
+function ensureExpenseEditor(){
+  let sheet=qs('#expenseEditSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='expenseEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet expense-edit-sheet';sheet.id='expenseEditSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">EXPENSE</span><h2 id="expenseEditTitle">新增花費</h2><p id="expenseReceiptNotice"></p></div><button class="round-btn" id="closeExpenseEdit">×</button></div>
+    <form class="edit-form" id="expenseEditForm">
+      <input type="hidden" id="expenseEditId"><input type="hidden" id="expenseEditVersion"><input type="hidden" id="expenseReceiptPath">
+      <div class="edit-form-grid">
+        <label><span>日期</span><input id="expenseDate" type="date" required></label>
+        <label><span>時間</span><input id="expenseTime" type="time"></label>
+      </div>
+      <label><span>名稱</span><input id="expenseName" required placeholder="例如 Bónus / 晚餐 / 停車"></label>
+      <div class="edit-form-grid">
+        <label><span>類別</span><select id="expenseCategory">
+          <option value="food">餐飲</option><option value="grocery">超市</option><option value="transport">交通</option>
+          <option value="car">租車</option><option value="fuel">加油</option><option value="stay">住宿</option>
+          <option value="flight">機票</option><option value="tour">Tour / 門票</option><option value="shopping">購物</option><option value="other">其他</option>
+        </select></label>
+        <label><span>支付方式</span><input id="expensePaymentMethod" placeholder="現金 / Visa ••••4131"></label>
+      </div>
+      <div class="edit-form-grid">
+        <label><span>幣別</span><input id="expenseCurrency" maxlength="3" value="ISK" required></label>
+        <label><span>金額</span><input id="expenseAmount" inputmode="decimal" type="number" min="0" step="0.01" required></label>
+      </div>
+      <label><span>支付人</span><select id="expensePayer"></select></label>
+      <fieldset class="expense-split-fieldset"><legend>應分帳人 · 目前先以平均分攤</legend><div id="expenseSplitPeople"></div></fieldset>
+      <label><span>備註</span><textarea id="expenseNote" rows="4"></textarea></label>
+      <div class="edit-form-actions expense-form-actions">
+        <button type="button" class="edit-delete" id="deleteExpenseBtn">刪除</button>
+        <button type="submit" class="edit-save">儲存花費</button>
+      </div>
+      <p class="edit-status" id="expenseEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeExpenseEdit').onclick=close;backdrop.onclick=close;
+  qs('#expenseEditForm').onsubmit=saveExpenseEditor;
+  qs('#deleteExpenseBtn').onclick=deleteExpenseEditor;
+  return sheet;
+}
+function fillExpensePeopleControls(selected=[]){
+  const payer=qs('#expensePayer'),split=qs('#expenseSplitPeople'),people=expensePeople();
+  payer.innerHTML='<option value="">—</option>'+people.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.displayName)}</option>`).join('');
+  split.innerHTML=people.map(p=>`<label><input type="checkbox" value="${escapeHtml(p.id)}" ${selected.includes(String(p.id))?'checked':''}><span>${escapeHtml(p.displayName)}</span></label>`).join('');
+}
+function openExpenseEditor(row=null,prefill={}){
+  if(!canEditTrip())return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet();return}
+  const sheet=ensureExpenseEditor();
+  const source=row||prefill||{};
+  const selected=(source.splits||[]).map(s=>String(s.personId));
+  const defaultSelected=selected.length?selected:expensePeople().map(p=>String(p.id));
+  fillExpensePeopleControls(defaultSelected);
+  qs('#expenseEditId').value=row?.id||'';
+  qs('#expenseEditVersion').value=row?.version||'';
+  qs('#expenseDate').value=source.expenseDate||new Date().toISOString().slice(0,10);
+  qs('#expenseTime').value=source.expenseTime||new Date().toTimeString().slice(0,5);
+  qs('#expenseName').value=source.title||'';
+  qs('#expenseCategory').value=source.category||'other';
+  qs('#expensePaymentMethod').value=source.paymentMethod||'';
+  qs('#expenseCurrency').value=source.currency||'ISK';
+  qs('#expenseAmount').value=source.amount??'';
+  qs('#expensePayer').value=source.paidByPersonId||TRIP.currentPersonId||'';
+  qs('#expenseNote').value=source.note||'';
+  qs('#expenseReceiptPath').value=source.receiptPath||'';
+  qs('#expenseReceiptNotice').textContent=source.receiptParseStatus==='parsed'?'收據已辨識；請逐欄確認後再儲存。':'';
+  qs('#expenseEditTitle').textContent=row?'編輯花費':(source.receiptPath?'確認收據':'新增花費');
+  qs('#deleteExpenseBtn').hidden=!row;
+  qs('#expenseEditStatus').textContent='';
+  sheet._receiptOcr=source.receiptOcr||{};
+  sheet._sourceType=source.sourceType||(source.receiptPath?'receipt':'manual');
+  qs('#expenseEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+async function saveExpenseEditor(e){
+  e.preventDefault();const status=qs('#expenseEditStatus');
+  const splitIds=[...qs('#expenseSplitPeople').querySelectorAll('input:checked')].map(x=>x.value);
+  if(!splitIds.length){status.textContent='至少選一位應分帳人。';return}
+  const payload={
+    id:qs('#expenseEditId').value||null,baseVersion:Number(qs('#expenseEditVersion').value||1),
+    expenseDate:qs('#expenseDate').value,expenseTime:qs('#expenseTime').value,
+    title:qs('#expenseName').value.trim(),category:qs('#expenseCategory').value,
+    paymentMethod:qs('#expensePaymentMethod').value.trim(),currency:qs('#expenseCurrency').value.trim().toUpperCase(),
+    amount:Number(qs('#expenseAmount').value),paidByPersonId:qs('#expensePayer').value||null,
+    note:qs('#expenseNote').value.trim(),splitMode:'equal',splitPersonIds:splitIds,
+    sourceType:qs('#expenseEditSheet')._sourceType||'manual',
+    receiptPath:qs('#expenseReceiptPath').value||null,
+    receiptParseStatus:qs('#expenseReceiptPath').value?'parsed':null,
+    receiptOcr:qs('#expenseEditSheet')._receiptOcr||{}
+  };
+  status.textContent='儲存中…';
+  try{await travelEditor('save_expense',{expense:payload});qs('#expenseEditSheet').classList.remove('show');qs('#expenseEditBackdrop').classList.remove('show');await hydratePrivateCloudData();showView('expense')}
+  catch(err){status.textContent='儲存失敗：'+(err.code||err.message||'unknown')}
+}
+async function deleteExpenseEditor(){
+  const id=qs('#expenseEditId').value;if(!id)return;
+  if(!confirm('刪除這筆花費？'))return;
+  const status=qs('#expenseEditStatus');status.textContent='刪除中…';
+  try{await travelEditor('delete_expense',{id,baseVersion:Number(qs('#expenseEditVersion').value||1)});qs('#expenseEditSheet').classList.remove('show');qs('#expenseEditBackdrop').classList.remove('show');await hydratePrivateCloudData();showView('expense')}
+  catch(err){status.textContent='刪除失敗：'+(err.code||err.message||'unknown')}
+}
+async function addReservationExpense(reservationId){
+  if(!canEditTrip())return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet();return}
+  const people=expensePeople(); if(!people.length)return;
+  try{
+    await travelEditor('expense_from_reservation',{
+      reservationId,
+      paidByPersonId:TRIP.currentPersonId,
+      splitPersonIds:people.map(p=>p.id)
+    });
+    await hydratePrivateCloudData();showView('expense');
+  }catch(err){alert('無法納入花費：'+(err.code||err.message||'unknown'))}
+}
+async function addExpensePerson(){
+  if(!canEditTrip())return;
+  const name=prompt('分帳人名稱');if(!name?.trim())return;
+  try{await travelEditor('add_expense_person',{displayName:name.trim()});await hydratePrivateCloudData();showView('expense')}catch(err){alert('新增失敗：'+(err.code||err.message))}
+}
+
+async function receiptFileToDataUrl(file){
+  return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=reject;r.readAsDataURL(file)});
+}
+async function parseReceiptFile(file){
+  if(!file)return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet();return}
+  const btn=qs('#receiptExpenseBtn');if(btn){btn.disabled=true;btn.textContent='辨識中…'}
+  try{
+    const dataUrl=await receiptFileToDataUrl(file);
+    const base64=String(dataUrl).split(',')[1]||'';
+    const client=window.TravelAuth?.getClient?.();if(!client)throw new Error('auth_not_ready');
+    const device=await window.TravelStore.getDevice();
+    const {data,error}=await client.functions.invoke('travel-receipt-parser',{body:{
+      tripSlug:window.TRAVEL_CONFIG.tripSlug,devicePublicId:device.device_public_id,deviceSecret:device.device_secret,
+      mimeType:file.type,base64
+    }});
+    if(error)throw error;if(data?.error)throw new Error(data.error);
+    const v=data.verifiedFields||{};
+    openExpenseEditor(null,{
+      expenseDate:v.date||new Date().toISOString().slice(0,10),
+      expenseTime:v.time||'',title:v.merchant||'',category:v.category||'other',
+      paymentMethod:v.paymentMethod||'',currency:v.currency||'ISK',amount:v.total??'',
+      paidByPersonId:TRIP.currentPersonId,
+      note:v.note||'',
+      sourceType:'receipt',receiptPath:data.receiptPath,receiptParseStatus:'parsed',
+      receiptOcr:{confidence:data.confidence,verifiedFields:v,uncertainFields:data.uncertainFields||[],visibleText:data.visibleText||[],evidence:data.evidence||{},model:data.model}
+    });
+    const notice=qs('#expenseReceiptNotice');
+    if(notice){
+      const pct=Math.round(Number(data.confidence||0)*100);
+      const uncertain=(data.uncertainFields||[]).length;
+      notice.textContent=`AI / OCR 草稿 · 信心 ${pct}%${uncertain?' · '+uncertain+' 個欄位需確認':''}。不會自動入帳。`;
+    }
+  }catch(err){alert('收據辨識失敗：'+(err.message||'unknown')+'\n請改用手動記帳。')}
+  finally{if(btn){btn.disabled=false;btn.textContent='▣ 拍收據'}}
+}
+function chooseReceiptPhoto(){
+  if(!canEditTrip())return;
+  let input=qs('#expenseReceiptInput');
+  if(!input){input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';input.capture='environment';input.id='expenseReceiptInput';input.hidden=true;document.body.append(input);input.onchange=()=>{const file=input.files?.[0];if(file)parseReceiptFile(file);input.value=''};}
+  input.click();
+}
+
 function renderAll(){
   renderDayStrip();
   renderStaticIcons();
   renderToday();
   renderBookings();
+  renderExpenses();
   renderBottomNavIcons();
   if(map)renderMapDay();
   syncEditModeChrome();
@@ -2236,6 +2575,11 @@ function renderAll(){
 
 qsa('.nav-item[data-target]').forEach(b=>b.onclick=()=>showView(b.dataset.target));
 qsa('[data-nav]').forEach(b=>b.onclick=()=>showView(b.dataset.nav));
+qsa('[data-expense-tab]').forEach(btn=>btn.onclick=()=>{expenseTab=btn.dataset.expenseTab;renderExpenses()});
+if(qs('#addExpenseBtn'))qs('#addExpenseBtn').onclick=()=>openExpenseEditor();
+if(qs('#receiptExpenseBtn'))qs('#receiptExpenseBtn').onclick=chooseReceiptPhoto;
+if(qs('#expenseIdentityBtn'))qs('#expenseIdentityBtn').onclick=openExpenseIdentitySheet;
+if(qs('#addExpensePersonBtn'))qs('#addExpensePersonBtn').onclick=addExpensePerson;
 qs('#routeSlider').oninput=e=>{clearRouteTimer();updateRouteAt(+e.target.value)};
 qs('#routePlayCircle').onclick=togglePlay;
 qs('#playRoute').onclick=togglePlay;
@@ -2468,6 +2812,9 @@ function cloudTripToUi(data){
     role:data.role||'viewer',
     days,
     bookings:(data.reservations||[]).map(normalizeReservation),
+    people:Array.isArray(data.people)?data.people:[],
+    currentPersonId:data.currentPersonId||null,
+    expenses:Array.isArray(data.expenses)?data.expenses:[],
     mailImports:Array.isArray(data.mailImports)?data.mailImports:[]
   };
 }
