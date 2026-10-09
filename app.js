@@ -2872,10 +2872,6 @@ async function setBuyChecklistStatus(itemId){
 function bindChecklistRows(){
   qsa('[data-pack-item]').forEach(btn=>btn.onclick=()=>setPackChecklistStatus(btn.dataset.packItem,btn.dataset.packPerson));
   qsa('[data-buy-item]').forEach(btn=>btn.onclick=()=>setBuyChecklistStatus(btn.dataset.buyItem));
-  qsa('[data-edit-checklist]').forEach(btn=>btn.onclick=()=>{
-    const row=(TRIP?.checklistItems||[]).find(x=>String(x.id)===String(btn.dataset.editChecklist));
-    if(row)openChecklistEditor(row);
-  });
   qsa('[data-buy-expense]').forEach(btn=>btn.onclick=()=>{
     const item=checklistRows('buy').find(x=>String(x.id)===String(btn.dataset.buyExpense));if(!item)return;
     const note=[item.quantity?'數量 '+item.quantity:'',item.forPersonId||item.forCustomName?'誰要的 '+buyPersonLabel(item.forPersonId,item.forCustomName):'',item.note||''].filter(Boolean).join(' · ');
@@ -2965,7 +2961,13 @@ async function addChecklistWantedByPersonFromEditor(){
   syncChecklistEditorFields();
 }
 function ensureChecklistEditor(){
-  let sheet=qs('#checklistEditSheet');if(sheet)return sheet;
+  let sheet=qs('#checklistEditSheet');
+  if(sheet&&(!qs('#checklistEditForm')||!qs('#checklistAssignedPeople')||!qs('#checklistWantedByPeople'))){
+    sheet.remove();
+    qs('#checklistEditBackdrop')?.remove();
+    sheet=null;
+  }
+  if(sheet)return sheet;
   const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistEditBackdrop';
   sheet=document.createElement('aside');sheet.className='edit-sheet checklist-edit-sheet';sheet.id='checklistEditSheet';sheet.setAttribute('aria-hidden','true');
   sheet.innerHTML=`
@@ -3099,6 +3101,21 @@ function renderAll(){
   if(map)renderMapDay();
   syncEditModeChrome();
 }
+
+document.addEventListener('click',e=>{
+  const btn=e.target?.closest?.('[data-edit-checklist]');
+  if(!btn)return;
+  e.preventDefault();
+  e.stopPropagation();
+  const row=(TRIP?.checklistItems||[]).find(x=>String(x.id)===String(btn.dataset.editChecklist));
+  if(!row)return;
+  try{
+    openChecklistEditor(row);
+  }catch(err){
+    console.error('Checklist editor failed to open',err);
+    alert('無法開啟編輯視窗，請重新整理後再試。');
+  }
+},true);
 
 qsa('.nav-item[data-target]').forEach(b=>b.onclick=()=>showView(b.dataset.target));
 qsa('[data-nav]').forEach(b=>b.onclick=()=>showView(b.dataset.nav));
