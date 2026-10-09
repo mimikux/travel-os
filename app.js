@@ -2415,7 +2415,11 @@ function ensureExpenseIdentitySheet(){
       close();await hydratePrivateCloudData();showView(expenseIdentityReturnView||'expense');
     }catch(err){
       const code=err.code||err.message;
-      status.textContent=code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'儲存失敗：'+code;
+      status.textContent=code==='short_code_taken'
+        ?'這個簡稱已有人使用，請換一個。'
+        :code==='invalid_short_code'
+          ?'簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。'
+          :'儲存失敗：'+code;
     }
   };
   return sheet;
@@ -2441,7 +2445,11 @@ function openExpenseIdentitySheet(returnView='expense'){
       await hydratePrivateCloudData();showView(expenseIdentityReturnView||'expense');
     }catch(err){
       const code=err.code||err.message;
-      status.textContent=code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'認領失敗：'+code;
+      status.textContent=code==='short_code_taken'
+        ?'這個簡稱已有人使用，請換一個。'
+        :code==='invalid_short_code'
+          ?'簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。'
+          :'認領失敗：'+code;
     }
   });
   const me=expenseCurrentPerson();
@@ -3035,7 +3043,11 @@ async function createTripPerson(){
     return result?.person||null;
   }catch(err){
     const code=err.code||err.message;
-    alert(code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'新增失敗：'+code);
+    alert(code==='short_code_taken'
+      ?'這個簡稱已有人使用，請換一個。'
+      :code==='invalid_short_code'
+        ?'簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。'
+        :'新增失敗：'+code);
     return null;
   }
 }
