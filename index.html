@@ -4,19 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#173c35" />
-  <title>Matt's Travel OS V1.3.0</title>
+  <title>Matt's Travel OS V1.4.0</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261008-expense-v48" />
+  <link rel="stylesheet" href="app.css?v=20261009-checklist-v1" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
     <div class="auth-card">
       <div class="auth-mark">I</div>
       <span class="section-kicker">TRAVEL OS</span>
-      <h1 id="authTripTitle">Matt's Travel OS V1.3.0</h1>
+      <h1 id="authTripTitle">Matt's Travel OS V1.4.0</h1>
       <p id="authMessage">正在確認這台裝置的登入狀態…</p>
       <form id="magicLinkForm" class="auth-form" hidden>
         <label for="authEmail">Email</label>
@@ -89,6 +89,16 @@
         </div>
 
         <div class="day-strip" id="dayStrip"></div>
+
+        <button class="checklist-home-card" id="checklistHomeCard" type="button" data-nav="checklist">
+          <span class="checklist-home-icon" aria-hidden="true">✓</span>
+          <span class="checklist-home-copy">
+            <small>TRIP CHECKLIST</small>
+            <strong id="checklistHomeTitle">出發準備</strong>
+            <em id="checklistHomeSummary">開始建立旅行清單</em>
+          </span>
+          <span class="checklist-home-arrow">→</span>
+        </button>
 
         <section class="day-note-wrap" id="dayNoteWrap" hidden>
           <button class="day-note-card" id="dayNoteToggle" type="button" aria-expanded="false">
@@ -244,6 +254,41 @@
         </section>
       </section>
 
+      <section class="view checklist-view" id="checklistView">
+        <div class="subview-trip-header">
+          <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>清單</h1></div>
+          <button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button>
+        </div>
+
+        <div class="checklist-hero">
+          <div>
+            <span class="section-kicker">TRIP CHECKLIST</span>
+            <h2 id="checklistHeroTitle">出發準備</h2>
+            <p id="checklistHeroSummary">把該帶的、想買的都放在同一個地方。</p>
+          </div>
+          <button type="button" class="checklist-scope-btn" id="checklistScopeBtn">全部隊友</button>
+        </div>
+
+        <div class="checklist-tab-row">
+          <button type="button" class="active" data-checklist-tab="pack">要帶</button>
+          <button type="button" data-checklist-tab="buy">要買</button>
+        </div>
+
+        <div class="checklist-toolbar">
+          <div class="checklist-filters" id="checklistFilters"></div>
+          <button type="button" class="checklist-add-btn" id="addChecklistItemBtn">＋ 新增</button>
+        </div>
+
+        <div class="checklist-person-head" id="checklistPersonHead" hidden></div>
+
+        <section class="checklist-panel active" id="checklistPackPanel">
+          <div class="checklist-list" id="checklistPackList"></div>
+        </section>
+        <section class="checklist-panel" id="checklistBuyPanel">
+          <div class="checklist-list" id="checklistBuyList"></div>
+        </section>
+      </section>
+
       <section class="view more-view" id="moreView">
         <div class="subview-trip-header more-page-header">
           <div><div class="eyebrow">TRAVEL OS</div><h1>更多</h1></div>
@@ -282,7 +327,7 @@
         <section class="more-section more-app-section">
           <div class="more-section-head"><span class="section-kicker">APP</span><h2>Travel OS</h2></div>
           <div class="more-about-card">
-            <div><strong id="moreAppVersion">V1.3.0</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
+            <div><strong id="moreAppVersion">V1.4.0</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
             <small>旅程層級操作請使用右上角 •••</small>
           </div>
         </section>
@@ -294,7 +339,7 @@
       <button class="nav-item" data-target="map"><span class="nav-icon" data-icon="map"></span><small>地圖</small></button>
       <button class="nav-item" data-target="booking"><span class="nav-icon" data-icon="booking"></span><small>預訂</small></button>
       <button class="nav-item" data-target="expense"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
-      <button class="nav-item" data-target="more"><span class="nav-icon" data-icon="more"></span><small>更多</small><span class="global-mail-badge" id="globalMailBadge" hidden>0</span></button>
+      <button class="nav-item" data-target="checklist"><span class="nav-icon" data-icon="checklist"></span><small>清單</small></button>
     </nav>
   </div>
 
@@ -323,6 +368,10 @@
 </button>
 <button class="sheet-action-card" id="membersBtn" type="button">
   <span><small>TRIP ACCESS</small><strong>成員與裝置</strong></span><span>→</span>
+</button>
+<button class="sheet-action-card" id="moreSettingsBtn" type="button">
+  <span><small>MORE &amp; ACCOUNT</small><strong>更多與帳號</strong><em>旅程切換、同步、未分類信件</em></span>
+  <span class="sheet-action-end">→<b class="global-mail-badge" id="globalMailBadge" hidden>0</b></span>
 </button>
 <div class="info-note">此 Trip 的 Owner 可邀請 Editor / Viewer，並管理每位成員的 Trusted Device。</div>
   </aside>
@@ -409,11 +458,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261008-expense-v48"></script>
-  <script src="data.js?v=20261008-expense-v48"></script>
-  <script src="local-db.js?v=20261008-expense-v48"></script>
-  <script src="sync-engine.js?v=20261008-expense-v48"></script>
-  <script src="auth.js?v=20261008-expense-v48"></script>
-  <script src="app.js?v=20261008-expense-v48"></script>
+  <script src="config.js?v=20261009-checklist-v1"></script>
+  <script src="data.js?v=20261009-checklist-v1"></script>
+  <script src="local-db.js?v=20261009-checklist-v1"></script>
+  <script src="sync-engine.js?v=20261009-checklist-v1"></script>
+  <script src="auth.js?v=20261009-checklist-v1"></script>
+  <script src="app.js?v=20261009-checklist-v1"></script>
 </body>
 </html>
