@@ -2806,3 +2806,14 @@ html.item-editor-open .global-edit-toolbar{
   .checklist-import-btn,.checklist-scope-btn{padding:8px 9px}
   .checklist-import-card{padding:10px 11px}
 }
+
+
+/* Match category filter chips to packing-list category tints. */
+.checklist-filters button[data-checklist-category="食"]{background:#fff0dc;border-color:#efd5b6;color:#7a4d16}
+.checklist-filters button[data-checklist-category="衣"]{background:#eef6fd;border-color:#cfe0ef;color:#315a78}
+.checklist-filters button[data-checklist-category="行"]{background:#eef7ef;border-color:#cfe1d1;color:#365f3c}
+.checklist-filters button[data-checklist-category="盥洗"]{background:#eef7f7;border-color:#cfe3e3;color:#356565}
+.checklist-filters button[data-checklist-category="藥品"]{background:#fff0f3;border-color:#efcfd7;color:#7b3e50}
+.checklist-filters button[data-checklist-category="娛樂"]{background:#f5f0fb;border-color:#ddd0eb;color:#5d4776}
+.checklist-filters button[data-checklist-category="其他"]{background:#f4f4f2;border-color:#ddddda;color:#555b58}
+.checklist-filters button.active{outline:1px solid currentColor;outline-offset:1px}
