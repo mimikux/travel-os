@@ -18,7 +18,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.4.6';
+const APP_VERSION='1.4.7';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -458,11 +458,15 @@ function showView(name){
   if(name==='today') requestAnimationFrame(updateHeroCollapse);
   if(name==='expense'){
     renderExpenses();
-    if(!TRIP?.currentPersonId) setTimeout(()=>openExpenseIdentitySheet('expense'),120);
+    if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId){
+      setTimeout(()=>{if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet('expense')},120);
+    }
   }
   if(name==='checklist'){
     renderChecklist();
-    if(!TRIP?.currentPersonId) setTimeout(()=>openExpenseIdentitySheet('checklist'),120);
+    if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId){
+      setTimeout(()=>{if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet('checklist')},120);
+    }
   }
   if(name==='more') renderMoreView();
 }
@@ -2368,12 +2372,17 @@ function renderExpenseAnalysis(){
 
 let expenseIdentityReturnView='expense';
 
+function isValidShortCode(value){
+  const s=String(value||'').trim();
+  return /^[A-Za-z]{1,2}$/.test(s)||/^[\u3400-\u9FFF]$/u.test(s);
+}
 function suggestShortCode(name){
   const s=String(name||'').trim();
   if(!s)return '';
-  const chars=Array.from(s.replace(/\s+/g,''));
-  if(chars.length===1)return chars[0];
-  return (chars[0]+chars[chars.length-1]).slice(0,2);
+  const chinese=Array.from(s).find(ch=>/^[\u3400-\u9FFF]$/u.test(ch));
+  if(chinese)return chinese;
+  const ascii=(s.match(/[A-Za-z]/g)||[]).join('');
+  return ascii.slice(0,2);
 }
 function ensureExpenseIdentitySheet(){
   let sheet=qs('#expenseIdentitySheet'); if(sheet)return sheet;
@@ -2385,7 +2394,7 @@ function ensureExpenseIdentitySheet(){
     <div id="expenseClaimList" class="expense-claim-list"></div>
     <form class="edit-form" id="expenseIdentityForm">
       <label><span>暱稱</span><input id="expenseNickname" maxlength="80" placeholder="例如 Matt" required></label>
-      <label><span>簡稱 · 最多 2 碼</span><input id="expenseShortCode" maxlength="2" placeholder="例如 Mt" required><small>同一趟旅程不可重複；多人打包畫面會使用這個簡稱。</small></label>
+      <label><span>簡稱 · 半形英文最多 2 碼 / 中文 1 字</span><input id="expenseShortCode" maxlength="2" placeholder="例如 Ma 或 慶" required><small>可輸入 1–2 個半形英文字母，或 1 個中文字；同一趟旅程不可重複。</small></label>
       <div class="edit-form-actions"><button type="submit" class="edit-save">使用這個身份</button></div>
       <p class="edit-status" id="expenseIdentityStatus"></p>
     </form>`;
@@ -2399,7 +2408,7 @@ function ensureExpenseIdentitySheet(){
     e.preventDefault();
     const name=qs('#expenseNickname').value.trim(),shortCode=qs('#expenseShortCode').value.trim(),status=qs('#expenseIdentityStatus');
     if(!name){status.textContent='請輸入暱稱。';return}
-    if(!shortCode||Array.from(shortCode).length>2){status.textContent='請輸入 1～2 碼簡稱。';return}
+    if(!isValidShortCode(shortCode)){status.textContent='簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。';return}
     status.textContent='儲存中…';
     try{
       await travelEditor('set_expense_identity',{displayName:name,shortCode});
@@ -2421,8 +2430,9 @@ function openExpenseIdentitySheet(returnView='expense'){
     const person=expensePeople().find(p=>String(p.id)===String(btn.dataset.claimPerson));
     let shortCode=person?.shortCode||'';
     if(!shortCode){
-      shortCode=(prompt('請先為這個旅伴設定 1～2 碼簡稱',suggestShortCode(person?.displayName||''))||'').trim();
+      shortCode=(prompt('請設定簡稱：1–2 個半形英文字母，或 1 個中文字',suggestShortCode(person?.displayName||''))||'').trim();
       if(!shortCode)return;
+      if(!isValidShortCode(shortCode)){alert('簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。');return}
     }
     const status=qs('#expenseIdentityStatus');status.textContent='認領中…';
     try{
@@ -3017,8 +3027,8 @@ function renderChecklistWantedBy(selectedPersonId='',customName=''){
 async function createTripPerson(){
   if(!canEditTrip())return null;
   const name=prompt('旅伴名稱');if(!name?.trim())return null;
-  const shortCode=(prompt('簡稱（最多 2 碼，同一趟不可重複）',suggestShortCode(name))||'').trim();
-  if(!shortCode||Array.from(shortCode).length>2){alert('請輸入 1～2 碼簡稱。');return null}
+  const shortCode=(prompt('簡稱：1–2 個半形英文字母，或 1 個中文字（同一趟不可重複）',suggestShortCode(name))||'').trim();
+  if(!isValidShortCode(shortCode)){alert('簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。');return null}
   try{
     const result=await travelEditor('add_expense_person',{displayName:name.trim(),shortCode});
     await hydratePrivateCloudData();
@@ -3566,6 +3576,12 @@ async function hydratePrivateCloudData(){
     cloudLoaded=true;
     cloudSyncState='synced';
     cloudLastError='';
+    if(TRIP?.currentPersonId){
+      expenseIdentityPrompted=true;
+      qs('#expenseIdentitySheet')?.classList.remove('show');
+      qs('#expenseIdentityBackdrop')?.classList.remove('show');
+      qs('#expenseIdentitySheet')?.setAttribute('aria-hidden','true');
+    }
     if(initialTripDaySelectionPending){
       syncToReferenceTripDay(false,true);
       initialTripDaySelectionPending=false;
