@@ -2553,3 +2553,135 @@ html.item-editor-open .global-edit-toolbar{
   .checklist-pack-row .checklist-item-title{gap:0}
   .checklist-note-cell{font-size:9px}
 }
+
+
+/* Checklist v1.4.4 header / shopping / people-chip polish */
+.checklist-person-head>.checklist-column-title,
+.checklist-person-head>.checklist-mine-head{
+  display:block!important;
+}
+.checklist-column-title{
+  color:var(--muted)!important;
+  font-size:9px!important;
+  font-weight:800!important;
+  letter-spacing:.04em;
+  line-height:1;
+  align-self:center;
+}
+.checklist-mine-head{
+  color:var(--muted)!important;
+  font-size:9px!important;
+  font-weight:800!important;
+  line-height:1;
+  text-align:center;
+}
+.checklist-head-edit-spacer{display:block}
+
+.checklist-buy-row{
+  grid-template-columns:30px minmax(150px,1.15fr) minmax(130px,.9fr) 34px!important;
+}
+.checklist-buy-note{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.checklist-note-text{
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.checklist-expense-link.compact{
+  flex:0 0 auto;
+  margin:0;
+  padding:4px 6px;
+  border-radius:8px;
+  font-size:8px;
+  line-height:1;
+}
+
+#checklistAssignedPeople,
+#checklistWantedByPeople{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px;
+}
+#checklistAssignedPeople .checklist-person-option,
+#checklistWantedByPeople .checklist-person-option{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+  min-height:28px;
+  margin:0;
+  padding:4px 8px;
+  border:1px solid var(--theme-accent-border);
+  border-radius:999px;
+  background:var(--theme-surface);
+  box-sizing:border-box;
+  font-size:10px;
+  font-weight:500!important;
+  line-height:1;
+}
+#checklistAssignedPeople .checklist-person-option input,
+#checklistWantedByPeople .checklist-person-option input{
+  width:13px;
+  height:13px;
+  margin:0;
+  flex:0 0 13px;
+  transform:none;
+  vertical-align:middle;
+}
+.checklist-person-name{
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  font-weight:500!important;
+  line-height:1;
+  padding-top:0;
+}
+.checklist-person-name em{
+  color:var(--muted);
+  font-size:9px;
+  font-style:normal;
+  font-weight:500;
+}
+.checklist-add-person-btn{
+  min-height:28px;
+  padding:4px 8px!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+  font-size:9px!important;
+  font-weight:800!important;
+}
+.checklist-people-fieldset{
+  padding:9px 10px!important;
+}
+.checklist-people-fieldset legend{
+  font-size:9px;
+  font-weight:800;
+}
+
+@media(max-width:520px){
+  .checklist-buy-row{
+    grid-template-columns:28px minmax(92px,1fr) minmax(72px,.8fr) 32px!important;
+  }
+  #checklistAssignedPeople .checklist-person-option,
+  #checklistWantedByPeople .checklist-person-option{
+    min-height:27px;
+    padding:4px 7px;
+    gap:4px;
+    font-size:9px;
+  }
+  #checklistAssignedPeople .checklist-person-option input,
+  #checklistWantedByPeople .checklist-person-option input{
+    width:12px;
+    height:12px;
+    flex-basis:12px;
+  }
+  .checklist-person-name em{font-size:8px}
+}
