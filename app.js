@@ -2385,30 +2385,44 @@ function suggestShortCode(name){
   return ascii.slice(0,2);
 }
 function ensureExpenseIdentitySheet(){
-  let sheet=qs('#expenseIdentitySheet'); if(sheet)return sheet;
+  let sheet=qs('#expenseIdentitySheet');
+  if(sheet&&sheet.dataset.identityVersion!=='3'){
+    sheet.remove();
+    qs('#expenseIdentityBackdrop')?.remove();
+    sheet=null;
+  }
+  if(sheet)return sheet;
+
   const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='expenseIdentityBackdrop';
-  sheet=document.createElement('aside');sheet.className='edit-sheet expense-identity-sheet';sheet.id='expenseIdentitySheet';sheet.setAttribute('aria-hidden','true');
+  sheet=document.createElement('aside');sheet.className='edit-sheet expense-identity-sheet';sheet.id='expenseIdentitySheet';sheet.dataset.identityVersion='3';sheet.setAttribute('aria-hidden','true');
   sheet.innerHTML=`
     <div class="sheet-handle"></div>
     <div class="sheet-title"><div><span class="section-kicker">TRIP IDENTITY</span><h2>你在這趟旅程是誰？</h2><p>同一個旅伴身份會用於打包、付款與分帳。</p></div><button class="round-btn" id="closeExpenseIdentity">×</button></div>
     <div id="expenseClaimList" class="expense-claim-list"></div>
     <form class="edit-form" id="expenseIdentityForm">
       <label><span>暱稱</span><input id="expenseNickname" maxlength="80" placeholder="例如 Matt" required></label>
-      <label><span>簡稱 · 半形英文最多 2 碼 / 中文 1 字</span><input id="expenseShortCode" maxlength="2" placeholder="例如 Ma 或 慶" required><small>可輸入 1–2 個半形英文字母，或 1 個中文字；同一趟旅程不可重複。</small></label>
+      <label class="identity-short-code-field">
+        <span class="identity-short-code-label"><strong>簡稱：</strong><em>最多 2 碼半形英文（如「Ma」） or 一個中文字（如「慶」）</em></span>
+        <input id="expenseShortCode" maxlength="2" placeholder="Ma / 慶" required>
+        <small>同一趟旅程不可重複；多人打包畫面會使用這個簡稱。</small>
+      </label>
       <div class="edit-form-actions"><button type="submit" class="edit-save">使用這個身份</button></div>
       <p class="edit-status" id="expenseIdentityStatus"></p>
     </form>`;
   document.body.append(backdrop,sheet);
+
   const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
   qs('#closeExpenseIdentity').onclick=close;backdrop.onclick=close;
+
   let shortDirty=false;
   qs('#expenseShortCode').oninput=()=>{shortDirty=true};
   qs('#expenseNickname').oninput=()=>{if(!shortDirty)qs('#expenseShortCode').value=suggestShortCode(qs('#expenseNickname').value)};
+
   qs('#expenseIdentityForm').onsubmit=async e=>{
     e.preventDefault();
     const name=qs('#expenseNickname').value.trim(),shortCode=qs('#expenseShortCode').value.trim(),status=qs('#expenseIdentityStatus');
     if(!name){status.textContent='請輸入暱稱。';return}
-    if(!isValidShortCode(shortCode)){status.textContent='簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。';return}
+    if(!isValidShortCode(shortCode)){status.textContent='簡稱請輸入最多 2 碼半形英文，或 1 個中文字。';return}
     status.textContent='儲存中…';
     try{
       await travelEditor('set_expense_identity',{displayName:name,shortCode});
@@ -2418,25 +2432,40 @@ function ensureExpenseIdentitySheet(){
       status.textContent=code==='short_code_taken'
         ?'這個簡稱已有人使用，請換一個。'
         :code==='invalid_short_code'
-          ?'簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。'
+          ?'簡稱請輸入最多 2 碼半形英文，或 1 個中文字。'
           :'儲存失敗：'+code;
     }
   };
   return sheet;
 }
-function openExpenseIdentitySheet(returnView='expense'){
+
+async function openExpenseIdentitySheet(returnView='expense'){
   if(!TRIP)return;
   expenseIdentityReturnView=returnView||'expense';
+
+  if((!cloudLoaded||cloudSyncState!=='synced')&&navigator.onLine){
+    try{await hydratePrivateCloudData()}catch(_){}
+  }
+
   const sheet=ensureExpenseIdentitySheet(),list=qs('#expenseClaimList');
+  const me=expenseCurrentPerson();
   const unclaimed=expensePeople().filter(p=>!p.linkedUserId);
-  list.innerHTML=unclaimed.length?'<p class="expense-claim-hint">如果你已經在清單裡，直接認領：</p>'+unclaimed.map(p=>`<button type="button" data-claim-person="${escapeHtml(p.id)}"><span><strong>${escapeHtml(p.displayName)}</strong><small>${escapeHtml(p.shortCode||'尚未設定簡稱')}</small></span><span>認領</span></button>`).join(''):'';
+
+  if(me){
+    list.innerHTML=`<div class="expense-current-identity"><span>目前身份</span><strong>${escapeHtml(me.displayName)} <b>${escapeHtml(me.shortCode||'')}</b></strong><em>已認領</em></div>`;
+  }else if(unclaimed.length){
+    list.innerHTML='<p class="expense-claim-hint">如果你已經在清單裡，直接認領：</p>'+unclaimed.map(p=>`<button type="button" data-claim-person="${escapeHtml(p.id)}"><span><strong>${escapeHtml(p.displayName)}</strong><small>${escapeHtml(p.shortCode||'尚未設定簡稱')}</small></span><span>認領</span></button>`).join('');
+  }else{
+    list.innerHTML='<p class="expense-claim-hint">目前沒有可認領的旅伴身份，請在下方建立自己的身份。</p>';
+  }
+
   list.querySelectorAll('[data-claim-person]').forEach(btn=>btn.onclick=async()=>{
     const person=expensePeople().find(p=>String(p.id)===String(btn.dataset.claimPerson));
     let shortCode=person?.shortCode||'';
     if(!shortCode){
-      shortCode=(prompt('請設定簡稱：1–2 個半形英文字母，或 1 個中文字',suggestShortCode(person?.displayName||''))||'').trim();
+      shortCode=(prompt('請設定簡稱：最多 2 碼半形英文，或 1 個中文字',suggestShortCode(person?.displayName||''))||'').trim();
       if(!shortCode)return;
-      if(!isValidShortCode(shortCode)){alert('簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。');return}
+      if(!isValidShortCode(shortCode)){alert('簡稱請輸入最多 2 碼半形英文，或 1 個中文字。');return}
     }
     const status=qs('#expenseIdentityStatus');status.textContent='認領中…';
     try{
@@ -2448,11 +2477,11 @@ function openExpenseIdentitySheet(returnView='expense'){
       status.textContent=code==='short_code_taken'
         ?'這個簡稱已有人使用，請換一個。'
         :code==='invalid_short_code'
-          ?'簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。'
+          ?'簡稱請輸入最多 2 碼半形英文，或 1 個中文字。'
           :'認領失敗：'+code;
     }
   });
-  const me=expenseCurrentPerson();
+
   qs('#expenseNickname').value=me?.displayName||'';
   qs('#expenseShortCode').value=me?.shortCode||suggestShortCode(me?.displayName||'');
   qs('#expenseIdentityStatus').textContent='';
@@ -3608,8 +3637,15 @@ async function hydratePrivateCloudData(){
     renderAll();
     updateEditAvailability();
     if(!TRIP?.currentPersonId&&!expenseIdentityPrompted){
-      expenseIdentityPrompted=true;
-      setTimeout(()=>openExpenseIdentitySheet(),900);
+      const activeExpense=qs('#expenseView')?.classList.contains('active');
+      const activeChecklist=qs('#checklistView')?.classList.contains('active');
+      if(activeExpense||activeChecklist){
+        expenseIdentityPrompted=true;
+        const target=activeChecklist?'checklist':'expense';
+        setTimeout(()=>{
+          if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet(target);
+        },250);
+      }
     }
     refreshGlobalMailBadge().catch(()=>{});
     setTimeout(()=>maybeAutoResolveMissingPlaces().catch(()=>{}),500);
