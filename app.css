@@ -2715,3 +2715,94 @@ html.item-editor-open .global-edit-toolbar{
 .checklist-edit-dots i{
   pointer-events:none!important;
 }
+
+
+/* Checklist v1.4.6 import + fixed category tints */
+.checklist-hero-actions{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:8px;
+}
+.checklist-import-btn{
+  border:1px solid var(--theme-accent-border);
+  border-radius:12px;
+  background:rgba(255,255,255,.72);
+  color:var(--green);
+  padding:9px 11px;
+  font-size:11px;
+  font-weight:850;
+  white-space:nowrap;
+}
+.checklist-import-btn:hover{background:#fff}
+.checklist-import-btn[hidden]{display:none!important}
+
+.checklist-import-sheet{max-height:82vh}
+.checklist-import-list{display:grid;gap:8px;margin-top:14px}
+.checklist-import-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:12px;
+  padding:12px 13px;
+  border:1px solid var(--theme-accent-border);
+  border-radius:16px;
+  background:var(--paper);
+}
+.checklist-import-card strong{display:block;font-size:14px}
+.checklist-import-card span{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+.checklist-import-card small{display:block;margin-top:4px;color:var(--muted);font-size:11px}
+.checklist-import-card button{
+  border:0;
+  border-radius:11px;
+  background:var(--green);
+  color:#fff;
+  padding:9px 11px;
+  font-size:11px;
+  font-weight:900;
+}
+.checklist-import-card button:disabled{opacity:.45}
+
+/* These colors are intentionally fixed across themes. */
+.checklist-pack-row[data-checklist-category="食"]{
+  background:#fff4e7!important;
+  border-color:#efd5b6!important;
+}
+.checklist-pack-row[data-checklist-category="衣"]{
+  background:#eef6fd!important;
+  border-color:#cfe0ef!important;
+}
+.checklist-pack-row[data-checklist-category="行"]{
+  background:#eef7ef!important;
+  border-color:#cfe1d1!important;
+}
+.checklist-pack-row[data-checklist-category="盥洗"]{
+  background:#eef7f7!important;
+  border-color:#cfe3e3!important;
+}
+.checklist-pack-row[data-checklist-category="藥品"]{
+  background:#fff0f3!important;
+  border-color:#efcfd7!important;
+}
+.checklist-pack-row[data-checklist-category="娛樂"]{
+  background:#f5f0fb!important;
+  border-color:#ddd0eb!important;
+}
+.checklist-pack-row[data-checklist-category="其他"]{
+  background:#f4f4f2!important;
+  border-color:#ddddda!important;
+}
+
+.checklist-pack-row[data-checklist-category="食"] .checklist-category-tag{background:#f6ddbd!important;color:#7a4d16!important}
+.checklist-pack-row[data-checklist-category="衣"] .checklist-category-tag{background:#dceaf6!important;color:#315a78!important}
+.checklist-pack-row[data-checklist-category="行"] .checklist-category-tag{background:#dcebdc!important;color:#365f3c!important}
+.checklist-pack-row[data-checklist-category="盥洗"] .checklist-category-tag{background:#dcecec!important;color:#356565!important}
+.checklist-pack-row[data-checklist-category="藥品"] .checklist-category-tag{background:#f5dce3!important;color:#7b3e50!important}
+.checklist-pack-row[data-checklist-category="娛樂"] .checklist-category-tag{background:#e6dcf2!important;color:#5d4776!important}
+.checklist-pack-row[data-checklist-category="其他"] .checklist-category-tag{background:#e5e5e0!important;color:#555b58!important}
+
+@media(max-width:520px){
+  .checklist-hero-actions{gap:6px}
+  .checklist-import-btn,.checklist-scope-btn{padding:8px 9px}
+  .checklist-import-card{padding:10px 11px}
+}
