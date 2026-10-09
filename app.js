@@ -2616,6 +2616,7 @@ function chooseReceiptPhoto(){
 
 let checklistTab=(()=>{try{const v=localStorage.getItem('travelChecklistTab');return ['pack','buy'].includes(v)?v:''}catch(_){return ''}})();
 let checklistScope=(()=>{try{return localStorage.getItem('travelChecklistScope')==='team'?'team':'mine'}catch(_){return 'mine'}})();
+const CHECKLIST_CATEGORIES=['食','衣','行','盥洗','藥品','娛樂','其他'];
 let checklistCategory='all';
 
 function tripTodayISO(){
@@ -2656,8 +2657,7 @@ function checklistStatusButton(status,itemId,personId,enabled=true){
   return `<button type="button" class="pack-status-btn ${status}" data-pack-item="${escapeHtml(itemId)}" data-pack-person="${escapeHtml(personId)}" title="${title}" aria-label="${title}" ${enabled?'':'disabled'}>${mark}</button>`;
 }
 function checklistCategoryRows(){
-  const rows=checklistRows();
-  return ['all',...Array.from(new Set(rows.map(x=>String(x.category||'其他')).filter(Boolean)))];
+  return ['all',...CHECKLIST_CATEGORIES];
 }
 function renderChecklistFilters(){
   const host=qs('#checklistFilters');if(!host)return;
@@ -2717,7 +2717,7 @@ function renderChecklistPack(){
         ${item.note?`<p>${escapeHtml(item.note)}</p>`:''}
         ${personNotes?`<p class="checklist-person-note">${escapeHtml(personNotes)}</p>`:''}
       </div>
-      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}">•••</button>`:''}
+      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}" aria-label="編輯"><span class="checklist-edit-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`:''}
     </article>`;
   }).join('');
   bindChecklistRows();
@@ -2749,7 +2749,7 @@ function renderChecklistBuy(){
         ${info.length?`<p>${escapeHtml(info.join(' · '))}</p>`:''}
         ${bought&&canEditTrip()?`<button type="button" class="checklist-expense-link" data-buy-expense="${escapeHtml(item.id)}">＋ 記一筆花費</button>`:''}
       </div>
-      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}">•••</button>`:''}
+      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}" aria-label="編輯"><span class="checklist-edit-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`:''}
     </article>`;
   }).join('');
   bindChecklistRows();
@@ -2760,7 +2760,7 @@ function renderChecklistPersonHead(){
   head.hidden=!show;
   if(!show)return;
   const people=expensePeople();
-  head.innerHTML=`<span>隊友</span><div class="checklist-team-status checklist-team-head">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`;
+  head.innerHTML=`<div class="checklist-team-status checklist-team-head" aria-label="隊友">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`;
 }
 function renderChecklist(){
   if(!qs('#checklistView')||!TRIP)return;
@@ -2794,6 +2794,9 @@ function renderChecklist(){
 }
 function renderChecklistHome(){
   const card=qs('#checklistHomeCard');if(!card||!TRIP)return;
+  const isD0=String(currentDay()?.label||'').toUpperCase()==='D0';
+  card.hidden=!isD0;
+  if(!isD0)return;
   const title=qs('#checklistHomeTitle'),summary=qs('#checklistHomeSummary');
   const beforeStart=(TRIP?.startDate||'')&&tripTodayISO()<TRIP.startDate;
   if(beforeStart){
@@ -2849,7 +2852,7 @@ function ensureChecklistEditor(){
     <form class="edit-form" id="checklistEditForm">
       <input type="hidden" id="checklistEditId"><input type="hidden" id="checklistEditVersion"><input type="hidden" id="checklistEditType">
       <div class="edit-form-grid">
-        <label><span>分類</span><input id="checklistCategoryInput" maxlength="40" placeholder="例如 吃 / 煮 / 行" required></label>
+        <label><span>分類</span><select id="checklistCategoryInput" required><option value="食">食</option><option value="衣">衣</option><option value="行">行</option><option value="盥洗">盥洗</option><option value="藥品">藥品</option><option value="娛樂">娛樂</option><option value="其他">其他</option></select></label>
         <label class="checklist-quantity-field"><span>數量</span><input id="checklistQuantityInput" maxlength="40" placeholder="1 / 2盒"></label>
       </div>
       <label><span>品項</span><input id="checklistTitleInput" maxlength="180" required placeholder="要帶或要買的東西"></label>
@@ -2899,7 +2902,8 @@ function openChecklistEditor(row=null){
   qs('#checklistEditType').value=type;
   qs('#checklistEditTitle').textContent=row?'編輯項目':(type==='pack'?'新增要帶':'新增要買');
   qs('#checklistEditSubtitle').textContent=type==='pack'?'空白 → Ready → Packed 循環切換':'未買 → 已買，購買地點直接寫在備註。';
-  qs('#checklistCategoryInput').value=row?.category||'';
+  const category=CHECKLIST_CATEGORIES.includes(row?.category)?row.category:'其他';
+  qs('#checklistCategoryInput').value=category;
   qs('#checklistTitleInput').value=row?.title||'';
   qs('#checklistQuantityInput').value=row?.quantity||'';
   qs('#checklistNoteInput').value=row?.note||'';
@@ -2930,7 +2934,7 @@ async function saveChecklistEditor(e){
     id:qs('#checklistEditId').value||null,
     baseVersion:Number(qs('#checklistEditVersion').value||1),
     listType:type,
-    category:qs('#checklistCategoryInput').value.trim()||'其他',
+    category:CHECKLIST_CATEGORIES.includes(qs('#checklistCategoryInput').value)?qs('#checklistCategoryInput').value:'其他',
     title:qs('#checklistTitleInput').value.trim(),
     quantity:type==='buy'?qs('#checklistQuantityInput').value.trim():'',
     note:qs('#checklistNoteInput').value.trim(),
