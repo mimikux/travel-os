@@ -1,5 +1,5 @@
-const CACHE='travel-os-checklist-v2';
-const ASSETS=['./','./index.html','./app.css?v=20261009-checklist-v2','./app.js?v=20261009-checklist-v2','./data.js?v=20261009-checklist-v2','./config.js?v=20261009-checklist-v2','./auth.js?v=20261009-checklist-v2','./local-db.js?v=20261009-checklist-v2','./sync-engine.js?v=20261009-checklist-v2','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-checklist-v3';
+const ASSETS=['./','./index.html','./app.css?v=20261009-checklist-v3','./app.js?v=20261009-checklist-v3','./data.js?v=20261009-checklist-v3','./config.js?v=20261009-checklist-v3','./auth.js?v=20261009-checklist-v3','./local-db.js?v=20261009-checklist-v3','./sync-engine.js?v=20261009-checklist-v3','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
