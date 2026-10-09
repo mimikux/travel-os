@@ -2371,3 +2371,12 @@ html.item-editor-open .global-edit-toolbar{
   .checklist-edit-dots{gap:2.5px}
   .checklist-edit-dots i{width:3.5px;height:3.5px}
 }
+
+.checklist-team-head b{
+  width:30px;
+  justify-self:start;
+  box-sizing:border-box;
+}
+@media(max-width:520px){
+  .checklist-team-head b{width:28px}
+}
