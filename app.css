@@ -2380,3 +2380,62 @@ html.item-editor-open .global-edit-toolbar{
 @media(max-width:520px){
   .checklist-team-head b{width:28px}
 }
+
+
+/* Checklist status legend + clearer 3-state checkboxes */
+.pack-status-btn.ready{
+  background:#fff!important;
+  border-color:#3d765f!important;
+  color:#3d765f!important;
+  font-size:15px!important;
+}
+.pack-status-btn.packed{
+  background:#3d765f!important;
+  border-color:#3d765f!important;
+  color:#fff!important;
+}
+.checklist-legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px 12px;
+  margin-top:10px;
+  color:var(--muted);
+  font-size:9px;
+  font-weight:800;
+  line-height:1.35;
+}
+.checklist-legend span{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  white-space:nowrap;
+}
+.legend-box{
+  width:17px;
+  height:17px;
+  border-radius:5px;
+  display:inline-grid;
+  place-items:center;
+  box-sizing:border-box;
+  font-style:normal;
+  font-size:11px;
+  font-weight:950;
+}
+.legend-box.todo{
+  background:#fff;
+  border:1.5px solid #cfc7bb;
+}
+.legend-box.ready{
+  background:#fff;
+  border:1.5px solid #3d765f;
+  color:#3d765f;
+}
+.legend-box.packed{
+  background:#3d765f;
+  border:1.5px solid #3d765f;
+  color:#fff;
+}
+@media(max-width:520px){
+  .checklist-legend{gap:6px 9px;font-size:8px}
+  .legend-box{width:16px;height:16px;font-size:10px}
+}
