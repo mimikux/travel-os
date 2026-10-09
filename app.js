@@ -2652,8 +2652,8 @@ function packNoteFor(item,personId){
 }
 function nextPackStatus(status){return status==='todo'?'ready':status==='ready'?'packed':'todo'}
 function checklistStatusButton(status,itemId,personId,enabled=true){
-  const mark=status==='packed'?'✓':status==='ready'?'R':'';
-  const title=status==='packed'?'已打包':status==='ready'?'Ready · 已準備':'尚未準備';
+  const mark=status==='packed'||status==='ready'?'✓':'';
+  const title=status==='packed'?'已打包':status==='ready'?'已準備、未打包':'尚未準備';
   return `<button type="button" class="pack-status-btn ${status}" data-pack-item="${escapeHtml(itemId)}" data-pack-person="${escapeHtml(personId)}" title="${title}" aria-label="${title}" ${enabled?'':'disabled'}>${mark}</button>`;
 }
 function checklistCategoryRows(){
@@ -2782,7 +2782,7 @@ function renderChecklist(){
       const mine=TRIP?.currentPersonId?checklistRows('pack').filter(x=>packApplies(x,TRIP.currentPersonId)):[];
       const packed=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length;
       const ready=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length;
-      heroSummary.textContent=TRIP?.currentPersonId?`${packed}/${mine.length} 已打包 · ${ready} Ready`:'設定旅伴身份後就能追蹤自己的打包進度。';
+      heroSummary.textContent=TRIP?.currentPersonId?`${packed}/${mine.length} 已打包 · ${ready} 已準備`:'設定旅伴身份後就能追蹤自己的打包進度。';
     }else{
       const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
       heroSummary.textContent=`${done}/${rows.length} 已買 · ${rows.length-done} 待買`;
@@ -2804,18 +2804,63 @@ function renderChecklistHome(){
     const packed=TRIP?.currentPersonId?rows.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length:0;
     const ready=TRIP?.currentPersonId?rows.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length:0;
     if(title)title.textContent='出發準備';
-    if(summary)summary.textContent=rows.length?(TRIP?.currentPersonId?`${packed}/${rows.length} 已打包 · ${ready} Ready`:`${rows.length} 項待準備`):'開始建立旅行清單';
+    if(summary)summary.textContent=rows.length?(TRIP?.currentPersonId?`${packed}/${rows.length} 已打包 · ${ready} 已準備`:`${rows.length} 項待準備`):'開始建立旅行清單';
   }else{
     const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
     if(title)title.textContent='購物清單';
     if(summary)summary.textContent=rows.length?`待買 ${rows.length-done} · 已買 ${done}`:'旅行途中想買的東西放這裡';
   }
 }
-async function setPackChecklistStatus(itemId,personId){
+const checklistPackSaveState=new Map();
+let checklistPackRefreshTimer=null;
+function setLocalPackStatus(item,personId,status){
+  if(!item)return;
+  if(!Array.isArray(item.packStatuses))item.packStatuses=[];
+  const idx=item.packStatuses.findIndex(s=>String(s.personId)===String(personId));
+  const next={personId:String(personId),status,updatedAt:new Date().toISOString()};
+  if(idx>=0)item.packStatuses[idx]={...item.packStatuses[idx],...next};
+  else item.packStatuses.push(next);
+}
+function scheduleChecklistPackRefresh(){
+  clearTimeout(checklistPackRefreshTimer);
+  checklistPackRefreshTimer=setTimeout(()=>{
+    hydratePrivateCloudData().catch(()=>{});
+  },900);
+}
+function setPackChecklistStatus(itemId,personId){
   const item=checklistRows('pack').find(x=>String(x.id)===String(itemId));if(!item)return;
-  const status=nextPackStatus(packStatusFor(item,personId));
-  try{await travelEditor('set_checklist_pack_status',{id:itemId,personId,status});await hydratePrivateCloudData();showView('checklist')}
-  catch(err){alert('更新打包狀態失敗：'+(err.code||err.message))}
+  const previous=packStatusFor(item,personId);
+  const status=nextPackStatus(previous);
+  setLocalPackStatus(item,personId,status);
+  renderChecklist();
+  renderChecklistHome();
+
+  const key=String(itemId)+':'+String(personId);
+  const prevState=checklistPackSaveState.get(key)||{seq:0,promise:Promise.resolve()};
+  const seq=prevState.seq+1;
+  const promise=prevState.promise
+    .catch(()=>{})
+    .then(()=>travelEditor('set_checklist_pack_status',{id:itemId,personId,status}));
+
+  checklistPackSaveState.set(key,{seq,promise});
+
+  promise.then(()=>{
+    const current=checklistPackSaveState.get(key);
+    if(current?.seq===seq){
+      checklistPackSaveState.delete(key);
+      scheduleChecklistPackRefresh();
+    }
+  }).catch(err=>{
+    const current=checklistPackSaveState.get(key);
+    if(current?.seq===seq){
+      checklistPackSaveState.delete(key);
+      const freshItem=checklistRows('pack').find(x=>String(x.id)===String(itemId));
+      setLocalPackStatus(freshItem,personId,previous);
+      renderChecklist();
+      renderChecklistHome();
+      alert('更新打包狀態失敗：'+(err.code||err.message));
+    }
+  });
 }
 async function setBuyChecklistStatus(itemId){
   const item=checklistRows('buy').find(x=>String(x.id)===String(itemId));if(!item)return;
@@ -2901,7 +2946,7 @@ function openChecklistEditor(row=null){
   qs('#checklistEditVersion').value=row?.version||1;
   qs('#checklistEditType').value=type;
   qs('#checklistEditTitle').textContent=row?'編輯項目':(type==='pack'?'新增要帶':'新增要買');
-  qs('#checklistEditSubtitle').textContent=type==='pack'?'空白 → Ready → Packed 循環切換':'未買 → 已買，購買地點直接寫在備註。';
+  qs('#checklistEditSubtitle').textContent=type==='pack'?'空白 → 已準備 → 已打包 循環切換':'未買 → 已買，購買地點直接寫在備註。';
   const category=CHECKLIST_CATEGORIES.includes(row?.category)?row.category:'其他';
   qs('#checklistCategoryInput').value=category;
   qs('#checklistTitleInput').value=row?.title||'';
