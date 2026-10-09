@@ -2727,18 +2727,21 @@ function renderChecklistBuy(){
   host.innerHTML=rows.map(item=>{
     const bought=item.buyStatus==='bought';
     const buyer=buyPersonLabel(item.buyerPersonId,item.buyerCustomName);
-    const forWhom=buyPersonLabel(item.forPersonId,item.forCustomName);
+    const wantedBy=buyPersonLabel(item.forPersonId,item.forCustomName);
     const info=[];
     if(item.quantity)info.push('數量 '+item.quantity);
     if(item.note)info.push(item.note);
     if(buyer!=='—')info.push('誰去買 '+buyer);
-    if(forWhom!=='—')info.push('幫 '+forWhom);
-    return `<article class="checklist-item buy-item ${bought?'bought':''}" data-checklist-id="${escapeHtml(item.id)}">
+    if(wantedBy!=='—')info.push('誰要的 '+wantedBy);
+    const notes=info.join(' · ');
+    return `<article class="checklist-item buy-item checklist-pack-row checklist-buy-row mine-mode ${bought?'bought':''}" data-checklist-id="${escapeHtml(item.id)}">
       <div class="checklist-status-cell"><button type="button" class="buy-status-btn ${bought?'bought':'todo'}" data-buy-item="${escapeHtml(item.id)}" aria-label="${bought?'已買':'未買'}">${bought?'✓':''}</button></div>
       <div class="checklist-item-copy">
-        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong>${escapeHtml(item.title)}</strong>${item.quantity?`<em>× ${escapeHtml(item.quantity)}</em>`:''}</div>
-        ${info.length?`<p>${escapeHtml(info.join(' · '))}</p>`:''}
-        ${bought&&canEditTrip()?`<button type="button" class="checklist-expense-link" data-buy-expense="${escapeHtml(item.id)}">＋ 記一筆花費</button>`:''}
+        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div>
+      </div>
+      <div class="checklist-note-cell checklist-buy-note" title="${escapeHtml(notes)}">
+        <span class="checklist-note-text">${notes?escapeHtml(notes):'<span class="checklist-note-empty">—</span>'}</span>
+        ${bought&&canEditTrip()?`<button type="button" class="checklist-expense-link compact" data-buy-expense="${escapeHtml(item.id)}">＋記帳</button>`:''}
       </div>
       ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}" aria-label="編輯"><span class="checklist-edit-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`:''}
     </article>`;
@@ -2747,16 +2750,18 @@ function renderChecklistBuy(){
 }
 function renderChecklistPersonHead(){
   const head=qs('#checklistPersonHead');if(!head)return;
-  const show=checklistTab==='pack';
+  const show=checklistTab==='pack'||checklistTab==='buy';
   head.hidden=!show;
   if(!show)return;
   const people=expensePeople();
-  const statusHead=checklistScope==='team'
+  const teamMode=checklistTab==='pack'&&checklistScope==='team';
+  const statusHead=teamMode
     ?`<div class="checklist-team-status checklist-team-head" aria-label="隊友">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`
     :'<span class="checklist-mine-head">狀態</span>';
-  head.classList.toggle('team-mode',checklistScope==='team');
-  head.classList.toggle('mine-mode',checklistScope!=='team');
-  head.innerHTML=`${statusHead}<span class="checklist-column-title">品項</span><span class="checklist-column-title">備註</span><span class="checklist-head-edit-spacer"></span>`;
+  head.classList.toggle('team-mode',teamMode);
+  head.classList.toggle('mine-mode',!teamMode);
+  head.classList.toggle('buy-mode',checklistTab==='buy');
+  head.innerHTML=`${statusHead}<span class="checklist-column-title">項目</span><span class="checklist-column-title">備註</span><span class="checklist-head-edit-spacer"></span>`;
 }
 function renderChecklist(){
   if(!qs('#checklistView')||!TRIP)return;
@@ -2873,7 +2878,7 @@ function bindChecklistRows(){
   });
   qsa('[data-buy-expense]').forEach(btn=>btn.onclick=()=>{
     const item=checklistRows('buy').find(x=>String(x.id)===String(btn.dataset.buyExpense));if(!item)return;
-    const note=[item.quantity?'數量 '+item.quantity:'',item.forPersonId||item.forCustomName?'幫 '+buyPersonLabel(item.forPersonId,item.forCustomName):'',item.note||''].filter(Boolean).join(' · ');
+    const note=[item.quantity?'數量 '+item.quantity:'',item.forPersonId||item.forCustomName?'誰要的 '+buyPersonLabel(item.forPersonId,item.forCustomName):'',item.note||''].filter(Boolean).join(' · ');
     showView('expense');
     openExpenseEditor(null,{title:item.title,category:'shopping',paidByPersonId:TRIP.currentPersonId,note});
   });
@@ -2883,6 +2888,9 @@ function personSelectOptions(selectedId='',allowCustom=true){
   if(allowCustom)rows.push('<option value="__custom__">自訂…</option>');
   return rows.join('');
 }
+function checklistPersonChip(p,inputHtml){
+  return `<label class="checklist-person-option">${inputHtml}<span class="checklist-person-name">${escapeHtml(p.displayName)} <em>(${escapeHtml(checklistShort(p))})</em></span></label>`;
+}
 function renderChecklistAssignedPeople(selectedIds=[],allSelected=false){
   const host=qs('#checklistAssignedPeople');if(!host)return;
   const people=expensePeople();
@@ -2890,12 +2898,9 @@ function renderChecklistAssignedPeople(selectedIds=[],allSelected=false){
   host.innerHTML=`
     <label class="checklist-person-option checklist-person-all">
       <input type="checkbox" id="checklistSelectAll" ${allSelected?'checked':''}>
-      <span>全選</span>
+      <span class="checklist-person-name">全選</span>
     </label>
-    ${people.map(p=>`<label class="checklist-person-option">
-      <input type="checkbox" data-checklist-person value="${escapeHtml(p.id)}" ${allSelected||selected.has(String(p.id))?'checked':''}>
-      <span>${escapeHtml(p.displayName)} <b>(${escapeHtml(checklistShort(p))})</b></span>
-    </label>`).join('')}
+    ${people.map(p=>checklistPersonChip(p,`<input type="checkbox" data-checklist-person value="${escapeHtml(p.id)}" ${allSelected||selected.has(String(p.id))?'checked':''}>`)).join('')}
     ${canEditTrip()?'<button type="button" class="checklist-add-person-btn" id="checklistAddPersonBtn">＋ 新增人員</button>':''}
   `;
   const all=qs('#checklistSelectAll');
@@ -2908,6 +2913,26 @@ function renderChecklistAssignedPeople(selectedIds=[],allSelected=false){
   });
   const addBtn=qs('#checklistAddPersonBtn');
   if(addBtn)addBtn.onclick=addChecklistPersonFromEditor;
+}
+function renderChecklistWantedBy(selectedPersonId='',customName=''){
+  const host=qs('#checklistWantedByPeople');if(!host)return;
+  const people=expensePeople();
+  const selected=customName&&!selectedPersonId?'__custom__':String(selectedPersonId||'');
+  host.innerHTML=`
+    <label class="checklist-person-option">
+      <input type="radio" name="checklistWantedBy" data-checklist-wanted-by value="" ${selected===''?'checked':''}>
+      <span class="checklist-person-name">不指定</span>
+    </label>
+    ${people.map(p=>checklistPersonChip(p,`<input type="radio" name="checklistWantedBy" data-checklist-wanted-by value="${escapeHtml(p.id)}" ${selected===String(p.id)?'checked':''}>`)).join('')}
+    <label class="checklist-person-option">
+      <input type="radio" name="checklistWantedBy" data-checklist-wanted-by value="__custom__" ${selected==='__custom__'?'checked':''}>
+      <span class="checklist-person-name">自訂</span>
+    </label>
+    ${canEditTrip()?'<button type="button" class="checklist-add-person-btn" id="checklistAddWantedByPersonBtn">＋ 新增人員</button>':''}
+  `;
+  host.querySelectorAll('[data-checklist-wanted-by]').forEach(input=>input.onchange=syncChecklistEditorFields);
+  const addBtn=qs('#checklistAddWantedByPersonBtn');
+  if(addBtn)addBtn.onclick=addChecklistWantedByPersonFromEditor;
 }
 async function createTripPerson(){
   if(!canEditTrip())return null;
@@ -2933,6 +2958,12 @@ async function addChecklistPersonFromEditor(){
   const nextSelected=allWasChecked?expensePeople().map(p=>String(p.id)):[...new Set([...selected,String(person.id)])];
   renderChecklistAssignedPeople(nextSelected,allWasChecked);
 }
+async function addChecklistWantedByPersonFromEditor(){
+  const person=await createTripPerson();
+  if(!person)return;
+  renderChecklistWantedByPeople(String(person.id),'');
+  syncChecklistEditorFields();
+}
 function ensureChecklistEditor(){
   let sheet=qs('#checklistEditSheet');if(sheet)return sheet;
   const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistEditBackdrop';
@@ -2957,8 +2988,11 @@ function ensureChecklistEditor(){
       <div id="checklistBuyFields" hidden>
         <label><span>誰去買</span><select id="checklistBuyerSelect"></select></label>
         <label id="checklistBuyerCustomWrap" hidden><span>自訂購買人</span><input id="checklistBuyerCustom" maxlength="80"></label>
-        <label><span>幫誰買</span><select id="checklistForSelect"></select></label>
-        <label id="checklistForCustomWrap" hidden><span>自訂對象</span><input id="checklistForCustom" maxlength="80"></label>
+        <fieldset class="expense-split-fieldset checklist-people-fieldset checklist-wanted-by-fieldset">
+          <legend>誰要的</legend>
+          <div id="checklistWantedByPeople"></div>
+        </fieldset>
+        <label id="checklistForCustomWrap" hidden><span>自訂對象</span><input id="checklistForCustom" maxlength="80" placeholder="例如 媽媽 / 同事"></label>
       </div>
       <div class="edit-form-actions expense-form-actions">
         <button type="button" class="edit-delete" id="deleteChecklistItemBtn">刪除</button>
@@ -2972,7 +3006,6 @@ function ensureChecklistEditor(){
   qs('#checklistEditForm').onsubmit=saveChecklistEditor;
   qs('#deleteChecklistItemBtn').onclick=deleteChecklistEditor;
   qs('#checklistBuyerSelect').onchange=syncChecklistEditorFields;
-  qs('#checklistForSelect').onchange=syncChecklistEditorFields;
   return sheet;
 }
 function syncChecklistEditorFields(){
@@ -2983,7 +3016,8 @@ function syncChecklistEditorFields(){
   if(qty)qty.hidden=type!=='buy';
   if(qs('#checklistAssignedPeople'))qs('#checklistAssignedPeople').closest('fieldset').hidden=type!=='pack';
   if(qs('#checklistBuyerCustomWrap'))qs('#checklistBuyerCustomWrap').hidden=qs('#checklistBuyerSelect')?.value!=='__custom__';
-  if(qs('#checklistForCustomWrap'))qs('#checklistForCustomWrap').hidden=qs('#checklistForSelect')?.value!=='__custom__';
+  const wantedBy=qs('[data-checklist-wanted-by]:checked')?.value||'';
+  if(qs('#checklistForCustomWrap'))qs('#checklistForCustomWrap').hidden=wantedBy!=='__custom__';
 }
 function openChecklistEditor(row=null){
   if(!canEditTrip())return;
@@ -3002,13 +3036,11 @@ function openChecklistEditor(row=null){
   const selected=(row?.assignedPersonIds||[]).map(String);
   renderChecklistAssignedPeople(selected,(row?.assignmentMode||'all')==='all');
   const buyerCustom=Boolean(row?.buyerCustomName&&!row?.buyerPersonId);
-  const forCustom=Boolean(row?.forCustomName&&!row?.forPersonId);
   qs('#checklistBuyerSelect').innerHTML=personSelectOptions(row?.buyerPersonId||'');
-  qs('#checklistForSelect').innerHTML=personSelectOptions(row?.forPersonId||'');
   qs('#checklistBuyerSelect').value=buyerCustom?'__custom__':(row?.buyerPersonId||'');
-  qs('#checklistForSelect').value=forCustom?'__custom__':(row?.forPersonId||'');
   qs('#checklistBuyerCustom').value=row?.buyerCustomName||'';
   qs('#checklistForCustom').value=row?.forCustomName||'';
+  renderChecklistWantedByPeople(row?.forPersonId||'',row?.forCustomName||'');
   qs('#deleteChecklistItemBtn').hidden=!row;
   qs('#checklistEditStatus').textContent='';
   syncChecklistEditorFields();
@@ -3020,7 +3052,8 @@ async function saveChecklistEditor(e){
   const assigned=[...qs('#checklistAssignedPeople').querySelectorAll('[data-checklist-person]:checked')].map(x=>x.value);
   const assignmentMode=type==='pack'&&qs('#checklistSelectAll')?.checked?'all':'specific';
   if(type==='pack'&&!assigned.length){status.textContent='至少選一位旅伴，或使用全選。';return}
-  const buyerSel=qs('#checklistBuyerSelect').value,forSel=qs('#checklistForSelect').value;
+  const buyerSel=qs('#checklistBuyerSelect').value;
+  const forSel=qs('[data-checklist-wanted-by]:checked')?.value||'';
   const item={
     id:qs('#checklistEditId').value||null,
     baseVersion:Number(qs('#checklistEditVersion').value||1),
