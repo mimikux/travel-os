@@ -2646,6 +2646,9 @@ function packApplies(item,personId){
 function packStatusFor(item,personId){
   return (item.packStatuses||[]).find(s=>String(s.personId)===String(personId))?.status||'todo';
 }
+function packNoteFor(item,personId){
+  return (item.packStatuses||[]).find(s=>String(s.personId)===String(personId))?.note||'';
+}
 function nextPackStatus(status){return status==='todo'?'ready':status==='ready'?'packed':'todo'}
 function checklistStatusButton(status,itemId,personId,enabled=true){
   const mark=status==='packed'?'✓':status==='ready'?'R':'';
@@ -2697,11 +2700,22 @@ function renderChecklistPack(){
         return checklistStatusButton(packStatusFor(item,p.id),item.id,p.id,canChange);
       }).join('')}</div>`;
     }
+    const personNotes=checklistScope==='mine'
+      ?(()=>{
+          const note=packNoteFor(item,current);
+          const p=checklistPerson(current);
+          return note&&p?`${checklistShort(p)} ${note}`:'';
+        })()
+      :people.filter(p=>packApplies(item,p.id)).map(p=>{
+          const note=packNoteFor(item,p.id);
+          return note?`${checklistShort(p)} ${note}`:'';
+        }).filter(Boolean).join(' · ');
     return `<article class="checklist-item pack-item ${item.packStatuses?.length?'has-status':''}" data-checklist-id="${escapeHtml(item.id)}">
       <div class="checklist-status-cell">${statuses}</div>
       <div class="checklist-item-copy">
         <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong>${escapeHtml(item.title)}</strong></div>
         ${item.note?`<p>${escapeHtml(item.note)}</p>`:''}
+        ${personNotes?`<p class="checklist-person-note">${escapeHtml(personNotes)}</p>`:''}
       </div>
       ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}">•••</button>`:''}
     </article>`;
