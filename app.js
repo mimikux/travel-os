@@ -18,7 +18,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.4.5';
+const APP_VERSION='1.4.6';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -2702,7 +2702,7 @@ function renderChecklistPack(){
           return note?`${checklistShort(p)} ${note}`:'';
         }).filter(Boolean).join(' · ');
     const notes=[item.note||'',personNotes].filter(Boolean).join(' · ');
-    return `<article class="checklist-item pack-item checklist-pack-row ${checklistScope==='team'?'team-mode':'mine-mode'} ${item.packStatuses?.length?'has-status':''}" data-checklist-id="${escapeHtml(item.id)}">
+    return `<article class="checklist-item pack-item checklist-pack-row ${checklistScope==='team'?'team-mode':'mine-mode'} ${item.packStatuses?.length?'has-status':''}" data-checklist-category="${escapeHtml(item.category||'其他')}" data-checklist-id="${escapeHtml(item.id)}">
       <div class="checklist-status-cell">${statuses}</div>
       <div class="checklist-item-copy">
         <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div>
@@ -2776,6 +2776,7 @@ function renderChecklist(){
     scope.classList.toggle('team',checklistScope==='team');
   }
   const add=qs('#addChecklistItemBtn');if(add)add.hidden=!canEditTrip();
+  const importBtn=qs('#checklistImportBtn');if(importBtn)importBtn.hidden=checklistTab!=='pack'||!canEditTrip();
   const heroTitle=qs('#checklistHeroTitle'),heroSummary=qs('#checklistHeroSummary');
   if(heroTitle)heroTitle.textContent=checklistTab==='pack'?'出發準備':'旅途中要買';
   if(heroSummary){
@@ -2793,6 +2794,89 @@ function renderChecklist(){
   renderChecklistPersonHead();
   if(checklistTab==='pack')renderChecklistPack();else renderChecklistBuy();
 }
+function ensureChecklistImportSheet(){
+  let sheet=qs('#checklistImportSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistImportBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet checklist-import-sheet';sheet.id='checklistImportSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">IMPORT PACKING LIST</span><h2>從旅程匯入</h2><p>只匯入「要帶」品項。狀態全部重設，適用人員預設只有你自己。</p></div>
+      <button class="round-btn" id="closeChecklistImport">×</button>
+    </div>
+    <div class="checklist-import-list" id="checklistImportList"><div class="booking-empty">讀取其他旅程中…</div></div>
+    <p class="edit-status" id="checklistImportStatus"></p>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeChecklistImport').onclick=close;
+  backdrop.onclick=close;
+  return sheet;
+}
+function checklistImportDateRange(src){
+  const a=src?.startDate||'',b=src?.endDate||'';
+  if(a&&b)return a===b?a:`${a} → ${b}`;
+  return a||b||'日期未設定';
+}
+async function openChecklistImportSheet(){
+  if(!canEditTrip())return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet('checklist');return}
+  const sheet=ensureChecklistImportSheet();
+  const list=qs('#checklistImportList'),status=qs('#checklistImportStatus');
+  list.innerHTML='<div class="booking-empty">讀取其他旅程中…</div>';
+  status.textContent='';
+  qs('#checklistImportBackdrop').classList.add('show');
+  sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+  try{
+    const data=await travelEditor('list_checklist_import_sources');
+    const sources=Array.isArray(data?.sources)?data.sources:[];
+    if(!sources.length){
+      list.innerHTML='<div class="booking-empty">目前沒有其他可匯入的旅程。</div>';
+      return;
+    }
+    list.innerHTML=sources.map(src=>`
+      <article class="checklist-import-card">
+        <div>
+          <strong>${escapeHtml(src.title||src.slug||'未命名旅程')}</strong>
+          <span>${escapeHtml(checklistImportDateRange(src))}</span>
+          <small>${Number(src.packCount||0)} 個打包品項</small>
+        </div>
+        <button type="button" data-import-trip="${escapeHtml(src.id)}" ${Number(src.packCount||0)>0?'':'disabled'}>
+          ${Number(src.packCount||0)>0?'匯入':'沒有清單'}
+        </button>
+      </article>`).join('');
+    list.querySelectorAll('[data-import-trip]').forEach(btn=>btn.onclick=()=>importChecklistFromTrip(btn.dataset.importTrip,btn));
+  }catch(err){
+    list.innerHTML='<div class="booking-empty">無法讀取其他旅程。</div>';
+    status.textContent='讀取失敗：'+(err.code||err.message);
+  }
+}
+async function importChecklistFromTrip(sourceTripId,btn){
+  if(!sourceTripId||btn?.disabled)return;
+  const status=qs('#checklistImportStatus');
+  const old=btn.textContent;
+  btn.disabled=true;btn.textContent='匯入中…';status.textContent='';
+  try{
+    const data=await travelEditor('import_checklist_from_trip',{sourceTripId});
+    await hydratePrivateCloudData();
+    renderChecklist();
+    renderChecklistHome();
+    const imported=Number(data?.imported||0),skipped=Number(data?.skipped||0);
+    status.textContent=imported
+      ?`已從「${data?.sourceTitle||'其他旅程'}」匯入 ${imported} 項；狀態已重設，適用人員只有你自己。${skipped?` 已略過 ${skipped} 個重複品項。`:''}`
+      :`沒有新增品項。${skipped?` ${skipped} 個品項因重複已略過。`:''}`;
+    btn.textContent='完成';
+    setTimeout(()=>{
+      qs('#checklistImportSheet')?.classList.remove('show');
+      qs('#checklistImportBackdrop')?.classList.remove('show');
+    },900);
+  }catch(err){
+    btn.disabled=false;btn.textContent=old;
+    status.textContent=err.code==='checklist_identity_required'
+      ?'請先設定你在這趟旅程的身份。'
+      :'匯入失敗：'+(err.code||err.message);
+  }
+}
+
 function renderChecklistHome(){
   const card=qs('#checklistHomeCard');if(!card||!TRIP)return;
   const isD0=String(currentDay()?.label||'').toUpperCase()==='D0';
@@ -3131,6 +3215,7 @@ if(qs('#checklistScopeBtn'))qs('#checklistScopeBtn').onclick=()=>{
   renderChecklist();
 };
 if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>openChecklistEditor();
+if(qs('#checklistImportBtn'))qs('#checklistImportBtn').onclick=openChecklistImportSheet;
 if(qs('#addExpenseBtn'))qs('#addExpenseBtn').onclick=()=>openExpenseEditor();
 if(qs('#receiptExpenseBtn'))qs('#receiptExpenseBtn').onclick=chooseReceiptPhoto;
 if(qs('#expenseIdentityBtn'))qs('#expenseIdentityBtn').onclick=openExpenseIdentitySheet;
