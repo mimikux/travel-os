@@ -429,3 +429,19 @@ Later:
 
 
 - [x] 2026-10-08 Expense ledger v48: enabled the bottom 花費 tab and added a unified trip expense ledger. Added independent trip_people identities so login accounts can choose a per-trip nickname, automatically join the split-person list, claim a previously manual person, or coexist with unregistered travelers. Added manual expense entry/edit/delete, payer + equal-split selection, reservation-to-expense conversion with duplicate protection, basic per-day/category analysis, and multi-currency totals without unsafe cross-currency summing. Added a private travel-receipts Storage bucket and a guarded receipt parser: receipt photos are sent to a vision model only as a draft, financial fields require explicit evidence + confidence checks, uncertain fields are removed instead of guessed, and nothing is posted to the ledger until the user confirms the preview. travel-data v15, travel-editor v42, travel-receipt-parser v2. Frontend/service-worker cache bumped to expense-v48.
+
+
+## V1.4.0 · Collaborative Trip Checklist (2026-10-09)
+
+### 已完成
+- 底部第五個主導覽由「更多」改為「清單」；低頻「更多」改從旅程右上角 `••• → 更多與帳號` 進入。
+- 清單分成「要帶 / 要買」兩頁；出發前預設聚焦要帶，旅途中聚焦要買，並記住使用者上次頁籤。
+- 要帶狀態採三段循環：空白 → Ready（橘黃底白 R）→ Packed（綠底白 ✓）→ 空白。
+- 要帶支援「只看我 / 全部隊友」；全部隊友使用 1–2 碼簡稱欄位並固定多人狀態表頭。
+- `trip_people` 新增每 Trip 唯一 `short_code`；Iceland 2026 目前為 Matt=Mt、Little3=33、Ring=Rg，未登入旅伴可之後認領。
+- 要帶項目支援分類、自訂備註、全員 / 指定人員；首頁增加出發準備進度卡。
+- 要買採二段狀態：未買 → 已買；購買地點直接寫備註，不增加「找到」狀態。
+- 要買支援分類、數量、備註、誰去買（旅伴或自訂）、幫誰買（旅伴或自訂）。
+- 已買項目可一鍵帶入「花費」新增表單，預填購物品項與備註。
+- Iceland 2026 已匯入首批 30 筆出發準備項目；原本 OK 的綠咖哩 / 冬陰功先映射為 Ready。
+- 新增 Supabase 資料表 `trip_checklist_items`、`trip_checklist_item_people`、`trip_checklist_pack_status`，並納入 `travel-data`、`travel-editor`、每日備份。
