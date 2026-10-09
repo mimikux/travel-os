@@ -18,9 +18,9 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.3.0';
+const APP_VERSION='1.4.0';
 
-const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',more:'更多'};
+const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
 
 const DAY_UI={
@@ -260,6 +260,7 @@ function iconSVG(name,cls=''){
     map:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 6.5 9 4l6 2.5 5-2v13L15 20l-6-2.5-5 2z"></path><path d="M9 4v13.5"></path><path d="M15 6.5V20"></path></svg>`,
     booking:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 7h14a2 2 0 0 1 2 2v2a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2v0a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 2-2 2 2 0 0 0-2-2V9a2 2 0 0 1 2-2z"></path><path d="M8 10h8"></path><path d="M8 14h5"></path></svg>`,
     expense:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4z"></path><path d="M16 12h.01"></path><path d="M7 10h5"></path><path d="M7 14h3"></path></svg>`,
+    checklist:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="m8 12 2.4 2.4L16 9"></path></svg>`,
     more:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 7h14"></path><path d="M8 12h11"></path><path d="M11 17h8"></path><circle cx="6" cy="7" r="1"></circle><circle cx="6" cy="12" r="1"></circle><circle cx="6" cy="17" r="1"></circle></svg>`,
     house:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5"></path><path d="M6 10.5V20h12v-9.5"></path></svg>`,
     car:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 15h14l-1.5-5h-11z"></path><path d="M7 15v2"></path><path d="M17 15v2"></path><circle cx="8" cy="17" r="1.6"></circle><circle cx="16" cy="17" r="1.6"></circle></svg>`,
@@ -457,7 +458,11 @@ function showView(name){
   if(name==='today') requestAnimationFrame(updateHeroCollapse);
   if(name==='expense'){
     renderExpenses();
-    if(!TRIP?.currentPersonId) setTimeout(()=>openExpenseIdentitySheet(),120);
+    if(!TRIP?.currentPersonId) setTimeout(()=>openExpenseIdentitySheet('expense'),120);
+  }
+  if(name==='checklist'){
+    renderChecklist();
+    if(!TRIP?.currentPersonId) setTimeout(()=>openExpenseIdentitySheet('checklist'),120);
   }
   if(name==='more') renderMoreView();
 }
@@ -2338,7 +2343,7 @@ function renderExpensePeople(){
   const rows=expensePeople();
   if(!rows.length){box.innerHTML='<div class="booking-empty">尚未建立分帳人員。</div>';return}
   box.innerHTML=rows.map(p=>`<div class="expense-person-card ${String(p.id)===current?'me':''}">
-    <div><strong>${escapeHtml(p.displayName)}</strong><small>${p.linkedUserId?'已連結登入帳號':'未連結帳號 · 可供之後認領'}</small></div>
+    <div><strong>${escapeHtml(p.displayName)} <b class="person-short-code">${escapeHtml(p.shortCode||suggestShortCode(p.displayName))}</b></strong><small>${p.linkedUserId?'已連結登入帳號':'未連結帳號 · 可供之後認領'}</small></div>
     <span>${String(p.id)===current?'我':p.personType==='member'?'MEMBER':'TRAVELER'}</span>
   </div>`).join('');
 }
@@ -2361,40 +2366,77 @@ function renderExpenseAnalysis(){
   box.innerHTML=`<section><h3>逐日開銷</h3>${dayHtml}</section><section><h3>類別摘要</h3>${catHtml}</section>`;
 }
 
+let expenseIdentityReturnView='expense';
+
+function suggestShortCode(name){
+  const s=String(name||'').trim();
+  if(!s)return '';
+  const chars=Array.from(s.replace(/\s+/g,''));
+  if(chars.length===1)return chars[0];
+  return (chars[0]+chars[chars.length-1]).slice(0,2);
+}
 function ensureExpenseIdentitySheet(){
   let sheet=qs('#expenseIdentitySheet'); if(sheet)return sheet;
   const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='expenseIdentityBackdrop';
   sheet=document.createElement('aside');sheet.className='edit-sheet expense-identity-sheet';sheet.id='expenseIdentitySheet';sheet.setAttribute('aria-hidden','true');
   sheet.innerHTML=`
     <div class="sheet-handle"></div>
-    <div class="sheet-title"><div><span class="section-kicker">EXPENSE IDENTITY</span><h2>你在這趟旅程是誰？</h2><p>這個名稱只用於此 Trip 的付款與分帳。</p></div><button class="round-btn" id="closeExpenseIdentity">×</button></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP IDENTITY</span><h2>你在這趟旅程是誰？</h2><p>同一個旅伴身份會用於打包、付款與分帳。</p></div><button class="round-btn" id="closeExpenseIdentity">×</button></div>
     <div id="expenseClaimList" class="expense-claim-list"></div>
     <form class="edit-form" id="expenseIdentityForm">
-      <label><span>或建立新的暱稱</span><input id="expenseNickname" maxlength="80" placeholder="例如 Matt"></label>
-      <div class="edit-form-actions"><button type="submit" class="edit-save">使用這個暱稱</button></div>
+      <label><span>暱稱</span><input id="expenseNickname" maxlength="80" placeholder="例如 Matt" required></label>
+      <label><span>簡稱 · 最多 2 碼</span><input id="expenseShortCode" maxlength="2" placeholder="例如 Mt" required><small>同一趟旅程不可重複；多人打包畫面會使用這個簡稱。</small></label>
+      <div class="edit-form-actions"><button type="submit" class="edit-save">使用這個身份</button></div>
       <p class="edit-status" id="expenseIdentityStatus"></p>
     </form>`;
   document.body.append(backdrop,sheet);
   const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
   qs('#closeExpenseIdentity').onclick=close;backdrop.onclick=close;
+  let shortDirty=false;
+  qs('#expenseShortCode').oninput=()=>{shortDirty=true};
+  qs('#expenseNickname').oninput=()=>{if(!shortDirty)qs('#expenseShortCode').value=suggestShortCode(qs('#expenseNickname').value)};
   qs('#expenseIdentityForm').onsubmit=async e=>{
-    e.preventDefault();const name=qs('#expenseNickname').value.trim(),status=qs('#expenseIdentityStatus');
+    e.preventDefault();
+    const name=qs('#expenseNickname').value.trim(),shortCode=qs('#expenseShortCode').value.trim(),status=qs('#expenseIdentityStatus');
     if(!name){status.textContent='請輸入暱稱。';return}
+    if(!shortCode||Array.from(shortCode).length>2){status.textContent='請輸入 1～2 碼簡稱。';return}
     status.textContent='儲存中…';
-    try{await travelEditor('set_expense_identity',{displayName:name});close();await hydratePrivateCloudData();showView('expense')}catch(err){status.textContent='儲存失敗：'+(err.code||err.message)}
+    try{
+      await travelEditor('set_expense_identity',{displayName:name,shortCode});
+      close();await hydratePrivateCloudData();showView(expenseIdentityReturnView||'expense');
+    }catch(err){
+      const code=err.code||err.message;
+      status.textContent=code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'儲存失敗：'+code;
+    }
   };
   return sheet;
 }
-function openExpenseIdentitySheet(){
+function openExpenseIdentitySheet(returnView='expense'){
   if(!TRIP)return;
+  expenseIdentityReturnView=returnView||'expense';
   const sheet=ensureExpenseIdentitySheet(),list=qs('#expenseClaimList');
   const unclaimed=expensePeople().filter(p=>!p.linkedUserId);
-  list.innerHTML=unclaimed.length?'<p class="expense-claim-hint">如果你已經在清單裡，直接認領：</p>'+unclaimed.map(p=>`<button type="button" data-claim-person="${escapeHtml(p.id)}">${escapeHtml(p.displayName)}<span>認領</span></button>`).join(''):'';
+  list.innerHTML=unclaimed.length?'<p class="expense-claim-hint">如果你已經在清單裡，直接認領：</p>'+unclaimed.map(p=>`<button type="button" data-claim-person="${escapeHtml(p.id)}"><span><strong>${escapeHtml(p.displayName)}</strong><small>${escapeHtml(p.shortCode||'尚未設定簡稱')}</small></span><span>認領</span></button>`).join(''):'';
   list.querySelectorAll('[data-claim-person]').forEach(btn=>btn.onclick=async()=>{
+    const person=expensePeople().find(p=>String(p.id)===String(btn.dataset.claimPerson));
+    let shortCode=person?.shortCode||'';
+    if(!shortCode){
+      shortCode=(prompt('請先為這個旅伴設定 1～2 碼簡稱',suggestShortCode(person?.displayName||''))||'').trim();
+      if(!shortCode)return;
+    }
     const status=qs('#expenseIdentityStatus');status.textContent='認領中…';
-    try{await travelEditor('set_expense_identity',{personId:btn.dataset.claimPerson});sheet.classList.remove('show');qs('#expenseIdentityBackdrop').classList.remove('show');await hydratePrivateCloudData();showView('expense')}catch(err){status.textContent='認領失敗：'+(err.code||err.message)}
+    try{
+      await travelEditor('set_expense_identity',{personId:btn.dataset.claimPerson,shortCode});
+      sheet.classList.remove('show');qs('#expenseIdentityBackdrop').classList.remove('show');
+      await hydratePrivateCloudData();showView(expenseIdentityReturnView||'expense');
+    }catch(err){
+      const code=err.code||err.message;
+      status.textContent=code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'認領失敗：'+code;
+    }
   });
-  qs('#expenseNickname').value=expenseCurrentPerson()?.displayName||'';
+  const me=expenseCurrentPerson();
+  qs('#expenseNickname').value=me?.displayName||'';
+  qs('#expenseShortCode').value=me?.shortCode||suggestShortCode(me?.displayName||'');
   qs('#expenseIdentityStatus').textContent='';
   qs('#expenseIdentityBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
 }
@@ -2516,8 +2558,16 @@ async function addReservationExpense(reservationId){
 }
 async function addExpensePerson(){
   if(!canEditTrip())return;
-  const name=prompt('分帳人名稱');if(!name?.trim())return;
-  try{await travelEditor('add_expense_person',{displayName:name.trim()});await hydratePrivateCloudData();showView('expense')}catch(err){alert('新增失敗：'+(err.code||err.message))}
+  const name=prompt('旅伴名稱');if(!name?.trim())return;
+  const shortCode=(prompt('簡稱（最多 2 碼，同一趟不可重複）',suggestShortCode(name))||'').trim();
+  if(!shortCode||Array.from(shortCode).length>2){alert('請輸入 1～2 碼簡稱。');return}
+  try{
+    await travelEditor('add_expense_person',{displayName:name.trim(),shortCode});
+    await hydratePrivateCloudData();showView('expense');
+  }catch(err){
+    const code=err.code||err.message;
+    alert(code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'新增失敗：'+code);
+  }
 }
 
 async function receiptFileToDataUrl(file){
@@ -2563,12 +2613,346 @@ function chooseReceiptPhoto(){
   input.click();
 }
 
+
+let checklistTab=(()=>{try{const v=localStorage.getItem('travelChecklistTab');return ['pack','buy'].includes(v)?v:''}catch(_){return ''}})();
+let checklistScope=(()=>{try{return localStorage.getItem('travelChecklistScope')==='team'?'team':'mine'}catch(_){return 'mine'}})();
+let checklistCategory='all';
+
+function tripTodayISO(){
+  try{
+    const tz=TRIP?.timezone||'UTC';
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+    const map=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+  }catch(_){return new Date().toISOString().slice(0,10)}
+}
+function defaultChecklistTab(){
+  const start=TRIP?.startDate||TRIP?.days?.[0]?.date||'';
+  return start&&tripTodayISO()<start?'pack':'buy';
+}
+function checklistRows(type=checklistTab||defaultChecklistTab()){
+  return (Array.isArray(TRIP?.checklistItems)?TRIP.checklistItems:[])
+    .filter(x=>x.listType===type)
+    .sort((a,b)=>Number(a.sortOrder||0)-Number(b.sortOrder||0));
+}
+function checklistPerson(id){return expensePeople().find(p=>String(p.id)===String(id))||null}
+function checklistShort(p){
+  if(!p)return '—';
+  return String(p.shortCode||suggestShortCode(p.displayName)||'?').slice(0,2);
+}
+function packApplies(item,personId){
+  return item.assignmentMode!=='specific'||(item.assignedPersonIds||[]).map(String).includes(String(personId));
+}
+function packStatusFor(item,personId){
+  return (item.packStatuses||[]).find(s=>String(s.personId)===String(personId))?.status||'todo';
+}
+function nextPackStatus(status){return status==='todo'?'ready':status==='ready'?'packed':'todo'}
+function checklistStatusButton(status,itemId,personId,enabled=true){
+  const mark=status==='packed'?'✓':status==='ready'?'R':'';
+  const title=status==='packed'?'已打包':status==='ready'?'Ready · 已準備':'尚未準備';
+  return `<button type="button" class="pack-status-btn ${status}" data-pack-item="${escapeHtml(itemId)}" data-pack-person="${escapeHtml(personId)}" title="${title}" aria-label="${title}" ${enabled?'':'disabled'}>${mark}</button>`;
+}
+function checklistCategoryRows(){
+  const rows=checklistRows();
+  return ['all',...Array.from(new Set(rows.map(x=>String(x.category||'其他')).filter(Boolean)))];
+}
+function renderChecklistFilters(){
+  const host=qs('#checklistFilters');if(!host)return;
+  const cats=checklistCategoryRows();
+  if(checklistCategory!=='all'&&!cats.includes(checklistCategory))checklistCategory='all';
+  host.innerHTML=cats.map(cat=>`<button type="button" class="${cat===checklistCategory?'active':''}" data-checklist-category="${escapeHtml(cat)}">${cat==='all'?'全部':escapeHtml(cat)}</button>`).join('');
+  host.querySelectorAll('[data-checklist-category]').forEach(btn=>btn.onclick=()=>{checklistCategory=btn.dataset.checklistCategory||'all';renderChecklist()});
+}
+function checklistFilteredRows(){
+  let rows=checklistRows();
+  if(checklistCategory!=='all')rows=rows.filter(x=>String(x.category||'其他')===checklistCategory);
+  if(checklistTab==='pack'&&checklistScope==='mine'&&TRIP?.currentPersonId){
+    rows=rows.filter(item=>packApplies(item,TRIP.currentPersonId));
+  }
+  return rows;
+}
+function checklistPackMeta(item){
+  const bits=[item.category||'其他'];
+  if(item.note)bits.push(item.note);
+  return bits.join(' · ');
+}
+function renderChecklistPack(){
+  const host=qs('#checklistPackList');if(!host)return;
+  const rows=checklistFilteredRows(),people=expensePeople(),current=String(TRIP?.currentPersonId||'');
+  if(!rows.length){
+    host.innerHTML=`<div class="checklist-empty"><strong>${checklistScope==='mine'?'目前沒有分配給你的項目':'尚未建立要帶清單'}</strong><p>${canEditTrip()?'按「＋ 新增」建立第一筆。':'等 Trip Editor 建立清單後就會出現在這裡。'}</p></div>`;
+    return;
+  }
+  host.innerHTML=rows.map(item=>{
+    let statuses='';
+    if(checklistScope==='mine'){
+      const p=checklistPerson(current);
+      const applicable=p&&packApplies(item,current);
+      statuses=applicable?checklistStatusButton(packStatusFor(item,current),item.id,current,true):'<span class="pack-status-na">—</span>';
+    }else{
+      statuses=`<div class="checklist-team-status">${people.map(p=>{
+        const applicable=packApplies(item,p.id);
+        if(!applicable)return '<span class="pack-status-na">—</span>';
+        const canChange=canEditTrip()||String(p.id)===current;
+        return checklistStatusButton(packStatusFor(item,p.id),item.id,p.id,canChange);
+      }).join('')}</div>`;
+    }
+    return `<article class="checklist-item pack-item ${item.packStatuses?.length?'has-status':''}" data-checklist-id="${escapeHtml(item.id)}">
+      <div class="checklist-status-cell">${statuses}</div>
+      <div class="checklist-item-copy">
+        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong>${escapeHtml(item.title)}</strong></div>
+        ${item.note?`<p>${escapeHtml(item.note)}</p>`:''}
+      </div>
+      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}">•••</button>`:''}
+    </article>`;
+  }).join('');
+  bindChecklistRows();
+}
+function buyPersonLabel(personId,customName){
+  const p=checklistPerson(personId);
+  return p?.displayName||customName||'—';
+}
+function renderChecklistBuy(){
+  const host=qs('#checklistBuyList');if(!host)return;
+  const rows=checklistFilteredRows();
+  if(!rows.length){
+    host.innerHTML=`<div class="checklist-empty"><strong>還沒有要買的東西</strong><p>${canEditTrip()?'旅行途中想到什麼就加進來。':'等 Trip Editor 建立購物清單後就會出現在這裡。'}</p></div>`;
+    return;
+  }
+  host.innerHTML=rows.map(item=>{
+    const bought=item.buyStatus==='bought';
+    const buyer=buyPersonLabel(item.buyerPersonId,item.buyerCustomName);
+    const forWhom=buyPersonLabel(item.forPersonId,item.forCustomName);
+    const info=[];
+    if(item.quantity)info.push('數量 '+item.quantity);
+    if(item.note)info.push(item.note);
+    if(buyer!=='—')info.push('誰去買 '+buyer);
+    if(forWhom!=='—')info.push('幫 '+forWhom);
+    return `<article class="checklist-item buy-item ${bought?'bought':''}" data-checklist-id="${escapeHtml(item.id)}">
+      <div class="checklist-status-cell"><button type="button" class="buy-status-btn ${bought?'bought':'todo'}" data-buy-item="${escapeHtml(item.id)}" aria-label="${bought?'已買':'未買'}">${bought?'✓':''}</button></div>
+      <div class="checklist-item-copy">
+        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong>${escapeHtml(item.title)}</strong>${item.quantity?`<em>× ${escapeHtml(item.quantity)}</em>`:''}</div>
+        ${info.length?`<p>${escapeHtml(info.join(' · '))}</p>`:''}
+        ${bought&&canEditTrip()?`<button type="button" class="checklist-expense-link" data-buy-expense="${escapeHtml(item.id)}">＋ 記一筆花費</button>`:''}
+      </div>
+      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}">•••</button>`:''}
+    </article>`;
+  }).join('');
+  bindChecklistRows();
+}
+function renderChecklistPersonHead(){
+  const head=qs('#checklistPersonHead');if(!head)return;
+  const show=checklistTab==='pack'&&checklistScope==='team';
+  head.hidden=!show;
+  if(!show)return;
+  const people=expensePeople();
+  head.innerHTML=`<span>隊友</span><div class="checklist-team-status checklist-team-head">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`;
+}
+function renderChecklist(){
+  if(!qs('#checklistView')||!TRIP)return;
+  if(!checklistTab)checklistTab=defaultChecklistTab();
+  qsa('[data-checklist-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.checklistTab===checklistTab));
+  qs('#checklistPackPanel')?.classList.toggle('active',checklistTab==='pack');
+  qs('#checklistBuyPanel')?.classList.toggle('active',checklistTab==='buy');
+  const scope=qs('#checklistScopeBtn');
+  if(scope){
+    scope.hidden=checklistTab!=='pack';
+    scope.textContent=checklistScope==='mine'?'全部隊友':'只看我';
+    scope.classList.toggle('team',checklistScope==='team');
+  }
+  const add=qs('#addChecklistItemBtn');if(add)add.hidden=!canEditTrip();
+  const heroTitle=qs('#checklistHeroTitle'),heroSummary=qs('#checklistHeroSummary');
+  if(heroTitle)heroTitle.textContent=checklistTab==='pack'?'出發準備':'旅途中要買';
+  if(heroSummary){
+    if(checklistTab==='pack'){
+      const mine=TRIP?.currentPersonId?checklistRows('pack').filter(x=>packApplies(x,TRIP.currentPersonId)):[];
+      const packed=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length;
+      const ready=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length;
+      heroSummary.textContent=TRIP?.currentPersonId?`${packed}/${mine.length} 已打包 · ${ready} Ready`:'設定旅伴身份後就能追蹤自己的打包進度。';
+    }else{
+      const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
+      heroSummary.textContent=`${done}/${rows.length} 已買 · ${rows.length-done} 待買`;
+    }
+  }
+  renderChecklistFilters();
+  renderChecklistPersonHead();
+  if(checklistTab==='pack')renderChecklistPack();else renderChecklistBuy();
+}
+function renderChecklistHome(){
+  const card=qs('#checklistHomeCard');if(!card||!TRIP)return;
+  const title=qs('#checklistHomeTitle'),summary=qs('#checklistHomeSummary');
+  const beforeStart=(TRIP?.startDate||'')&&tripTodayISO()<TRIP.startDate;
+  if(beforeStart){
+    const rows=TRIP?.currentPersonId?checklistRows('pack').filter(x=>packApplies(x,TRIP.currentPersonId)):checklistRows('pack');
+    const packed=TRIP?.currentPersonId?rows.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length:0;
+    const ready=TRIP?.currentPersonId?rows.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length:0;
+    if(title)title.textContent='出發準備';
+    if(summary)summary.textContent=rows.length?(TRIP?.currentPersonId?`${packed}/${rows.length} 已打包 · ${ready} Ready`:`${rows.length} 項待準備`):'開始建立旅行清單';
+  }else{
+    const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
+    if(title)title.textContent='購物清單';
+    if(summary)summary.textContent=rows.length?`待買 ${rows.length-done} · 已買 ${done}`:'旅行途中想買的東西放這裡';
+  }
+}
+async function setPackChecklistStatus(itemId,personId){
+  const item=checklistRows('pack').find(x=>String(x.id)===String(itemId));if(!item)return;
+  const status=nextPackStatus(packStatusFor(item,personId));
+  try{await travelEditor('set_checklist_pack_status',{id:itemId,personId,status});await hydratePrivateCloudData();showView('checklist')}
+  catch(err){alert('更新打包狀態失敗：'+(err.code||err.message))}
+}
+async function setBuyChecklistStatus(itemId){
+  const item=checklistRows('buy').find(x=>String(x.id)===String(itemId));if(!item)return;
+  const status=item.buyStatus==='bought'?'todo':'bought';
+  try{await travelEditor('set_checklist_buy_status',{id:itemId,status});await hydratePrivateCloudData();showView('checklist')}
+  catch(err){alert('更新購物狀態失敗：'+(err.code||err.message))}
+}
+function bindChecklistRows(){
+  qsa('[data-pack-item]').forEach(btn=>btn.onclick=()=>setPackChecklistStatus(btn.dataset.packItem,btn.dataset.packPerson));
+  qsa('[data-buy-item]').forEach(btn=>btn.onclick=()=>setBuyChecklistStatus(btn.dataset.buyItem));
+  qsa('[data-edit-checklist]').forEach(btn=>btn.onclick=()=>{
+    const row=(TRIP?.checklistItems||[]).find(x=>String(x.id)===String(btn.dataset.editChecklist));
+    if(row)openChecklistEditor(row);
+  });
+  qsa('[data-buy-expense]').forEach(btn=>btn.onclick=()=>{
+    const item=checklistRows('buy').find(x=>String(x.id)===String(btn.dataset.buyExpense));if(!item)return;
+    const note=[item.quantity?'數量 '+item.quantity:'',item.forPersonId||item.forCustomName?'幫 '+buyPersonLabel(item.forPersonId,item.forCustomName):'',item.note||''].filter(Boolean).join(' · ');
+    showView('expense');
+    openExpenseEditor(null,{title:item.title,category:'shopping',paidByPersonId:TRIP.currentPersonId,note});
+  });
+}
+function personSelectOptions(selectedId='',allowCustom=true){
+  const rows=['<option value="">—</option>',...expensePeople().map(p=>`<option value="${escapeHtml(p.id)}" ${String(selectedId)===String(p.id)?'selected':''}>${escapeHtml(p.displayName)} · ${escapeHtml(checklistShort(p))}</option>`)];
+  if(allowCustom)rows.push('<option value="__custom__">自訂…</option>');
+  return rows.join('');
+}
+function ensureChecklistEditor(){
+  let sheet=qs('#checklistEditSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet checklist-edit-sheet';sheet.id='checklistEditSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">CHECKLIST</span><h2 id="checklistEditTitle">新增項目</h2><p id="checklistEditSubtitle"></p></div><button class="round-btn" id="closeChecklistEdit">×</button></div>
+    <form class="edit-form" id="checklistEditForm">
+      <input type="hidden" id="checklistEditId"><input type="hidden" id="checklistEditVersion"><input type="hidden" id="checklistEditType">
+      <div class="edit-form-grid">
+        <label><span>分類</span><input id="checklistCategoryInput" maxlength="40" placeholder="例如 吃 / 煮 / 行" required></label>
+        <label class="checklist-quantity-field"><span>數量</span><input id="checklistQuantityInput" maxlength="40" placeholder="1 / 2盒"></label>
+      </div>
+      <label><span>品項</span><input id="checklistTitleInput" maxlength="180" required placeholder="要帶或要買的東西"></label>
+      <label><span>備註</span><textarea id="checklistNoteInput" rows="3" placeholder="哪裡買、品牌、尺寸、提醒…"></textarea></label>
+      <div id="checklistPackFields">
+        <label><span>適用對象</span><select id="checklistAssignmentMode"><option value="all">全員</option><option value="specific">指定人員</option></select></label>
+        <fieldset class="expense-split-fieldset"><legend>指定人員</legend><div id="checklistAssignedPeople"></div></fieldset>
+      </div>
+      <div id="checklistBuyFields" hidden>
+        <label><span>誰去買</span><select id="checklistBuyerSelect"></select></label>
+        <label id="checklistBuyerCustomWrap" hidden><span>自訂購買人</span><input id="checklistBuyerCustom" maxlength="80"></label>
+        <label><span>幫誰買</span><select id="checklistForSelect"></select></label>
+        <label id="checklistForCustomWrap" hidden><span>自訂對象</span><input id="checklistForCustom" maxlength="80"></label>
+      </div>
+      <div class="edit-form-actions expense-form-actions">
+        <button type="button" class="edit-delete" id="deleteChecklistItemBtn">刪除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="checklistEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeChecklistEdit').onclick=close;backdrop.onclick=close;
+  qs('#checklistEditForm').onsubmit=saveChecklistEditor;
+  qs('#deleteChecklistItemBtn').onclick=deleteChecklistEditor;
+  qs('#checklistAssignmentMode').onchange=syncChecklistEditorFields;
+  qs('#checklistBuyerSelect').onchange=syncChecklistEditorFields;
+  qs('#checklistForSelect').onchange=syncChecklistEditorFields;
+  return sheet;
+}
+function syncChecklistEditorFields(){
+  const type=qs('#checklistEditType')?.value||'pack';
+  const pack=qs('#checklistPackFields'),buy=qs('#checklistBuyFields'),qty=qs('.checklist-quantity-field');
+  if(pack)pack.hidden=type!=='pack';
+  if(buy)buy.hidden=type!=='buy';
+  if(qty)qty.hidden=type!=='buy';
+  if(qs('#checklistAssignedPeople'))qs('#checklistAssignedPeople').closest('fieldset').hidden=type!=='pack'||qs('#checklistAssignmentMode').value!=='specific';
+  if(qs('#checklistBuyerCustomWrap'))qs('#checklistBuyerCustomWrap').hidden=qs('#checklistBuyerSelect')?.value!=='__custom__';
+  if(qs('#checklistForCustomWrap'))qs('#checklistForCustomWrap').hidden=qs('#checklistForSelect')?.value!=='__custom__';
+}
+function openChecklistEditor(row=null){
+  if(!canEditTrip())return;
+  const sheet=ensureChecklistEditor();
+  const type=row?.listType||checklistTab||defaultChecklistTab();
+  qs('#checklistEditId').value=row?.id||'';
+  qs('#checklistEditVersion').value=row?.version||1;
+  qs('#checklistEditType').value=type;
+  qs('#checklistEditTitle').textContent=row?'編輯項目':(type==='pack'?'新增要帶':'新增要買');
+  qs('#checklistEditSubtitle').textContent=type==='pack'?'空白 → Ready → Packed 循環切換':'未買 → 已買，購買地點直接寫在備註。';
+  qs('#checklistCategoryInput').value=row?.category||'';
+  qs('#checklistTitleInput').value=row?.title||'';
+  qs('#checklistQuantityInput').value=row?.quantity||'';
+  qs('#checklistNoteInput').value=row?.note||'';
+  qs('#checklistAssignmentMode').value=row?.assignmentMode||'all';
+  const selected=(row?.assignedPersonIds||[]).map(String);
+  qs('#checklistAssignedPeople').innerHTML=expensePeople().map(p=>`<label><input type="checkbox" value="${escapeHtml(p.id)}" ${selected.includes(String(p.id))?'checked':''}><span>${escapeHtml(p.displayName)} · ${escapeHtml(checklistShort(p))}</span></label>`).join('');
+  const buyerCustom=Boolean(row?.buyerCustomName&&!row?.buyerPersonId);
+  const forCustom=Boolean(row?.forCustomName&&!row?.forPersonId);
+  qs('#checklistBuyerSelect').innerHTML=personSelectOptions(row?.buyerPersonId||'');
+  qs('#checklistForSelect').innerHTML=personSelectOptions(row?.forPersonId||'');
+  qs('#checklistBuyerSelect').value=buyerCustom?'__custom__':(row?.buyerPersonId||'');
+  qs('#checklistForSelect').value=forCustom?'__custom__':(row?.forPersonId||'');
+  qs('#checklistBuyerCustom').value=row?.buyerCustomName||'';
+  qs('#checklistForCustom').value=row?.forCustomName||'';
+  qs('#deleteChecklistItemBtn').hidden=!row;
+  qs('#checklistEditStatus').textContent='';
+  syncChecklistEditorFields();
+  qs('#checklistEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+async function saveChecklistEditor(e){
+  e.preventDefault();
+  const status=qs('#checklistEditStatus'),type=qs('#checklistEditType').value;
+  const assigned=[...qs('#checklistAssignedPeople').querySelectorAll('input:checked')].map(x=>x.value);
+  const assignmentMode=qs('#checklistAssignmentMode').value;
+  if(type==='pack'&&assignmentMode==='specific'&&!assigned.length){status.textContent='至少指定一位旅伴。';return}
+  const buyerSel=qs('#checklistBuyerSelect').value,forSel=qs('#checklistForSelect').value;
+  const item={
+    id:qs('#checklistEditId').value||null,
+    baseVersion:Number(qs('#checklistEditVersion').value||1),
+    listType:type,
+    category:qs('#checklistCategoryInput').value.trim()||'其他',
+    title:qs('#checklistTitleInput').value.trim(),
+    quantity:type==='buy'?qs('#checklistQuantityInput').value.trim():'',
+    note:qs('#checklistNoteInput').value.trim(),
+    assignmentMode,
+    assignedPersonIds:assigned,
+    buyerPersonId:type==='buy'&&buyerSel&&buyerSel!=='__custom__'?buyerSel:null,
+    buyerCustomName:type==='buy'&&buyerSel==='__custom__'?qs('#checklistBuyerCustom').value.trim():'',
+    forPersonId:type==='buy'&&forSel&&forSel!=='__custom__'?forSel:null,
+    forCustomName:type==='buy'&&forSel==='__custom__'?qs('#checklistForCustom').value.trim():''
+  };
+  if(!item.title){status.textContent='請輸入品項。';return}
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_checklist_item',{item});
+    qs('#checklistEditSheet').classList.remove('show');qs('#checklistEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){status.textContent='儲存失敗：'+(err.code||err.message)}
+}
+async function deleteChecklistEditor(){
+  const id=qs('#checklistEditId').value;if(!id)return;
+  if(!confirm('刪除這個清單項目？'))return;
+  try{
+    await travelEditor('delete_checklist_item',{id,baseVersion:Number(qs('#checklistEditVersion').value||1)});
+    qs('#checklistEditSheet').classList.remove('show');qs('#checklistEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){qs('#checklistEditStatus').textContent='刪除失敗：'+(err.code||err.message)}
+}
+
 function renderAll(){
   renderDayStrip();
   renderStaticIcons();
   renderToday();
   renderBookings();
   renderExpenses();
+  renderChecklist();
+  renderChecklistHome();
   renderBottomNavIcons();
   if(map)renderMapDay();
   syncEditModeChrome();
@@ -2577,6 +2961,17 @@ function renderAll(){
 qsa('.nav-item[data-target]').forEach(b=>b.onclick=()=>showView(b.dataset.target));
 qsa('[data-nav]').forEach(b=>b.onclick=()=>showView(b.dataset.nav));
 qsa('[data-expense-tab]').forEach(btn=>btn.onclick=()=>{expenseTab=btn.dataset.expenseTab;renderExpenses()});
+qsa('[data-checklist-tab]').forEach(btn=>btn.onclick=()=>{
+  checklistTab=btn.dataset.checklistTab||'pack';checklistCategory='all';
+  try{localStorage.setItem('travelChecklistTab',checklistTab)}catch(_){}
+  renderChecklist();
+});
+if(qs('#checklistScopeBtn'))qs('#checklistScopeBtn').onclick=()=>{
+  checklistScope=checklistScope==='mine'?'team':'mine';
+  try{localStorage.setItem('travelChecklistScope',checklistScope)}catch(_){}
+  renderChecklist();
+};
+if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>openChecklistEditor();
 if(qs('#addExpenseBtn'))qs('#addExpenseBtn').onclick=()=>openExpenseEditor();
 if(qs('#receiptExpenseBtn'))qs('#receiptExpenseBtn').onclick=chooseReceiptPhoto;
 if(qs('#expenseIdentityBtn'))qs('#expenseIdentityBtn').onclick=openExpenseIdentitySheet;
@@ -2651,6 +3046,7 @@ qs('#weatherBackdrop').onclick=closeWeatherSheet;
 qs('#demoModeToggle').onclick=toggleDemoMode;
 if(qs('#newTripBtn')) qs('#newTripBtn').onclick=createNewTrip;
 if(qs('#moreNewTrip')) qs('#moreNewTrip').onclick=createNewTrip;
+if(qs('#moreSettingsBtn')) qs('#moreSettingsBtn').onclick=()=>{closeSheet();showView('more')};
 if(qs('#moreResync')) qs('#moreResync').onclick=async()=>{
   const btn=qs('#moreResync');btn.disabled=true;
   try{
@@ -2816,6 +3212,7 @@ function cloudTripToUi(data){
     people:Array.isArray(data.people)?data.people:[],
     currentPersonId:data.currentPersonId||null,
     expenses:Array.isArray(data.expenses)?data.expenses:[],
+    checklistItems:Array.isArray(data.checklistItems)?data.checklistItems:[],
     mailImports:Array.isArray(data.mailImports)?data.mailImports:[]
   };
 }
