@@ -2557,17 +2557,8 @@ async function addReservationExpense(reservationId){
   }catch(err){alert('無法納入花費：'+(err.code||err.message||'unknown'))}
 }
 async function addExpensePerson(){
-  if(!canEditTrip())return;
-  const name=prompt('旅伴名稱');if(!name?.trim())return;
-  const shortCode=(prompt('簡稱（最多 2 碼，同一趟不可重複）',suggestShortCode(name))||'').trim();
-  if(!shortCode||Array.from(shortCode).length>2){alert('請輸入 1～2 碼簡稱。');return}
-  try{
-    await travelEditor('add_expense_person',{displayName:name.trim(),shortCode});
-    await hydratePrivateCloudData();showView('expense');
-  }catch(err){
-    const code=err.code||err.message;
-    alert(code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'新增失敗：'+code);
-  }
+  const person=await createTripPerson();
+  if(person)showView('expense');
 }
 
 async function receiptFileToDataUrl(file){
@@ -2710,13 +2701,13 @@ function renderChecklistPack(){
           const note=packNoteFor(item,p.id);
           return note?`${checklistShort(p)} ${note}`:'';
         }).filter(Boolean).join(' · ');
-    return `<article class="checklist-item pack-item ${item.packStatuses?.length?'has-status':''}" data-checklist-id="${escapeHtml(item.id)}">
+    const notes=[item.note||'',personNotes].filter(Boolean).join(' · ');
+    return `<article class="checklist-item pack-item checklist-pack-row ${checklistScope==='team'?'team-mode':'mine-mode'} ${item.packStatuses?.length?'has-status':''}" data-checklist-id="${escapeHtml(item.id)}">
       <div class="checklist-status-cell">${statuses}</div>
       <div class="checklist-item-copy">
-        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong>${escapeHtml(item.title)}</strong></div>
-        ${item.note?`<p>${escapeHtml(item.note)}</p>`:''}
-        ${personNotes?`<p class="checklist-person-note">${escapeHtml(personNotes)}</p>`:''}
+        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div>
       </div>
+      <div class="checklist-note-cell" title="${escapeHtml(notes)}">${notes?escapeHtml(notes):'<span class="checklist-note-empty">—</span>'}</div>
       ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}" aria-label="編輯"><span class="checklist-edit-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`:''}
     </article>`;
   }).join('');
@@ -2756,11 +2747,16 @@ function renderChecklistBuy(){
 }
 function renderChecklistPersonHead(){
   const head=qs('#checklistPersonHead');if(!head)return;
-  const show=checklistTab==='pack'&&checklistScope==='team';
+  const show=checklistTab==='pack';
   head.hidden=!show;
   if(!show)return;
   const people=expensePeople();
-  head.innerHTML=`<div class="checklist-team-status checklist-team-head" aria-label="隊友">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`;
+  const statusHead=checklistScope==='team'
+    ?`<div class="checklist-team-status checklist-team-head" aria-label="隊友">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`
+    :'<span class="checklist-mine-head">狀態</span>';
+  head.classList.toggle('team-mode',checklistScope==='team');
+  head.classList.toggle('mine-mode',checklistScope!=='team');
+  head.innerHTML=`${statusHead}<span class="checklist-column-title">品項</span><span class="checklist-column-title">備註</span><span class="checklist-head-edit-spacer"></span>`;
 }
 function renderChecklist(){
   if(!qs('#checklistView')||!TRIP)return;
@@ -2887,6 +2883,56 @@ function personSelectOptions(selectedId='',allowCustom=true){
   if(allowCustom)rows.push('<option value="__custom__">自訂…</option>');
   return rows.join('');
 }
+function renderChecklistAssignedPeople(selectedIds=[],allSelected=false){
+  const host=qs('#checklistAssignedPeople');if(!host)return;
+  const people=expensePeople();
+  const selected=new Set((selectedIds||[]).map(String));
+  host.innerHTML=`
+    <label class="checklist-person-option checklist-person-all">
+      <input type="checkbox" id="checklistSelectAll" ${allSelected?'checked':''}>
+      <span>全選</span>
+    </label>
+    ${people.map(p=>`<label class="checklist-person-option">
+      <input type="checkbox" data-checklist-person value="${escapeHtml(p.id)}" ${allSelected||selected.has(String(p.id))?'checked':''}>
+      <span>${escapeHtml(p.displayName)} <b>(${escapeHtml(checklistShort(p))})</b></span>
+    </label>`).join('')}
+    ${canEditTrip()?'<button type="button" class="checklist-add-person-btn" id="checklistAddPersonBtn">＋ 新增人員</button>':''}
+  `;
+  const all=qs('#checklistSelectAll');
+  const personChecks=[...host.querySelectorAll('[data-checklist-person]')];
+  if(all)all.onchange=()=>{
+    if(all.checked)personChecks.forEach(x=>x.checked=true);
+  };
+  personChecks.forEach(input=>input.onchange=()=>{
+    if(all)all.checked=false;
+  });
+  const addBtn=qs('#checklistAddPersonBtn');
+  if(addBtn)addBtn.onclick=addChecklistPersonFromEditor;
+}
+async function createTripPerson(){
+  if(!canEditTrip())return null;
+  const name=prompt('旅伴名稱');if(!name?.trim())return null;
+  const shortCode=(prompt('簡稱（最多 2 碼，同一趟不可重複）',suggestShortCode(name))||'').trim();
+  if(!shortCode||Array.from(shortCode).length>2){alert('請輸入 1～2 碼簡稱。');return null}
+  try{
+    const result=await travelEditor('add_expense_person',{displayName:name.trim(),shortCode});
+    await hydratePrivateCloudData();
+    return result?.person||null;
+  }catch(err){
+    const code=err.code||err.message;
+    alert(code==='short_code_taken'?'這個簡稱已有人使用，請換一個。':'新增失敗：'+code);
+    return null;
+  }
+}
+async function addChecklistPersonFromEditor(){
+  const host=qs('#checklistAssignedPeople');if(!host)return;
+  const allWasChecked=Boolean(qs('#checklistSelectAll')?.checked);
+  const selected=[...host.querySelectorAll('[data-checklist-person]:checked')].map(x=>String(x.value));
+  const person=await createTripPerson();
+  if(!person)return;
+  const nextSelected=allWasChecked?expensePeople().map(p=>String(p.id)):[...new Set([...selected,String(person.id)])];
+  renderChecklistAssignedPeople(nextSelected,allWasChecked);
+}
 function ensureChecklistEditor(){
   let sheet=qs('#checklistEditSheet');if(sheet)return sheet;
   const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistEditBackdrop';
@@ -2903,8 +2949,10 @@ function ensureChecklistEditor(){
       <label><span>品項</span><input id="checklistTitleInput" maxlength="180" required placeholder="要帶或要買的東西"></label>
       <label><span>備註</span><textarea id="checklistNoteInput" rows="3" placeholder="哪裡買、品牌、尺寸、提醒…"></textarea></label>
       <div id="checklistPackFields">
-        <label><span>適用對象</span><select id="checklistAssignmentMode"><option value="all">全員</option><option value="specific">指定人員</option></select></label>
-        <fieldset class="expense-split-fieldset"><legend>指定人員</legend><div id="checklistAssignedPeople"></div></fieldset>
+        <fieldset class="expense-split-fieldset checklist-people-fieldset">
+          <legend>適用對象</legend>
+          <div id="checklistAssignedPeople"></div>
+        </fieldset>
       </div>
       <div id="checklistBuyFields" hidden>
         <label><span>誰去買</span><select id="checklistBuyerSelect"></select></label>
@@ -2923,7 +2971,6 @@ function ensureChecklistEditor(){
   qs('#closeChecklistEdit').onclick=close;backdrop.onclick=close;
   qs('#checklistEditForm').onsubmit=saveChecklistEditor;
   qs('#deleteChecklistItemBtn').onclick=deleteChecklistEditor;
-  qs('#checklistAssignmentMode').onchange=syncChecklistEditorFields;
   qs('#checklistBuyerSelect').onchange=syncChecklistEditorFields;
   qs('#checklistForSelect').onchange=syncChecklistEditorFields;
   return sheet;
@@ -2934,7 +2981,7 @@ function syncChecklistEditorFields(){
   if(pack)pack.hidden=type!=='pack';
   if(buy)buy.hidden=type!=='buy';
   if(qty)qty.hidden=type!=='buy';
-  if(qs('#checklistAssignedPeople'))qs('#checklistAssignedPeople').closest('fieldset').hidden=type!=='pack'||qs('#checklistAssignmentMode').value!=='specific';
+  if(qs('#checklistAssignedPeople'))qs('#checklistAssignedPeople').closest('fieldset').hidden=type!=='pack';
   if(qs('#checklistBuyerCustomWrap'))qs('#checklistBuyerCustomWrap').hidden=qs('#checklistBuyerSelect')?.value!=='__custom__';
   if(qs('#checklistForCustomWrap'))qs('#checklistForCustomWrap').hidden=qs('#checklistForSelect')?.value!=='__custom__';
 }
@@ -2952,9 +2999,8 @@ function openChecklistEditor(row=null){
   qs('#checklistTitleInput').value=row?.title||'';
   qs('#checklistQuantityInput').value=row?.quantity||'';
   qs('#checklistNoteInput').value=row?.note||'';
-  qs('#checklistAssignmentMode').value=row?.assignmentMode||'all';
   const selected=(row?.assignedPersonIds||[]).map(String);
-  qs('#checklistAssignedPeople').innerHTML=expensePeople().map(p=>`<label><input type="checkbox" value="${escapeHtml(p.id)}" ${selected.includes(String(p.id))?'checked':''}><span>${escapeHtml(p.displayName)} · ${escapeHtml(checklistShort(p))}</span></label>`).join('');
+  renderChecklistAssignedPeople(selected,(row?.assignmentMode||'all')==='all');
   const buyerCustom=Boolean(row?.buyerCustomName&&!row?.buyerPersonId);
   const forCustom=Boolean(row?.forCustomName&&!row?.forPersonId);
   qs('#checklistBuyerSelect').innerHTML=personSelectOptions(row?.buyerPersonId||'');
@@ -2971,9 +3017,9 @@ function openChecklistEditor(row=null){
 async function saveChecklistEditor(e){
   e.preventDefault();
   const status=qs('#checklistEditStatus'),type=qs('#checklistEditType').value;
-  const assigned=[...qs('#checklistAssignedPeople').querySelectorAll('input:checked')].map(x=>x.value);
-  const assignmentMode=qs('#checklistAssignmentMode').value;
-  if(type==='pack'&&assignmentMode==='specific'&&!assigned.length){status.textContent='至少指定一位旅伴。';return}
+  const assigned=[...qs('#checklistAssignedPeople').querySelectorAll('[data-checklist-person]:checked')].map(x=>x.value);
+  const assignmentMode=type==='pack'&&qs('#checklistSelectAll')?.checked?'all':'specific';
+  if(type==='pack'&&!assigned.length){status.textContent='至少選一位旅伴，或使用全選。';return}
   const buyerSel=qs('#checklistBuyerSelect').value,forSel=qs('#checklistForSelect').value;
   const item={
     id:qs('#checklistEditId').value||null,
