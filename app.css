@@ -2199,3 +2199,114 @@ html.item-editor-open .global-edit-toolbar{
   .expense-analysis-placeholder{grid-template-columns:1fr}
   .expense-analysis-placeholder section{grid-column:1}
 }
+
+
+/* Collaborative trip checklist */
+.checklist-view{padding-bottom:96px}
+.checklist-home-card{
+  width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;
+  margin:0 0 14px;padding:13px 14px;border:1px solid var(--theme-accent-border);border-radius:18px;
+  background:linear-gradient(135deg,var(--paper),var(--theme-surface-2));color:var(--ink);text-align:left;box-shadow:var(--shadow)
+}
+.checklist-home-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--theme-accent-soft);color:var(--green);font-size:18px;font-weight:950}
+.checklist-home-copy{min-width:0}
+.checklist-home-copy small{display:block;color:var(--gold);font-size:9px;font-weight:900;letter-spacing:.08em}
+.checklist-home-copy strong{display:block;margin-top:2px;font-size:14px}
+.checklist-home-copy em{display:block;margin-top:3px;color:var(--muted);font-size:10px;font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.checklist-home-arrow{color:var(--green);font-weight:950;font-size:18px}
+
+.checklist-hero{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
+  margin:4px 0 12px;padding:17px;border:1px solid var(--theme-accent-border);border-radius:22px;
+  background:linear-gradient(135deg,var(--paper),var(--theme-surface-2));box-shadow:var(--shadow)
+}
+.checklist-hero h2{margin:5px 0 2px;font-size:19px}
+.checklist-hero p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}
+.checklist-scope-btn,.checklist-add-btn{
+  border:1px solid var(--theme-accent-border);border-radius:12px;background:var(--theme-accent-soft);
+  color:var(--green);padding:9px 11px;font-size:10px;font-weight:900;white-space:nowrap
+}
+.checklist-scope-btn.team{background:var(--green);border-color:var(--green);color:#fff}
+
+.checklist-tab-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 11px}
+.checklist-tab-row button{
+  border:1px solid var(--theme-accent-border);border-radius:14px;background:var(--paper);
+  color:var(--muted);padding:11px 12px;font-weight:900
+}
+.checklist-tab-row button.active{background:var(--green);border-color:var(--green);color:#fff}
+
+.checklist-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.checklist-filters{display:flex;gap:7px;overflow:auto;min-width:0;flex:1;scrollbar-width:none}
+.checklist-filters::-webkit-scrollbar{display:none}
+.checklist-filters button{
+  flex:0 0 auto;border:1px solid var(--theme-accent-border);border-radius:999px;
+  background:var(--paper);color:var(--muted);padding:7px 10px;font-size:10px;font-weight:900
+}
+.checklist-filters button.active{background:var(--theme-accent-soft);color:var(--green);border-color:var(--green)}
+
+.checklist-panel{display:none}.checklist-panel.active{display:block}
+.checklist-list{display:grid;gap:8px}
+.checklist-empty{padding:28px 18px;border:1px dashed var(--theme-accent-border);border-radius:18px;background:var(--paper);text-align:center}
+.checklist-empty strong{display:block;font-size:14px}
+.checklist-empty p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.5}
+
+.checklist-person-head{
+  position:sticky;top:82px;z-index:8;display:grid;grid-template-columns:44px minmax(0,1fr);
+  align-items:center;gap:10px;margin:0 0 7px;padding:7px 12px;border:1px solid var(--theme-accent-border);
+  border-radius:14px;background:rgba(255,253,248,.96);backdrop-filter:blur(12px)
+}
+.checklist-person-head>span{color:var(--muted);font-size:9px;font-weight:900}
+.checklist-team-status{display:grid;grid-auto-flow:column;grid-auto-columns:34px;justify-content:start;align-items:center;gap:5px}
+.checklist-team-head b{display:grid;place-items:center;height:28px;border-radius:9px;background:var(--theme-accent-soft);color:var(--green);font-size:10px}
+
+.checklist-item{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;
+  border:1px solid var(--theme-accent-border);border-radius:17px;background:var(--paper);
+  padding:11px 11px 11px 12px;box-shadow:0 4px 14px color-mix(in srgb,var(--green) 4%,transparent)
+}
+.checklist-item-copy{min-width:0}
+.checklist-item-title{display:flex;align-items:center;gap:7px;min-width:0}
+.checklist-item-title strong{font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+.checklist-item-title em{font-style:normal;color:var(--gold);font-size:10px;font-weight:900}
+.checklist-item-copy p{margin:4px 0 0;color:var(--muted);font-size:10px;line-height:1.45}
+.checklist-category-tag{
+  flex:0 0 auto;border-radius:999px;background:var(--theme-accent-soft);color:var(--green);
+  padding:4px 7px;font-size:8px;font-weight:900
+}
+.checklist-status-cell{display:flex;align-items:center}
+.pack-status-btn,.buy-status-btn{
+  width:30px;height:30px;padding:0;border-radius:8px;border:1.5px solid #cfc7bb;background:transparent;
+  color:#fff;font-weight:950;font-size:15px;display:grid;place-items:center;box-sizing:border-box
+}
+.pack-status-btn.ready{background:#d99a24;border-color:#d99a24;font-size:12px}
+.pack-status-btn.packed,.buy-status-btn.bought{background:#3d765f;border-color:#3d765f}
+.pack-status-btn:disabled{opacity:.28}
+.pack-status-na{width:30px;height:30px;display:grid;place-items:center;color:#b8afa3;font-weight:900}
+.buy-status-btn.todo{background:transparent}
+.buy-item.bought .checklist-item-title strong{text-decoration:line-through;color:var(--muted)}
+.buy-item.bought{opacity:.78}
+.checklist-edit-btn{
+  width:30px;height:30px;border:0;border-radius:9px;background:#f0ece4;color:var(--muted);
+  font-weight:950;display:grid;place-items:center;line-height:1
+}
+.checklist-expense-link{
+  margin-top:7px;border:0;border-radius:10px;background:var(--theme-accent-soft);color:var(--green);
+  padding:6px 8px;font-size:9px;font-weight:900
+}
+.person-short-code{
+  margin-left:5px;padding:2px 5px;border-radius:7px;background:var(--theme-accent-soft);
+  color:var(--green);font-size:9px
+}
+.edit-form label small{display:block;margin-top:5px;color:var(--muted);font-size:9px;line-height:1.45}
+.checklist-edit-sheet .expense-split-fieldset{margin-top:0}
+.sheet-action-end{display:flex;align-items:center;gap:8px;position:relative}
+#moreSettingsBtn .global-mail-badge{position:static;display:grid!important}
+#moreSettingsBtn .global-mail-badge[hidden]{display:none!important}
+
+@media(max-width:520px){
+  .checklist-item{grid-template-columns:auto minmax(0,1fr) auto;gap:8px;padding:10px}
+  .checklist-team-status{grid-auto-columns:30px;gap:4px}
+  .pack-status-btn,.buy-status-btn,.pack-status-na{width:28px;height:28px}
+  .checklist-person-head{grid-template-columns:40px minmax(0,1fr);padding:7px 10px}
+  .checklist-category-tag{padding:3px 6px}
+}
