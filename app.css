@@ -2875,3 +2875,160 @@ html.item-editor-open .global-edit-toolbar{
   font-size:11px;
   font-weight:800;
 }
+
+
+/* Travel Notes v1.5.0 */
+.checklist-tab-row{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+
+.travel-notes-panel{display:none}
+.travel-notes-panel.active{display:block}
+
+.travel-notes-search{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:0 0 10px;
+  padding:0 12px;
+  min-height:42px;
+  border:1px solid var(--theme-accent-border);
+  border-radius:14px;
+  background:var(--paper);
+}
+.travel-notes-search>span{
+  flex:0 0 auto;
+  color:var(--muted);
+  font-size:16px;
+  line-height:1;
+}
+.travel-notes-search input{
+  width:100%;
+  min-width:0;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:var(--ink);
+  font:inherit;
+  font-size:12px;
+}
+.travel-notes-list{display:grid;gap:9px}
+.travel-note-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  padding:13px 14px;
+  border:1px solid var(--theme-accent-border);
+  border-radius:17px;
+  background:var(--paper);
+  box-shadow:0 4px 14px color-mix(in srgb,var(--green) 4%,transparent);
+}
+.travel-note-card.pinned{
+  border-color:color-mix(in srgb,var(--gold) 42%,var(--theme-accent-border));
+  background:linear-gradient(135deg,var(--paper),color-mix(in srgb,var(--gold) 7%,var(--paper)));
+}
+.travel-note-main{min-width:0}
+.travel-note-topline{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin-bottom:5px;
+}
+.travel-note-category,
+.travel-note-pin{
+  display:inline-flex;
+  align-items:center;
+  min-height:22px;
+  padding:3px 8px;
+  border-radius:999px;
+  background:var(--theme-accent-soft);
+  color:var(--green);
+  font-size:11px;
+  font-weight:850;
+  line-height:1;
+}
+.travel-note-pin{
+  background:color-mix(in srgb,var(--gold) 16%,var(--paper));
+  color:var(--gold);
+}
+.travel-note-card h3{
+  margin:0;
+  font-size:14px;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
+.travel-note-card p{
+  margin:5px 0 0;
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.5;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.travel-note-card small{
+  display:block;
+  margin-top:6px;
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.35;
+}
+.travel-note-actions{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.travel-note-actions button{
+  border:1px solid var(--theme-accent-border);
+  border-radius:10px;
+  background:var(--theme-accent-soft);
+  color:var(--green);
+  min-height:32px;
+  padding:7px 9px;
+  font-size:11px;
+  font-weight:850;
+  white-space:nowrap;
+}
+.travel-note-actions .travel-note-more{
+  width:34px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  background:#f0ece4;
+  color:var(--muted);
+  font-size:14px;
+}
+.travel-notes-empty{margin-top:2px}
+
+.travel-note-sheet{max-height:90vh}
+.travel-note-pin-field{
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  gap:8px!important;
+}
+.travel-note-pin-field input{
+  width:16px!important;
+  height:16px!important;
+  margin:0!important;
+  flex:0 0 16px;
+}
+.travel-note-pin-field span{
+  font-size:11px;
+  font-weight:800;
+}
+
+@media(max-width:520px){
+  .travel-note-card{
+    grid-template-columns:minmax(0,1fr);
+    gap:8px;
+    padding:11px 12px;
+  }
+  .travel-note-actions{
+    justify-content:flex-start;
+  }
+  .travel-note-actions button{
+    min-height:30px;
+    padding:6px 8px;
+  }
+}
