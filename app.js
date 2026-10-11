@@ -2200,6 +2200,7 @@ async function renderMapDay(){
           labels:road.segmentLabels
         });
         qs('#routeDistanceSuffix').innerHTML=` / <span id="routeTotal">${road.distanceKm<100?road.distanceKm.toFixed(1):Math.round(road.distanceKm)}</span> km`;
+        updateMapRangeText(indices,road.distanceKm,road.durationSec);
         if(!road.hasFlight)updateRouteAt(+qs('#routeSlider').value);
         else{
           qs('#routeCurrent').textContent=stops[0]?.title||derivedDayTitle(d,dayIndex);
