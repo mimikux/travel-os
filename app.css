@@ -3032,3 +3032,36 @@ html.item-editor-open .global-edit-toolbar{
     padding:6px 8px;
   }
 }
+
+
+/* Multimodal route: flight legs are visual only and never count as driving km. */
+.route-track{
+  overflow:visible!important;
+}
+.route-track-flight{
+  position:absolute;
+  top:0;
+  height:3px;
+  background:repeating-linear-gradient(
+    90deg,
+    #756589 0 9px,
+    transparent 9px 16px
+  );
+  border-radius:99px;
+  z-index:2;
+  pointer-events:none;
+}
+.route-segment-label.flight{
+  color:#756589!important;
+  font-weight:900!important;
+}
+.route-node.airport{
+  border-color:#756589!important;
+  color:#756589!important;
+}
+.route-scale[data-has-flight="1"] .route-track-progress{
+  opacity:.72;
+}
+.route-panel.has-flight #routeSlider{
+  display:none!important;
+}
