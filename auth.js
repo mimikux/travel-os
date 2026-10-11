@@ -33,6 +33,7 @@
     document.documentElement.dataset.authState=next;
     const gate=document.getElementById('authGate');
     const form=document.getElementById('magicLinkForm');
+    const rootForm=document.getElementById('tripLinkForm');
     const msg=document.getElementById('authMessage');
     const foot=document.getElementById('authFoot');
     if(gate){
@@ -45,7 +46,10 @@
     if(form){
       const showForm=['signed_out','reauth_required','unauthorized_email','device_error','sdk_error'].includes(next);
       form.hidden=!showForm||!cfg.tripSlug;
+      form.style.display=form.hidden?'none':'grid';
     }
+    const showRoot=!cfg.tripSlug&&['signed_out','reauth_required','sdk_error','unauthorized_email','device_error'].includes(next);
+    if(rootForm){rootForm.hidden=!showRoot;rootForm.style.display=showRoot?'grid':'none'}
     if(msg){
       if(next==='loading') msg.textContent='正在確認這台裝置的登入狀態…';
       else if(next==='registering_device') msg.textContent='已找到登入狀態，正在驗證 Trusted Device…';
@@ -61,6 +65,7 @@
       foot.textContent=next==='loading'||next==='registering_device'?'已授權裝置會自動登入，無須再次配對。':next==='reauth_required'?'重新配對不會覆蓋雲端行程或登出其他裝置。':'登入碼由 Owner 產生，有效 60 分鐘，每組只能使用一次，不寄驗證信。';
     }
     emit();
+    if(showRoot&&msg)msg.textContent='主畫面 App 尚未登入。請貼上 Owner 分享的旅程連結，前往該旅程輸入登入碼。';
   }
 
   let initPromise=null;
@@ -273,10 +278,47 @@
     return snapshot();
   }
 
+
+  function tripSlugFromInvite(input){
+    const text=String(input||'').trim();
+    if(!text)return null;
+    if(/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(text))return text.toLowerCase();
+    const matched=text.match(/https?:\/\/[^\s<>\"']+/i);
+    if(!matched)return null;
+    const extracted=matched[0].split(/\\n|\\r|\\t/i)[0];
+    try{
+      const parsed=new URL(extracted);
+      if(parsed.origin!==location.origin||!parsed.pathname.startsWith(cfg.appBasePath))return null;
+      const slugValue=parsed.searchParams.get('trip')||parsed.pathname.slice(cfg.appBasePath.length).split('/')[0]||'';
+      return (String(slugValue).toLowerCase().match(/^([a-z0-9]+(?:-[a-z0-9]+)*)/)||[])[1]||null;
+    }catch{return null}
+  }
+  function bindTripLinkForm(){
+    const form=document.getElementById('tripLinkForm');
+    if(!form||form.dataset.bound==='1')return;
+    form.dataset.bound='1';
+    form.addEventListener('submit',event=>{
+      event.preventDefault();
+      const raw=document.getElementById('tripInviteText')?.value||'';
+      const slug=tripSlugFromInvite(raw);
+      const err=document.getElementById('tripLinkError');
+      if(!slug){if(err)err.textContent='請貼上有效的 Travel OS 旅程網址或完整登入資訊。';return}
+      const email=raw.match(/(?:Email|信箱|電子郵件)\s*[：:]\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/i);
+      if(email){try{sessionStorage.setItem('travel-os-invite-email',email[1].toLowerCase())}catch(_){}}
+      location.assign(cfg.appBasePath+'?trip='+encodeURIComponent(slug));
+    });
+  }
+
   function bindLoginForm(){
     const form=document.getElementById('magicLinkForm');
     if(!form||form.dataset.authBound==='1') return;
     form.dataset.authBound='1';
+    const emailInput=document.getElementById('authEmail');
+    if(emailInput){try{
+      const pending=sessionStorage.getItem('travel-os-invite-email');
+      if(pending&&!emailInput.value)emailInput.value=pending;
+      sessionStorage.removeItem('travel-os-invite-email');
+    }catch(_){}}
     form.addEventListener('submit',async e=>{
       e.preventDefault();
       const email=document.getElementById('authEmail')?.value||'';
@@ -323,6 +365,7 @@
   window.addEventListener('focus',()=>{ if(state==='ready') resumeSessionCheck({keepReady:true}).catch(()=>{}); });
 
   const boot=()=>{
+    bindTripLinkForm();
     bindLoginForm();
     init().catch(err=>console.error('Auth boot failed',err));
   };
