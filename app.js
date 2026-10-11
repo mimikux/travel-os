@@ -3296,6 +3296,10 @@ async function saveTravelNote(e){
   status.textContent='儲存中…';
   try{
     await travelEditor('save_trip_note',{note});
+    if(incomingSharePayload()){
+      clearIncomingShare();
+      incomingShareOpened=true;
+    }
     qs('#travelNoteSheet').classList.remove('show');qs('#travelNoteBackdrop').classList.remove('show');
     await hydratePrivateCloudData();showView('checklist');
   }catch(err){
