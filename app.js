@@ -4132,22 +4132,30 @@ function sharedNotePreset(payload){
   const title=String(payload?.title||'').trim()||inferNoteTitleFromUrl(url)||'旅遊筆記';
   return {url,title,note:text,category:'攻略',isPinned:false};
 }
-function maybeOpenIncomingShare(){
+async function maybeOpenIncomingShare(){
   const payload=incomingSharePayload();
   if(!payload||incomingShareOpened||!cloudLoaded||cloudSyncState!=='synced')return;
   incomingShareOpened=true;
   if(!canEditTrip()){
-    alert('這趟旅程目前只有檢視權限，無法新增旅遊筆記。');
-    clearIncomingShare();
+    incomingShareOpened=false;
+    alert('此旅程沒有新增筆記權限，請選擇可編輯的旅程。');
     return;
   }
-  checklistTab='notes';
-  checklistCategory='all';
+  checklistTab='notes';checklistCategory='all';
   try{localStorage.setItem('travelChecklistTab','notes')}catch(_){}
-  showView('checklist');
-  renderChecklist();
-  openTravelNoteEditor(null,sharedNotePreset(payload));
-  clearIncomingShare();
+  showView('checklist');renderChecklist();
+  try{
+    const draft=sharedNotePreset(payload);
+    const duplicate=draft.url&&(TRIP.travelNotes||[]).find(n=>String(n.url||'').trim()===draft.url);
+    if(!duplicate)await travelEditor('save_trip_note',{note:draft});
+    clearIncomingShare();
+    await hydratePrivateCloudData();
+    showView('checklist');
+  }catch(err){
+    incomingShareOpened=false;
+    openTravelNoteEditor(null,sharedNotePreset(payload));
+    qs('#travelNoteStatus').textContent='分享尚未儲存：'+String(err?.code||err?.message||'網路錯誤')+'。可以按儲存重試。';
+  }
 }
 
 async function hydratePrivateCloudData(){
