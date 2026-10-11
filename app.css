@@ -2991,12 +2991,21 @@ html.item-editor-open .global-edit-toolbar{
 }
 .travel-note-actions .travel-note-more{
   width:34px;
+  min-width:34px;
+  height:34px;
+  flex:0 0 34px;
   padding:0;
-  display:grid;
-  place-items:center;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  white-space:nowrap;
+  line-height:1;
+  letter-spacing:0;
+  text-indent:0;
   background:#f0ece4;
   color:var(--muted);
-  font-size:14px;
+  font-size:20px;
 }
 .travel-notes-empty{margin-top:2px}
 
