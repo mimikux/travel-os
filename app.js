@@ -18,7 +18,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.0';
+const APP_VERSION='1.5.1';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3771,6 +3771,30 @@ async function maybeAutoCheckPlaceHours(){
   }finally{placeAutoCheckRunning=false}
 }
 
+function sharedNotePreset(payload){
+  const url=String(payload?.url||'').trim();
+  const text=String(payload?.text||'').trim();
+  const title=String(payload?.title||'').trim()||inferNoteTitleFromUrl(url)||'旅遊筆記';
+  return {url,title,note:text,category:'攻略',isPinned:false};
+}
+function maybeOpenIncomingShare(){
+  const payload=incomingSharePayload();
+  if(!payload||incomingShareOpened||!cloudLoaded||cloudSyncState!=='synced')return;
+  incomingShareOpened=true;
+  if(!canEditTrip()){
+    alert('這趟旅程目前只有檢視權限，無法新增旅遊筆記。');
+    clearIncomingShare();
+    return;
+  }
+  checklistTab='notes';
+  checklistCategory='all';
+  try{localStorage.setItem('travelChecklistTab','notes')}catch(_){}
+  showView('checklist');
+  renderChecklist();
+  openTravelNoteEditor(null,sharedNotePreset(payload));
+  clearIncomingShare();
+}
+
 async function hydratePrivateCloudData(){
   const client=window.TravelAuth?.getClient?.();
   const authSnapshot=window.TravelAuth?.snapshot?.()||{};
@@ -3819,6 +3843,7 @@ async function hydratePrivateCloudData(){
     updateDemoModeUI();
     renderAll();
     updateEditAvailability();
+    setTimeout(maybeOpenIncomingShare,80);
     if(!TRIP?.currentPersonId&&!expenseIdentityPrompted){
       const activeExpense=qs('#expenseView')?.classList.contains('active');
       const activeChecklist=qs('#checklistView')?.classList.contains('active');
@@ -3856,6 +3881,51 @@ async function hydratePrivateCloudData(){
     syncTripLabels();
     return false;
   }
+}
+
+const SHARE_TARGET_KEY='travelOSIncomingShareV1';
+let incomingShareOpened=false;
+function extractSharedUrl(value){
+  const text=String(value||'');
+  const match=text.match(/https?:\/\/[^\s<>"]+/i);
+  return match?match[0].replace(/[),.;!?]+$/,''):'';
+}
+function incomingSharePayload(){
+  const params=new URLSearchParams(location.search);
+  const isShare=params.get('share_target')==='1';
+  if(!isShare)return null;
+
+  let title=String(params.get('shared_title')||'').trim();
+  let text=String(params.get('shared_text')||'').trim();
+  let url=String(params.get('shared_url')||'').trim();
+  if(!url)url=extractSharedUrl(text);
+  if(url&&text)text=text.replace(url,'').trim();
+  const payloadFromQuery=(title||text||url)?{
+    title:title.slice(0,220),
+    text:text.slice(0,5000),
+    url:url.slice(0,2000),
+    receivedAt:new Date().toISOString()
+  }:null;
+  if(payloadFromQuery){
+    try{sessionStorage.setItem(SHARE_TARGET_KEY,JSON.stringify(payloadFromQuery))}catch(_){}
+    return payloadFromQuery;
+  }
+  try{
+    const saved=JSON.parse(sessionStorage.getItem(SHARE_TARGET_KEY)||'null');
+    return saved&&typeof saved==='object'?saved:null;
+  }catch{return null}
+}
+function clearIncomingShare(){
+  try{sessionStorage.removeItem(SHARE_TARGET_KEY)}catch(_){}
+  const slug=window.TRAVEL_CONFIG?.tripSlug;
+  if(slug)history.replaceState(null,'',tripHref(slug));
+}
+function sharedTripHref(slug){
+  const base=tripHref(slug);
+  return incomingSharePayload()?base+'&share_target=1':base;
+}
+function shareEditableTrips(rows){
+  return incomingSharePayload()?(rows||[]).filter(t=>['owner','editor'].includes(String(t.role))):(rows||[]);
 }
 
 function tripHref(slug){
@@ -3907,12 +3977,20 @@ async function renderTripChooser(){
   if(shell)shell.hidden=true;
   const list=qs('#tripList'),status=qs('#chooserStatus');
 
-  const cached=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+  const sharePayload=incomingSharePayload();
+  const cachedRaw=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+  const cached=shareEditableTrips(cachedRaw);
+  const head=chooser.querySelector('.trip-chooser-head');
+  if(sharePayload&&head){
+    const h1=head.querySelector('h1'),p=head.querySelector('p');
+    if(h1)h1.textContent='分享至旅程';
+    if(p)p.textContent='選擇要把這篇文章／貼文存到哪一趟旅程。';
+  }
   if(cached.length){
     authorizedTrips=cached;
     list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
-    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=tripHref(btn.dataset.tripSlug)});
-    const canCreate=cached.some(t=>t.role==='owner');
+    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+    const canCreate=!sharePayload&&cached.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=navigator.onLine?'正在更新旅程清單…':'離線模式 · 顯示此裝置已下載的旅程';
   }else{
@@ -3922,20 +4000,20 @@ async function renderTripChooser(){
   if(!navigator.onLine)return;
 
   try{
-    const trips=await fetchAuthorizedTrips();
+    const trips=shareEditableTrips(await fetchAuthorizedTrips());
     list.innerHTML=trips.length?trips.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join(''):`<div class="booking-empty">目前沒有可使用的旅程。</div>`;
-    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=tripHref(btn.dataset.tripSlug)});
-    const canCreate=trips.some(t=>t.role==='owner');
+    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+    const canCreate=!sharePayload&&trips.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent='';
   }catch(err){
     console.warn(err);
-    const cached=await window.TravelStore?.listTrips?.().catch(()=>[]);
+    const cached=shareEditableTrips(await window.TravelStore?.listTrips?.().catch(()=>[]));
     if(cached?.length){
       authorizedTrips=cached;
       list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
-      list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=tripHref(btn.dataset.tripSlug)});
-      const canCreate=cached.some(t=>t.role==='owner');
+      list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+      const canCreate=!sharePayload&&cached.some(t=>t.role==='owner');
       const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
       status.textContent='離線模式 · 顯示此裝置已下載的旅程';
     }else{
@@ -3988,7 +4066,7 @@ async function renderMoreView(){
     host.querySelectorAll('[data-more-trip]').forEach(btn=>btn.onclick=()=>{
       if(btn.dataset.moreTrip!==window.TRAVEL_CONFIG.tripSlug) location.href=tripHref(btn.dataset.moreTrip);
     });
-    const canCreate=trips.some(t=>t.role==='owner');
+    const canCreate=!sharePayload&&trips.some(t=>t.role==='owner');
     if(qs('#moreNewTrip')) qs('#moreNewTrip').hidden=!canCreate;
     await loadGlobalMailInbox();
   }catch(err){
