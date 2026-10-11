@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.8';
+const APP_VERSION='1.5.9';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -4361,19 +4361,40 @@ async function renderTripChooser(){
   const list=qs('#tripList'),status=qs('#chooserStatus');
 
   const sharePayload=incomingSharePayload();
+  const missingShare=!sharePayload&&new URLSearchParams(location.search).get('share_target')==='1';
+  const recovery=qs('#shareMissingFallback');
+  if(recovery){
+    recovery.hidden=!missingShare;
+    recovery.onsubmit=event=>{
+      event.preventDefault();
+      const raw=String(qs('#shareMissingInput')?.value||'').trim();
+      const url=extractSharedUrl(raw);
+      if(!url){
+        qs('#shareMissingError').textContent='請貼上完整的 https:// 文章連結。';
+        return;
+      }
+      const payload={title:'',text:raw.replace(url,'').trim(),url,receivedAt:new Date().toISOString()};
+      try{localStorage.setItem(SHARE_TARGET_KEY,JSON.stringify(payload))}catch(_){}
+      try{sessionStorage.setItem(SHARE_TARGET_KEY,JSON.stringify(payload))}catch(_){}
+      renderTripChooser();
+    };
+  }
+  if(list)list.hidden=missingShare;
   const cachedRaw=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
   const cached=shareEditableTrips(cachedRaw);
   const head=chooser.querySelector('.trip-chooser-head');
-  if(sharePayload&&head){
+  if(head&&(sharePayload||missingShare)){
     const h1=head.querySelector('h1'),p=head.querySelector('p');
-    if(h1)h1.textContent='分享至旅程';
-    if(p)p.textContent='選擇要把這篇文章／貼文存到哪一趟旅程。';
+    if(h1)h1.textContent=sharePayload?'分享至旅程':'分享未完成';
+    if(p)p.textContent=sharePayload
+      ?'選擇要把這篇文章／貼文存到哪一趟旅程。'
+      :'Android 未把文章內容傳給 Travel OS，請先貼上連結。';
   }
   if(cached.length&&!navigator.onLine){
     authorizedTrips=cached;
     list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
     list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
-    const canCreate=!sharePayload&&cached.some(t=>t.role==='owner');
+    const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=navigator.onLine?'正在更新旅程清單…':'離線模式 · 顯示此裝置已下載的旅程';
   }else{
@@ -4386,7 +4407,7 @@ async function renderTripChooser(){
     const trips=shareEditableTrips(await fetchAuthorizedTrips());
     list.innerHTML=trips.length?trips.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join(''):`<div class="booking-empty">目前沒有可使用的旅程。</div>`;
     list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
-    const canCreate=!sharePayload&&trips.some(t=>t.role==='owner');
+    const canCreate=!sharePayload&&!missingShare&&trips.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=sharePayload?'選擇旅程後會立即將文章儲存到「筆記」。':'';
   }catch(err){
@@ -4396,7 +4417,7 @@ async function renderTripChooser(){
       authorizedTrips=cached;
       list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
       list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
-      const canCreate=!sharePayload&&cached.some(t=>t.role==='owner');
+      const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
       const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
       status.textContent='離線模式 · 顯示此裝置已下載的旅程';
     }else{
