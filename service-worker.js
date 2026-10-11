@@ -1,5 +1,5 @@
-const CACHE='travel-os-share-receiver-v2';
-const ASSETS=['./','./index.html','./app.css?v=20261011-share-receiver-v2','./app.js?v=20261011-share-receiver-v2','./data.js?v=20261011-share-receiver-v2','./config.js?v=20261011-share-receiver-v2','./auth.js?v=20261011-share-receiver-v2','./local-db.js?v=20261011-share-receiver-v2','./sync-engine.js?v=20261011-share-receiver-v2','./manifest.json','./manifest.json?v=20261011-share-receiver-v2','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-note-ellipsis-v1';
+const ASSETS=['./','./index.html','./app.css?v=20261011-note-ellipsis-v1','./app.js?v=20261011-note-ellipsis-v1','./data.js?v=20261011-note-ellipsis-v1','./config.js?v=20261011-note-ellipsis-v1','./auth.js?v=20261011-note-ellipsis-v1','./local-db.js?v=20261011-note-ellipsis-v1','./sync-engine.js?v=20261011-note-ellipsis-v1','./manifest.json','./manifest.json?v=20261011-note-ellipsis-v1','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
