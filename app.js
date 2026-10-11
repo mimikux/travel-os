@@ -4375,7 +4375,7 @@ async function renderTripChooser(){
     list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
     const canCreate=!sharePayload&&trips.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
-    status.textContent='';
+    status.textContent=sharePayload?'選擇旅程後會立即將文章儲存到「筆記」。':'';
   }catch(err){
     console.warn(err);
     const cached=shareEditableTrips(await window.TravelStore?.listTrips?.().catch(()=>[]));
