@@ -458,3 +458,14 @@ Later:
 - Iceland 2026 已先加入使用者提供的 Threads 範例連結，標題暫為「Threads 貼文（待補標題）」。
 - `travel-data` / `travel-editor` 已支援筆記讀寫，並納入每日 Travel OS Backup。
 - PWA / frontend 版本升級至 V1.5.0。
+
+
+## Historical Trip Import · New Zealand 2024 (2026-10-11)
+
+- 已將使用者提供的 `NZ.xlsx` 轉換為正式 Trip：`new-zealand-2024` / 「紐西蘭自駕 2024」。
+- 日期：2024-01-20 ～ 2024-02-03（D0～D14），時區 Pacific/Auckland，Forest theme。
+- 匯入 15 個 Trip Days、75 個 itinerary items、24 筆 reservations、25 組 itinerary-reservation links。
+- 行程來源包含總表、花費表、flight / motorhome / car rental 與各日期 booking 截圖；來源有衝突的資料保留原始差異於備註，不自行覆寫。
+- 已建立 Owner membership、Matt（慶）旅伴身份與既有 trusted devices。
+- 已建立一組 Public Trip 分享連結；公開頁沿用隱私模式，不暴露實際日期、住宿精確位置、confirmation code / PIN 等敏感預訂資訊。
+- 歷史花費明細暫不匯入 Expense Ledger：Excel 無法可靠對應付款人 / 分帳人；預訂金額與幣別已保留在 Reservations。
