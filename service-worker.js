@@ -1,5 +1,5 @@
-const CACHE='travel-os-owner-device-code-v1';
-const ASSETS=['./','./index.html','./app.css?v=20261011-owner-device-code-v1','./app.js?v=20261011-owner-device-code-v1','./data.js?v=20261011-owner-device-code-v1','./config.js?v=20261011-owner-device-code-v1','./auth.js?v=20261011-owner-device-code-v1','./local-db.js?v=20261011-owner-device-code-v1','./sync-engine.js?v=20261011-owner-device-code-v1','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-flight-visibility-v1';
+const ASSETS=['./','./index.html','./app.css?v=20261011-flight-visibility-v1','./app.js?v=20261011-flight-visibility-v1','./data.js?v=20261011-flight-visibility-v1','./config.js?v=20261011-flight-visibility-v1','./auth.js?v=20261011-flight-visibility-v1','./local-db.js?v=20261011-flight-visibility-v1','./sync-engine.js?v=20261011-flight-visibility-v1','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{

@@ -2,6 +2,8 @@ let selectedDay=0, currentFilter='all', map, routeLine, routeCar, routeTimer=nul
 let initialTripDaySelectionPending=true;
 let mapSelectedDays=new Set([selectedDay]), mapPrimaryDay=selectedDay, mapRouteLayers=[];
 let mapMultiSelectMode=false;
+// Map display preference is ON by default, independent from map day selection.
+let mapShowFlights=true;
 let demoMode=(()=>{try{return localStorage.getItem('icelandDemoMode')==='1'}catch(_){return false}})();
 let routeGeometry=[], routeCumulative=[], routeTotalKm=0, routeTotalDurationSec=0, routeStopFractions=[], routeSegmentDistancesKm=[], routeSegmentDurationsSec=[];
 let routeScaleState=null;
@@ -19,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.4';
+const APP_VERSION='1.5.5';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -498,6 +500,11 @@ function renderDayStrip(){
     multiBtn.textContent='複選';
     multiBtn.classList.toggle('active',mapMultiSelectMode);
   }
+  const flightsBtn=qs('#mapFlightsToggle');
+  if(flightsBtn){
+    flightsBtn.classList.toggle('active',mapShowFlights);
+    flightsBtn.setAttribute('aria-pressed',String(mapShowFlights));
+  }
 }
 
 function sortedMapDays(){
@@ -523,6 +530,16 @@ function handleMapDayClick(dayIndex){
   }
   renderDayStrip();
   if(map) renderMapDay();
+}
+
+function toggleMapFlights(){
+  mapShowFlights=!mapShowFlights;
+  const btn=qs('#mapFlightsToggle');
+  if(btn){
+    btn.classList.toggle('active',mapShowFlights);
+    btn.setAttribute('aria-pressed',String(mapShowFlights));
+  }
+  if(map)renderMapDay();
 }
 
 function toggleMapMultiMode(){
@@ -2046,6 +2063,12 @@ function clearMapTripLayers(){
   removeMapLayerSafe(routeCar); routeCar=null;
   if(map) map.eachLayer(l=>{if(l.options&&l.options.tripMarker)map.removeLayer(l)});
 }
+// Preserve drive anchors (e.g. KEF after a flight) when flight-only pins are hidden.
+function shouldShowMapStop(stops,segments,index){
+  if(mapShowFlights||!stops[index]?._airportStop)return true;
+  return segments[index-1]?.mode==='drive'||segments[index]?.mode==='drive';
+}
+
 function selectionFallbackTotals(indices){
   return indices.reduce((acc,i)=>{
     const d=TRIP.days[i];
@@ -2092,7 +2115,8 @@ async function renderMapDay(){
   clearMapTripLayers();
 
   qs('#playRoute').disabled=isMulti||singleHasFlight;
-  qs('#playRoute').textContent=isMulti?'多日總覽':singleHasFlight?'✈ 含航班':'▶ 跟著走';
+  qs('#playRoute').textContent=isMulti?'多日總覽':'▶ 跟著走';
+  qs('#playRoute').title=isMulti?'多日總覽不支援跟著走':singleHasFlight?'含航班日期暫不支援連續路線播放':'沿今日地面路線播放';
   const googleRouteBtn=qs('#exportGoogleRoute');
   if(googleRouteBtn){
     googleRouteBtn.disabled=isMulti||singleHasFlight;
@@ -2108,6 +2132,7 @@ async function renderMapDay(){
   routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeSegmentDurationsSec=[]; routeTotalKm=0; routeTotalDurationSec=0; routeScaleState=null;
 
   const bounds=L.latLngBounds([]);
+  const visibleMapStops=[];
   const fallbackLayers=new Map();
 
   indices.forEach(dayIndex=>{
@@ -2115,9 +2140,11 @@ async function renderMapDay(){
     const stops=getRouteStops(d);
     const meta=routeSegmentMeta(stops);
 
+    let visibleStopNumber=0;
     stops.forEach((e,i)=>{
+      if(!shouldShowMapStop(stops,meta,i))return;
       const eventIndex=d.events.indexOf(e);
-      const label=isMulti?`${dayIndex}·${i+1}`:`${i+1}`;
+      const label=isMulti?`${dayIndex}·${++visibleStopNumber}`:`${++visibleStopNumber}`;
       const m=L.marker([e.lat,e.lng],{icon:markerIcon(label),tripMarker:true}).addTo(map);
       const carry=e._routeCarryover===true;
       const airport=e._airportStop===true;
@@ -2127,13 +2154,14 @@ async function renderMapDay(){
         :`<button class="popup-nav" onclick="openMapsEvent(${dayIndex},${eventIndex})">Google 導航</button>`;
       const metaText=carry?`${d.label} 起點 · 前晚住宿`:airport?`${d.label} · ${e._airportCode} Airport`:`${d.label} · ${e.time||''}`;
       m.bindPopup(`<b>${metaText} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
+      visibleMapStops.push([e.lat,e.lng]);
       bounds.extend([e.lat,e.lng]);
     });
 
     const layers=[];
     for(let i=0;i<stops.length-1;i++){
       const flight=meta[i]?.mode==='flight';
-      if(meta[i]?.mode==='gap')continue;
+      if(meta[i]?.mode==='gap'||(flight&&!mapShowFlights))continue;
       const pts=[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]];
       const layer=L.polyline(pts,{
         color:flight?'#756589':routeColor(dayIndex),
@@ -2166,12 +2194,7 @@ async function renderMapDay(){
   });
 
   if(bounds.isValid()){
-    const uniquePoints=[];
-    indices.forEach(dayIndex=>getRouteStops(TRIP.days[dayIndex]).forEach(e=>{
-      const key=`${Number(e.lat).toFixed(6)},${Number(e.lng).toFixed(6)}`;
-      if(!uniquePoints.some(x=>x.key===key))uniquePoints.push({key,lat:e.lat,lng:e.lng});
-    }));
-    if(uniquePoints.length===1)map.setView([uniquePoints[0].lat,uniquePoints[0].lng],13);
+    if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
     else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
   }
 
@@ -2199,7 +2222,7 @@ async function renderMapDay(){
       });
 
       for(const leg of road?.legs||[]){
-        if(!leg?.points?.length)continue;
+        if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
         const flight=leg.mode==='flight';
         const line=L.polyline(leg.points,{
           color:flight?'#756589':routeColor(dayIndex),
@@ -2245,8 +2268,8 @@ async function renderMapDay(){
 
   if(token!==routeRenderToken) return;
   if(bounds.isValid()){
-    const pointCount=indices.reduce((n,dayIndex)=>n+getRouteStops(TRIP.days[dayIndex]).length,0);
-    if(pointCount>1)map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+    if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
+    else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
   }
 
   if(isMulti){
@@ -3791,6 +3814,7 @@ if(qs('#exportGoogleRoute')) qs('#exportGoogleRoute').onclick=openGoogleDayRoute
 if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
 updateRouteMetricToggle();
 qs('#mapMultiToggle').onclick=toggleMapMultiMode;
+qs('#mapFlightsToggle').onclick=toggleMapFlights;
 function closeTripDatesEditor(){
   qs('#tripDatesSheet')?.classList.remove('show');
   qs('#tripDatesBackdrop')?.classList.remove('show');
@@ -6297,7 +6321,7 @@ async function issueMemberDeviceCode(email,card,button){
     }
     if(!data?.ok||!data.code)throw new Error(data?.error||'code_issue_failed');
     const link=location.origin+window.TRAVEL_CONFIG.appBasePath+encodeURIComponent(window.TRAVEL_CONFIG.tripSlug);
-    const shareText=['Travel OS 登入資訊','旅程：'+link,'Email：'+email,'一次性登入碼：'+data.code,'有效 60 分鐘，只能使用一次'].join('\\n');
+    const shareText=['Travel OS 登入資訊','旅程：'+link,'Email：'+email,'一次性登入碼：'+data.code,'有效 60 分鐘，只能使用一次'].join('\n');
     const box=document.createElement('section');box.className='member-pairing-result';
     const label=document.createElement('small');
     label.textContent='有效至 '+new Date(data.expiresAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})+' · 有效碼 '+data.active+'/3';

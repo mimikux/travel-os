@@ -3130,3 +3130,33 @@ html.item-editor-open .global-edit-toolbar{
 .member-pairing-result small{width:100%;font-size:11px;color:var(--muted)}
 .member-pairing-result strong{font-size:23px;font-weight:900;letter-spacing:.08em;font-variant-numeric:tabular-nums}
 .member-pairing-result button{margin-left:auto;background:var(--green);color:#fff;border:0;border-radius:9px;padding:9px 12px;font-weight:850}
+
+/* Map flight visibility belongs to Route Range, not the disabled playback button.
+   Pressed (default) = include air routes; unpressed = show ground map only. */
+.map-flights-toggle{
+  border:1px solid var(--theme-accent-border,#d8cfbf)!important;
+  background:var(--theme-accent-soft,#eee8df)!important;
+  color:var(--ink)!important;
+  border-radius:999px!important;
+  padding:7px 11px!important;
+  font-size:11px!important;
+  font-weight:900!important;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.map-flights-toggle.active{
+  border-color:var(--green)!important;
+  background:var(--green)!important;
+  color:#fff!important;
+}
+.map-flights-toggle:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+/* Keep both controls accessible on small phones without crushing day chips. */
+@media(max-width:540px){
+  .map-range-head{align-items:flex-start}
+  .map-range-actions{
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    gap:6px;
+    max-width:70%;
+  }
+}

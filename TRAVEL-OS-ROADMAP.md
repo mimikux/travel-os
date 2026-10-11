@@ -1,3 +1,5 @@
+- [x] 2026-10-11 v1.5.5 Map route-range control: move the previously disabled "✈ 含航班" label out of playback and add a default-on, accessible flight visibility toggle immediately before "複選". Toggling off hides flight geometries and airport-only markers while retaining any airport used by a true road leg; map bounds recalculate from visible route geometry, with no changes to route calculations or stored itinerary. Owner pairing-code sharing now joins text with actual newline characters so LINE displays each item on its own line.
+
 - [x] 2026-10-11 Owner device code frontend: add 60-minute email-free pairing code login, Owner issuance/copy on member and pending invite cards, preserve existing trusted-device sessions; 3 active code limit enforced by database. No trip data modified.
 
 - [x] 2026-10-11 Responsive date chips: Map mobile now shows exactly five full-width day chips, matching the already-approved Today mobile chip width/height/type. On desktop, Today uses the compact Map day-chip dimensions instead of the legacy fixed 112px / 22px override. Date selection and map multiselect behavior unchanged; CSS-only, no trip or Supabase data edits.

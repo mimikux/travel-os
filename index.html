@@ -4,19 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#173c35" />
-  <title>Matt's Travel OS V1.5.4</title>
+  <title>Matt's Travel OS V1.5.5</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261011-owner-device-code-v1" />
+  <link rel="stylesheet" href="app.css?v=20261011-flight-visibility-v1" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
     <div class="auth-card">
       <div class="auth-mark">I</div>
       <span class="section-kicker">TRAVEL OS</span>
-      <h1 id="authTripTitle">Matt's Travel OS V1.5.4</h1>
+      <h1 id="authTripTitle">Matt's Travel OS V1.5.5</h1>
       <p id="authMessage">正在確認這台裝置的登入狀態…</p>
       <form id="magicLinkForm" class="auth-form" hidden>
         <label for="authEmail">已授權 Email</label>
@@ -149,6 +149,7 @@
             <strong id="mapRangeHint">點日期直接切換</strong>
           </div>
           <div class="map-range-actions">
+            <button class="map-flights-toggle active" id="mapFlightsToggle" type="button" aria-pressed="true" title="顯示或隱藏飛行航段，不影響地面里程">✈ 含航班</button>
             <button class="map-multi-toggle" id="mapMultiToggle" type="button">複選</button>
             <div class="map-range-summary" id="mapRangeSummary">1 天</div>
           </div>
@@ -345,7 +346,7 @@
         <section class="more-section more-app-section">
           <div class="more-section-head"><span class="section-kicker">APP</span><h2>Travel OS</h2></div>
           <div class="more-about-card">
-            <div><strong id="moreAppVersion">V1.5.3</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
+            <div><strong id="moreAppVersion">V1.5.5</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
             <small>旅程層級操作請使用右上角 •••</small>
           </div>
         </section>
