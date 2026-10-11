@@ -4353,7 +4353,7 @@ async function renderTripChooser(){
     if(h1)h1.textContent='分享至旅程';
     if(p)p.textContent='選擇要把這篇文章／貼文存到哪一趟旅程。';
   }
-  if(cached.length){
+  if(cached.length&&!navigator.onLine){
     authorizedTrips=cached;
     list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
     list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
