@@ -4284,17 +4284,18 @@ function incomingSharePayload(){
       return payload;
     }
   }
-  let saved=null;
+  let saved=null,newest=0;
+  const now=Date.now();
   for(const storage of [sessionStorage,localStorage]){
     try{
-      saved=JSON.parse(storage.getItem(SHARE_TARGET_KEY)||'null');
-      if(saved&&typeof saved==='object')break;
+      const value=JSON.parse(storage.getItem(SHARE_TARGET_KEY)||'null');
+      const at=Date.parse(value?.receivedAt||'');
+      if(value&&typeof value==='object'&&Number.isFinite(at)
+        &&at<=now+60000&&now-at<=3600000&&at>=newest){
+        saved=value;newest=at;
+      }
     }catch(_){}
   }
-  // Don't reopen an unrelated old share. Pending handoffs live for 60 minutes.
-  if(!saved||typeof saved!=='object'||!saved.receivedAt
-    ||Date.now()-Date.parse(saved.receivedAt)>3600000
-    ||Date.parse(saved.receivedAt)>Date.now()+60000)return null;
   return saved;
 }
 function clearIncomingShare(){
