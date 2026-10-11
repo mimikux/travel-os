@@ -3065,3 +3065,58 @@ html.item-editor-open .global-edit-toolbar{
 .route-panel.has-flight #routeSlider{
   display:none!important;
 }
+
+/* Day selector sizing: Today and Map share the same date-chip geometry.
+   Keep the already-approved Today mobile presentation, and size Map
+   to exactly five whole chips per viewport. The layout scrolls for D5+. */
+@media (max-width:699px) {
+  #mapDayStrip.map-day-strip {
+    gap:7px!important;
+  }
+  #mapDayStrip .map-day-btn {
+    box-sizing:border-box;
+    flex:0 0 calc((100% - 28px)/5)!important;
+    width:calc((100% - 28px)/5)!important;
+    min-width:0!important;
+    min-height:58px!important;
+    height:58px!important;
+    border-radius:18px!important;
+    padding:6px 5px!important;
+  }
+  #mapDayStrip .map-day-btn strong {
+    font-size:18px!important;
+    line-height:1.05!important;
+  }
+  #mapDayStrip .map-day-btn small {
+    margin-top:6px!important;
+    font-size:14px!important;
+    line-height:1.05!important;
+    white-space:nowrap;
+  }
+}
+/* Desktop Today had a legacy 112px / 22px override. Use the Map chip's
+   65px minimum, typography, padding and radius instead. Phone Today
+   remains entirely untouched by this rule. */
+@media (min-width:700px) {
+  #todayView .day-strip {
+    gap:7px!important;
+  }
+  #todayView .day-btn {
+    flex:0 0 auto!important;
+    min-width:65px!important;
+    width:auto!important;
+    min-height:0!important;
+    height:auto!important;
+    border-radius:13px!important;
+    padding:9px 8px!important;
+  }
+  #todayView .day-btn strong {
+    font-size:13px!important;
+    line-height:1.15!important;
+  }
+  #todayView .day-btn small {
+    margin-top:3px!important;
+    font-size:11px!important;
+    line-height:1.15!important;
+  }
+}
