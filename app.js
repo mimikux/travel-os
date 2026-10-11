@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.9';
+const APP_VERSION='1.5.10';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3199,7 +3199,7 @@ function renderTravelNotes(){
       </div>
       <div class="travel-note-actions">
         ${n.url?`<button type="button" data-open-note-url="${escapeHtml(n.id)}">原文 ↗</button>`:''}
-        ${canEditTrip()?`<button type="button" class="travel-note-more" data-edit-note="${escapeHtml(n.id)}" aria-label="編輯筆記">•••</button>`:''}
+        ${canEditTrip()?`<button type="button" class="travel-note-more" data-edit-note="${escapeHtml(n.id)}" aria-label="編輯筆記">⋯</button>`:''}
       </div>
     </article>`;
   }).join('');
