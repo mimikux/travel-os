@@ -8,6 +8,7 @@ let routeScaleState=null;
 let routeMetricMode=(()=>{try{return localStorage.getItem('travelRouteMetric')==='time'?'time':'distance'}catch(_){return 'distance'}})();
 let routeRenderToken=0;
 const roadRouteCache=new Map();
+const airportRouteCache=new Map();
 let todayRouteToken=0;
 let lastObservedIcelandDate=null;
 let currentTripRole='viewer';
@@ -18,7 +19,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.1';
+const APP_VERSION='1.5.2';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -1306,23 +1307,122 @@ function hasExplicitRouteLocation(e){
 
 function isRouteStop(e){
   if(!e||e.uncertain||!validCoord(e)) return false;
+  if(e.type==='flight') return false;
 
   // "drive" cards imported from the old spreadsheet sometimes carried only
   // a rough region coordinate so the prototype map had something to draw.
-  // They are movement notes, not real destinations.  Never send those coarse
-  // placeholder coordinates to OSRM / Google Maps unless the item has an
-  // explicit navigation source (Maps link, address, nav query or reservation).
   if(e.type==='drive'&&!hasExplicitRouteLocation(e)) return false;
-
   return true;
+}
+
+function flightRouteInfo(event,day){
+  if(!event||event.type!=='flight')return null;
+  let presentation=null;
+  try{presentation=flightPresentation(event,day?.date||'')}catch(_){}
+  const text=[
+    presentation?.subtitle,
+    event.title,
+    event.subtitle,
+    event.navQuery
+  ].filter(Boolean).join(' ');
+  const route=text.match(/\b([A-Z]{3})\s*(?:→|->|↔|–|-)\s*([A-Z]{3})\b/i);
+  if(!route)return null;
+  const dep=String(route[1]||'').toUpperCase();
+  const arr=String(route[2]||'').toUpperCase();
+  if(dep===arr)return null;
+  const flightNo=String(presentation?.flightNo||((text.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||[])[1])||'').replace(/\s+/g,'');
+  return {dep,arr,flightNo,eventId:event.id||'',event};
+}
+
+function dayFlightInfos(day){
+  return (day?.events||[]).map(e=>flightRouteInfo(e,day)).filter(Boolean);
+}
+function dayHasFlightRoute(day){return dayFlightInfos(day).length>0}
+
+function cachedAirportPoint(iata){
+  const code=String(iata||'').toUpperCase();
+  if(airportRouteCache.has(code))return airportRouteCache.get(code);
+  const known=(typeof AIRPORT_COORDS!=='undefined'&&AIRPORT_COORDS?.[code])||null;
+  if(known){
+    const point={iata:code,name:known.name||code+' Airport',address:'',lat:Number(known.lat),lng:Number(known.lng)};
+    airportRouteCache.set(code,point);
+    return point;
+  }
+  return null;
+}
+
+async function ensureAirportRoutePoint(iata){
+  const code=String(iata||'').trim().toUpperCase();
+  if(!/^[A-Z]{3}$/.test(code))return null;
+  const cached=cachedAirportPoint(code);
+  if(cached)return cached;
+  if(!navigator.onLine)return null;
+  try{
+    const data=await travelEditor('lookup_airport',{iata:code});
+    const a=data?.airport;
+    if(a&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lng))){
+      const point={
+        iata:code,
+        name:String(a.name||code+' Airport'),
+        address:String(a.address||''),
+        lat:Number(a.lat),
+        lng:Number(a.lng)
+      };
+      airportRouteCache.set(code,point);
+      return point;
+    }
+  }catch(err){
+    console.warn('Airport lookup failed',code,err);
+  }
+  return null;
+}
+
+async function ensureFlightAirportsForDay(day){
+  const codes=[...new Set(dayFlightInfos(day).flatMap(x=>[x.dep,x.arr]))];
+  await Promise.all(codes.map(ensureAirportRoutePoint));
+}
+
+function flightAirportStop(info,role){
+  const code=role==='departure'?info.dep:info.arr;
+  const airport=cachedAirportPoint(code);
+  if(!airport)return null;
+  return {
+    type:'airport',
+    title:`${code} 機場`,
+    subtitle:airport.name||'',
+    time:'',
+    lat:Number(airport.lat),
+    lng:Number(airport.lng),
+    address:airport.address||'',
+    navQuery:airport.name||code+' Airport',
+    _airportStop:true,
+    _airportCode:code,
+    _airportRole:role,
+    _flightKey:`${info.eventId||info.flightNo||''}:${info.dep}-${info.arr}`,
+    _flightNo:info.flightNo||'',
+    _flightEvent:info.event
+  };
 }
 
 function getRouteStops(d){
   const dayIndex=TRIP.days.indexOf(d);
-  const raw=d.events.filter(isRouteStop);
+  const raw=[];
 
-  // Start: previous night's accommodation, including multi-night stays that
-  // do not have a duplicated stay itinerary row on the following day.
+  for(const event of d.events||[]){
+    if(event?.type==='flight'){
+      const info=flightRouteInfo(event,d);
+      if(info){
+        const dep=flightAirportStop(info,'departure');
+        const arr=flightAirportStop(info,'arrival');
+        if(dep)raw.push(dep);
+        if(arr)raw.push(arr);
+      }
+      continue;
+    }
+    if(isRouteStop(event))raw.push(event);
+  }
+
+  // Start: previous night's accommodation.
   if(dayIndex>0){
     const prev=TRIP.days[dayIndex-1];
     const overnight=stayForNight(dayIndex-1);
@@ -1334,9 +1434,7 @@ function getRouteStops(d){
     }
   }
 
-  // End: tonight's accommodation. This is important on the second night of
-  // a multi-night stay: the route should return to the same hotel even though
-  // there is no duplicate stay itinerary item for that date.
+  // End: tonight's accommodation.
   const tonight=stayForNight(dayIndex);
   if(tonight&&!tonight.uncertain&&validCoord(tonight)){
     const last=raw[raw.length-1];
@@ -1345,14 +1443,34 @@ function getRouteStops(d){
     }
   }
 
-  // Only collapse adjacent duplicates. If a day starts and ends at the same
-  // hotel with real stops in between, both hotel points are intentionally kept.
   const out=[];
   for(const e of raw){
     const last=out[out.length-1];
-    if(!last||Math.abs(last.lat-e.lat)>1e-6||Math.abs(last.lng-e.lng)>1e-6) out.push(e);
+    const sameCoord=last&&Math.abs(last.lat-e.lat)<=1e-6&&Math.abs(last.lng-e.lng)<=1e-6;
+    const sameFlightAirport=last?._airportStop&&e?._airportStop&&last._flightKey===e._flightKey&&last._airportRole!==e._airportRole;
+    if(!sameCoord||sameFlightAirport)out.push(e);
   }
   return out;
+}
+
+function routeLegInfo(stops,index){
+  const a=stops[index],b=stops[index+1];
+  const flight=Boolean(
+    a?._airportStop&&b?._airportStop&&
+    a._airportRole==='departure'&&b._airportRole==='arrival'&&
+    a._flightKey&&a._flightKey===b._flightKey
+  );
+  return {
+    mode:flight?'flight':'drive',
+    label:flight?(a._flightNo?`✈ ${a._flightNo}`:`✈ ${a._airportCode}→${b._airportCode}`):''
+  };
+}
+function routeSegmentMeta(stops){
+  return Array.from({length:Math.max(0,stops.length-1)},(_,i)=>routeLegInfo(stops,i));
+}
+function fallbackRouteSegments(stops){
+  const meta=routeSegmentMeta(stops);
+  return meta.map((m,i)=>m.mode==='flight'?0:haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]));
 }
 
 function googleRoutePoint(stop){
@@ -1364,7 +1482,7 @@ function googleRoutePoint(stop){
 
 function buildGoogleMapsDayRouteUrl(dayIndex){
   const d=TRIP.days?.[dayIndex];
-  if(!d) return '';
+  if(!d||dayHasFlightRoute(d)) return '';
   const stops=getRouteStops(d).filter(s=>googleRoutePoint(s));
   if(stops.length<2) return '';
 
@@ -1389,7 +1507,12 @@ function openGoogleDayRoute(){
     return;
   }
   const dayIndex=indices[0];
-  const stops=getRouteStops(TRIP.days[dayIndex]);
+  const day=TRIP.days[dayIndex];
+  if(dayHasFlightRoute(day)){
+    alert('這一天包含航班，Travel OS 已自動拆成地面路線＋飛行航段。請直接點各地點使用 Google 導航。');
+    return;
+  }
+  const stops=getRouteStops(day);
   if(stops.length<2){
     alert('這一天至少需要 2 個有座標的地點才能建立 Google 路線。');
     return;
@@ -1419,15 +1542,113 @@ async function fetchRoadRoute(stops){
 }
 
 function routeCacheKey(dayIndex,stops){
-  return `${dayIndex}:`+stops.map(e=>`${e.lat.toFixed(5)},${e.lng.toFixed(5)}`).join('|');
+  const modes=routeSegmentMeta(stops).map(x=>x.mode[0]).join('');
+  return `${dayIndex}:${modes}:`+stops.map(e=>`${e.lat.toFixed(5)},${e.lng.toFixed(5)}`).join('|');
 }
 
 async function getRoadRouteForDay(dayIndex){
-  const d=TRIP.days[dayIndex], stops=getRouteStops(d);
+  const d=TRIP.days[dayIndex];
+  await ensureFlightAirportsForDay(d);
+  const stops=getRouteStops(d);
   if(stops.length<2) return null;
+
   const key=routeCacheKey(dayIndex,stops);
   if(roadRouteCache.has(key)) return roadRouteCache.get(key);
-  const pending=fetchRoadRoute(stops).catch(err=>{roadRouteCache.delete(key);throw err});
+
+  const pending=(async()=>{
+    const meta=routeSegmentMeta(stops);
+    const hasFlight=meta.some(x=>x.mode==='flight');
+
+    if(!hasFlight){
+      const road=await fetchRoadRoute(stops);
+      if(!road)return null;
+      return {
+        ...road,
+        hasFlight:false,
+        segmentModes:meta.map(x=>x.mode),
+        segmentLabels:meta.map(x=>x.label),
+        legs:[{mode:'drive',points:road.points,distanceKm:road.distanceKm,durationSec:road.durationSec}]
+      };
+    }
+
+    const segmentDistancesKm=Array(stops.length-1).fill(0);
+    const segmentDurationsSec=Array(stops.length-1).fill(0);
+    const segmentModes=meta.map(x=>x.mode);
+    const segmentLabels=meta.map(x=>x.label);
+    const legs=[];
+    const points=[];
+    let distanceKm=0,durationSec=0,approx=false;
+
+    const appendPoints=pts=>{
+      for(const pt of pts||[]){
+        const last=points[points.length-1];
+        if(!last||Math.abs(last[0]-pt[0])>1e-8||Math.abs(last[1]-pt[1])>1e-8)points.push(pt);
+      }
+    };
+
+    const addDriveChunk=async(start,end)=>{
+      if(end<=start)return;
+      const chunk=stops.slice(start,end+1);
+      try{
+        const road=await fetchRoadRoute(chunk);
+        if(!road)return;
+        for(let j=0;j<road.segmentDistancesKm.length;j++){
+          segmentDistancesKm[start+j]=Number(road.segmentDistancesKm[j])||0;
+          segmentDurationsSec[start+j]=Number(road.segmentDurationsSec[j])||0;
+        }
+        distanceKm+=Number(road.distanceKm)||0;
+        durationSec+=Number(road.durationSec)||0;
+        legs.push({mode:'drive',points:road.points,distanceKm:road.distanceKm,durationSec:road.durationSec});
+        appendPoints(road.points);
+      }catch(err){
+        approx=true;
+        const direct=chunk.map(s=>[s.lat,s.lng]);
+        let chunkKm=0;
+        for(let j=0;j<chunk.length-1;j++){
+          const km=haversineKm([chunk[j].lat,chunk[j].lng],[chunk[j+1].lat,chunk[j+1].lng]);
+          segmentDistancesKm[start+j]=km;
+          chunkKm+=km;
+        }
+        distanceKm+=chunkKm;
+        legs.push({mode:'drive',points:direct,distanceKm:chunkKm,durationSec:0,approx:true});
+        appendPoints(direct);
+      }
+    };
+
+    let chunkStart=0;
+    for(let i=0;i<meta.length;i++){
+      if(meta[i].mode!=='flight')continue;
+      await addDriveChunk(chunkStart,i);
+      const flightPoints=[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]];
+      legs.push({
+        mode:'flight',
+        points:flightPoints,
+        distanceKm:0,
+        durationSec:0,
+        label:meta[i].label,
+        from:stops[i]._airportCode||'',
+        to:stops[i+1]._airportCode||''
+      });
+      appendPoints(flightPoints);
+      chunkStart=i+1;
+    }
+    await addDriveChunk(chunkStart,stops.length-1);
+
+    return {
+      points,
+      distanceKm,
+      durationSec,
+      segmentDistancesKm,
+      segmentDurationsSec,
+      segmentModes,
+      segmentLabels,
+      snapped:stops.map(s=>[s.lat,s.lng]),
+      legs,
+      hasFlight:true,
+      approx
+    };
+  })().catch(err=>{roadRouteCache.delete(key);throw err});
+
   roadRouteCache.set(key,pending);
   return pending;
 }
@@ -1441,6 +1662,7 @@ async function refreshTodayRouteStats(dayIndex){
   if(!TRIP.days?.[dayIndex]) return;
   const token=++todayRouteToken;
   try{
+    await ensureFlightAirportsForDay(TRIP.days[dayIndex]);
     const road=await getRoadRouteForDay(dayIndex);
     if(token!==todayRouteToken||selectedDay!==dayIndex||!road) return;
     qs('#todayKm').textContent=`${road.distanceKm.toFixed(1)} km`;
@@ -1555,7 +1777,9 @@ function setRouteMetricMode(mode){
       {
         approx:routeScaleState.approx,
         durations:routeScaleState.durations,
-        totalDurationSec:routeScaleState.totalDurationSec
+        totalDurationSec:routeScaleState.totalDurationSec,
+        modes:routeScaleState.modes,
+        labels:routeScaleState.labels
       }
     );
   }
@@ -1572,7 +1796,7 @@ function setRouteScaleMessage(message){
   el.innerHTML=`<div class="route-scale-message">${escapeHtml(message)}</div>`;
 }
 
-function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTotalKm,{approx=false,durations=routeSegmentDurationsSec,totalDurationSec=routeTotalDurationSec}={}){
+function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTotalKm,{approx=false,durations=routeSegmentDurationsSec,totalDurationSec=routeTotalDurationSec,modes=[],labels=[]}={}){
   const el=qs('#routeStops');
   if(!el) return;
   if(!Array.isArray(stops)||stops.length<2){
@@ -1581,27 +1805,33 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     return;
   }
 
+  const segmentModes=(Array.isArray(modes)&&modes.length===stops.length-1)
+    ?modes.map(x=>x==='flight'?'flight':'drive')
+    :routeSegmentMeta(stops).map(x=>x.mode);
+  const segmentLabels=(Array.isArray(labels)&&labels.length===stops.length-1)
+    ?labels.map(String)
+    :routeSegmentMeta(stops).map(x=>x.label);
+
   let seg=Array.isArray(segments)?segments.map(Number):[];
-  if(seg.length!==stops.length-1||!seg.every(v=>Number.isFinite(v)&&v>=0)||seg.reduce((a,b)=>a+b,0)<=0){
+  const validNumbers=seg.length===stops.length-1&&seg.every(v=>Number.isFinite(v)&&v>=0);
+  if(!validNumbers){
     seg=[];
     for(let i=0;i<stops.length-1;i++){
-      seg.push(haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]));
+      seg.push(segmentModes[i]==='flight'?0:haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]));
     }
   }
-  const segTotal=seg.reduce((a,b)=>a+b,0)||1;
-  const displayTotal=Number.isFinite(Number(totalKm))&&Number(totalKm)>0?Number(totalKm):segTotal;
+
+  const driveTotal=seg.reduce((a,b)=>a+Math.max(0,b),0);
+  const segTotal=driveTotal||1;
+  const displayTotal=Number.isFinite(Number(totalKm))?Math.max(0,Number(totalKm)):driveTotal;
 
   let dur=Array.isArray(durations)?durations.map(Number):[];
-  let displayTotalDuration=Number.isFinite(Number(totalDurationSec))&&Number(totalDurationSec)>0?Number(totalDurationSec):0;
-  const validDurations=dur.length===seg.length && dur.every(v=>Number.isFinite(v)&&v>=0) && dur.reduce((a,b)=>a+b,0)>0;
-  if(validDurations){
-    if(!displayTotalDuration) displayTotalDuration=dur.reduce((a,b)=>a+b,0);
-  }else if(displayTotalDuration>0){
-    // Before the routing response arrives, keep the time view usable by distributing
-    // the day's known total drive time in proportion to the fallback leg distances.
-    dur=seg.map(km=>displayTotalDuration*(Math.max(0,km)/segTotal));
-  }else{
-    dur=seg.map(()=>0);
+  const validDurations=dur.length===seg.length&&dur.every(v=>Number.isFinite(v)&&v>=0);
+  let displayTotalDuration=Number.isFinite(Number(totalDurationSec))?Math.max(0,Number(totalDurationSec)):0;
+  if(!validDurations){
+    dur=seg.map((km,i)=>segmentModes[i]==='flight'?0:(displayTotalDuration>0?displayTotalDuration*(Math.max(0,km)/segTotal):0));
+  }else if(!displayTotalDuration){
+    displayTotalDuration=dur.reduce((a,b)=>a+b,0);
   }
 
   routeScaleState={
@@ -1610,32 +1840,38 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     totalKm:displayTotal,
     approx:Boolean(approx),
     durations:[...dur],
-    totalDurationSec:displayTotalDuration
+    totalDurationSec:displayTotalDuration,
+    modes:[...segmentModes],
+    labels:[...segmentLabels]
   };
 
   const prefix=approx?'≈':'';
-  const kmLabels=seg.map(km=>`${prefix}${formatRouteKm(km)} km`);
-  const timeLabels=dur.map(sec=>`${prefix}${formatRouteMinutes(sec)}`);
+  const flightLabel=i=>segmentLabels[i]||'✈ 航班';
+  const kmLabels=seg.map((km,i)=>segmentModes[i]==='flight'?flightLabel(i):`${prefix}${formatRouteKm(km)} km`);
+  const timeLabels=dur.map((sec,i)=>segmentModes[i]==='flight'?flightLabel(i):`${prefix}${formatRouteMinutes(sec)}`);
   const activeLabels=routeMetricMode==='time'?timeLabels:kmLabels;
 
-  // Readability scale: every leg reserves enough room for the longest label it can
-  // show (KM or MIN), then any remaining width is distributed proportionally.
-  // This keeps every label on one horizontal baseline without sacrificing the
-  // longer-leg visual relationship.
   const wrapWidth=Math.max(240,Number(qs('#routeScaleWrap')?.clientWidth||el.clientWidth||360));
   const edgeInsetPx=window.innerWidth<=420?20:22;
   const trackWidth=Math.max(180,wrapWidth-edgeInsetPx*2);
   const charPx=window.innerWidth<=420?5.0:5.6;
   const minWidths=seg.map((_,i)=>{
     const longest=Math.max(kmLabels[i].length,timeLabels[i].length);
-    return Math.max(46,Math.ceil(longest*charPx+14));
+    return Math.max(segmentModes[i]==='flight'?72:46,Math.ceil(longest*charPx+14));
   });
   const wanted=minWidths.reduce((a,b)=>a+b,0);
   const fitScale=wanted>trackWidth?trackWidth/wanted:1;
   const reservedWidths=minWidths.map(px=>px*fitScale);
   const reserved=reservedWidths.reduce((a,b)=>a+b,0);
   const flexible=Math.max(0,trackWidth-reserved);
-  const displaySegPx=seg.map((km,i)=>reservedWidths[i]+flexible*(Math.max(0,km)/segTotal));
+  const driveWeight=seg.reduce((a,km,i)=>a+(segmentModes[i]==='flight'?0:Math.max(0,km)),0);
+  const flexibleShare=seg.map((km,i)=>{
+    if(segmentModes[i]==='flight')return 0;
+    if(driveWeight>0)return flexible*(Math.max(0,km)/driveWeight);
+    const driveCount=segmentModes.filter(x=>x!=='flight').length||1;
+    return flexible/driveCount;
+  });
+  const displaySegPx=seg.map((_,i)=>reservedWidths[i]+flexibleShare[i]);
 
   const positions=[0];
   let displayAcc=0;
@@ -1645,9 +1881,15 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
   }
   positions[positions.length-1]=100;
 
-  const labels=activeLabels.map((label,i)=>{
+  const labelsHtml=activeLabels.map((label,i)=>{
     const left=(positions[i]+positions[i+1])/2;
-    return `<span class="route-segment-label" style="left:${left.toFixed(3)}%">${label}</span>`;
+    return `<span class="route-segment-label ${segmentModes[i]==='flight'?'flight':''}" style="left:${left.toFixed(3)}%">${escapeHtml(label)}</span>`;
+  }).join('');
+
+  const flightTracks=segmentModes.map((mode,i)=>{
+    if(mode!=='flight')return '';
+    const left=positions[i],width=Math.max(0,positions[i+1]-positions[i]);
+    return `<span class="route-track-flight" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%"></span>`;
   }).join('');
 
   const realStopProgress=(()=>{
@@ -1656,26 +1898,27 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
     }
     const out=[0];
     let acc=0;
-    for(const km of seg){
-      acc+=Math.max(0,Number(km)||0);
-      out.push(Math.min(100,(acc/segTotal)*100));
+    for(let i=0;i<seg.length;i++){
+      if(segmentModes[i]!=='flight')acc+=Math.max(0,Number(seg[i])||0);
+      out.push(driveTotal>0?Math.min(100,(acc/driveTotal)*100):0);
     }
-    if(out.length) out[out.length-1]=100;
+    if(out.length&&driveTotal>0)out[out.length-1]=100;
     return out;
   })();
 
   const nodes=positions.map((p,i)=>{
     const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i+1}`);
     const edge=i===0?' edge-start':(i===positions.length-1?' edge-end':'');
+    const airport=stops[i]?._airportStop?' airport':'';
     const target=Number(realStopProgress[i]??p);
-    return `<button type="button" class="route-node${i===0?' current':''}${edge}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-target="${target.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
+    return `<button type="button" class="route-node${i===0?' current':''}${edge}${airport}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-target="${target.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
   }).join('');
 
-  el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}" data-metric="${routeMetricMode}">
+  el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}" data-metric="${routeMetricMode}" data-has-flight="${segmentModes.includes('flight')?'1':'0'}">
     <div class="route-track-area">
-      <div class="route-track"><div class="route-track-progress"></div></div>
+      <div class="route-track"><div class="route-track-progress"></div>${flightTracks}</div>
       ${nodes}
-      ${labels}
+      ${labelsHtml}
     </div>
   </div>`;
 
@@ -1685,13 +1928,9 @@ function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTo
       clearRouteTimer();
       qsa('.route-node.show-name').forEach(other=>other.classList.remove('show-name'));
       node.classList.add('show-name');
-
-      // Jump directly to the real route position for this stop. The ruler uses
-      // readability-adjusted visual spacing, so never use the visual left % as
-      // the car/slider target.
       const target=Math.max(0,Math.min(100,Number(node.dataset.routeTarget||0)));
       if(qs('#routeSlider')) qs('#routeSlider').value=target;
-      updateRouteAt(target);
+      if(!segmentModes.includes('flight'))updateRouteAt(target);
     });
     node.addEventListener('focus',()=>node.classList.add('show-name'));
     node.addEventListener('blur',()=>node.classList.remove('show-name'));
@@ -1813,21 +2052,27 @@ async function renderMapDay(){
   const isMulti=indices.length>1;
   const singleIndex=indices[0];
   const singleDay=TRIP.days[singleIndex];
+
+  await Promise.all(indices.map(i=>ensureFlightAirportsForDay(TRIP.days[i])));
+  if(token!==routeRenderToken)return;
+
+  const singleHasFlight=!isMulti&&dayHasFlightRoute(singleDay);
   const fallbackTotals=selectionFallbackTotals(indices);
 
   qs('#mapDayLabel').textContent=isMulti?`${indices.length}天`:singleDay.label;
   qs('#mapDayName').textContent=isMulti?(indices.length===TRIP.days.length?'全程路線':'多日路線'):derivedDayTitle(singleDay,singleIndex);
   clearMapTripLayers();
 
-  qs('#playRoute').disabled=isMulti;
-  qs('#playRoute').textContent=isMulti?'多日總覽':'▶ 跟著走';
+  qs('#playRoute').disabled=isMulti||singleHasFlight;
+  qs('#playRoute').textContent=isMulti?'多日總覽':singleHasFlight?'✈ 含航班':'▶ 跟著走';
   const googleRouteBtn=qs('#exportGoogleRoute');
   if(googleRouteBtn){
-    googleRouteBtn.disabled=isMulti;
-    googleRouteBtn.title=isMulti?'請先切回單日模式':'用今天所有地圖點建立 Google Maps 路線';
+    googleRouteBtn.disabled=isMulti||singleHasFlight;
+    googleRouteBtn.title=isMulti?'請先切回單日模式':singleHasFlight?'含航班的日期會自動分段，請直接點各地點導航':'用今天所有地圖點建立 Google Maps 路線';
   }
   qs('#routePanel').classList.toggle('multi-mode',isMulti);
-  qs('#routeSlider').disabled=isMulti;
+  qs('#routePanel').classList.toggle('has-flight',singleHasFlight);
+  qs('#routeSlider').disabled=isMulti||singleHasFlight;
   qs('#routeSlider').value=0;
   qs('#routeDistance').textContent='0';
   qs('#routeDistanceSuffix').innerHTML=isMulti?' km':` / <span id="routeTotal">${Math.round(singleDay.km)}</span> km`;
@@ -1840,27 +2085,53 @@ async function renderMapDay(){
   indices.forEach(dayIndex=>{
     const d=TRIP.days[dayIndex];
     const stops=getRouteStops(d);
+    const meta=routeSegmentMeta(stops);
+
     stops.forEach((e,i)=>{
       const eventIndex=d.events.indexOf(e);
       const label=isMulti?`${dayIndex}·${i+1}`:`${i+1}`;
       const m=L.marker([e.lat,e.lng],{icon:markerIcon(label),tripMarker:true}).addTo(map);
       const carry=e._routeCarryover===true;
-      const navButton=carry
-        ? `<button class="popup-nav" onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(e.navQuery||e.address||`${e.lat},${e.lng}`)}&travelmode=driving','_blank','noopener')">Google 導航</button>`
-        : `<button class="popup-nav" onclick="openMapsEvent(${dayIndex},${eventIndex})">Google 導航</button>`;
-      const meta=carry?`${d.label} 起點 · 前晚住宿`:`${d.label} · ${e.time||''}`;
-      m.bindPopup(`<b>${meta} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
+      const airport=e._airportStop===true;
+      const directNav=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(e.navQuery||e.address||`${e.lat},${e.lng}`)}&travelmode=driving`;
+      const navButton=(carry||airport||eventIndex<0)
+        ?`<button class="popup-nav" onclick="window.open('${directNav}','_blank','noopener')">Google 導航</button>`
+        :`<button class="popup-nav" onclick="openMapsEvent(${dayIndex},${eventIndex})">Google 導航</button>`;
+      const metaText=carry?`${d.label} 起點 · 前晚住宿`:airport?`${d.label} · ${e._airportCode} Airport`:`${d.label} · ${e.time||''}`;
+      m.bindPopup(`<b>${metaText} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
       bounds.extend([e.lat,e.lng]);
     });
-    const fallbackPoints=stops.map(e=>[e.lat,e.lng]);
-    if(fallbackPoints.length){
-      const layer=L.polyline(fallbackPoints,{color:routeColor(dayIndex),weight:isMulti?4:4,opacity:.58,dashArray:'8,7'}).addTo(map);
-      fallbackLayers.set(dayIndex,layer);
-      mapRouteLayers.push(layer);
-      fallbackPoints.forEach(pt=>bounds.extend(pt));
-      if(!isMulti){
-        setRouteGeometry(fallbackPoints,d.km,fallbackPoints,null,null,Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive));
+
+    const layers=[];
+    for(let i=0;i<stops.length-1;i++){
+      const flight=meta[i]?.mode==='flight';
+      const pts=[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]];
+      const layer=L.polyline(pts,{
+        color:flight?'#756589':routeColor(dayIndex),
+        weight:flight?3:(isMulti?4:4),
+        opacity:flight?.88:.58,
+        dashArray:flight?'12,10':'8,7',
+        lineCap:'round',
+        lineJoin:'round'
+      }).addTo(map);
+      layers.push(layer);mapRouteLayers.push(layer);
+    }
+    fallbackLayers.set(dayIndex,layers);
+
+    if(!isMulti){
+      const seg=fallbackRouteSegments(stops);
+      const segKm=seg.reduce((a,b)=>a+b,0);
+      const modes=meta.map(x=>x.mode),labels=meta.map(x=>x.label);
+      routeSegmentDistancesKm=[...seg];
+      routeSegmentDurationsSec=seg.map(()=>0);
+      routeTotalKm=segKm;
+      routeTotalDurationSec=Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive);
+      renderRouteScale(stops,seg,segKm,{approx:true,totalDurationSec:routeTotalDurationSec,modes,labels});
+      if(!singleHasFlight&&stops.length){
+        const fallbackPoints=stops.map(e=>[e.lat,e.lng]);
+        setRouteGeometry(fallbackPoints,segKm,fallbackPoints,seg,routeSegmentDurationsSec,routeTotalDurationSec);
         routeCar=L.marker(fallbackPoints[0],{icon:markerIcon('',true),zIndexOffset:1000}).addTo(map);
+        updateRouteAt(0);
       }
     }
   });
@@ -1880,10 +2151,6 @@ async function renderMapDay(){
     qs('#routeMeta').textContent=indices.map(i=>TRIP.days[i].label).join(' · ');
     qs('#routeDistance').textContent=fallbackTotals.km.toFixed(1);
     setRouteScaleMessage(`合計估算 · ${fallbackTotals.km.toFixed(1)} km · ${formatDriveTime(fallbackTotals.sec)} · 正在更新道路路線…`);
-  }else{
-    const stops=getRouteStops(singleDay);
-    renderRouteScale(stops,routeSegmentDistancesKm,routeTotalKm,{approx:true});
-    updateRouteAt(0);
   }
 
   const results=[];
@@ -1895,13 +2162,28 @@ async function renderMapDay(){
       const road=await getRoadRouteForDay(dayIndex);
       if(token!==routeRenderToken) return;
       results.push({dayIndex,road});
-      const fallback=fallbackLayers.get(dayIndex);
-      if(fallback){removeMapLayerSafe(fallback);mapRouteLayers=mapRouteLayers.filter(x=>x!==fallback)}
-      const line=L.polyline(road.points,{color:routeColor(dayIndex),weight:isMulti?5:5,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(map);
-      mapRouteLayers.push(line);
-      road.points.forEach(pt=>bounds.extend(pt));
-      if(!isMulti){
-        routeLine=line;
+
+      const fallback=fallbackLayers.get(dayIndex)||[];
+      fallback.forEach(layer=>{
+        removeMapLayerSafe(layer);
+        mapRouteLayers=mapRouteLayers.filter(x=>x!==layer);
+      });
+
+      for(const leg of road?.legs||[]){
+        if(!leg?.points?.length)continue;
+        const flight=leg.mode==='flight';
+        const line=L.polyline(leg.points,{
+          color:flight?'#756589':routeColor(dayIndex),
+          weight:flight?4:(isMulti?5:5),
+          opacity:flight?.9:.95,
+          dashArray:flight?'12,10':null,
+          lineCap:'round',lineJoin:'round'
+        }).addTo(map);
+        mapRouteLayers.push(line);
+        leg.points.forEach(pt=>bounds.extend(pt));
+      }
+
+      if(!isMulti&&road){
         setRouteGeometry(
           road.points,
           road.distanceKm,
@@ -1910,8 +2192,20 @@ async function renderMapDay(){
           road.segmentDurationsSec,
           road.durationSec
         );
-        renderRouteScale(stops,road.segmentDistancesKm,road.distanceKm,{durations:road.segmentDurationsSec,totalDurationSec:road.durationSec});
-        updateRouteAt(+qs('#routeSlider').value);
+        renderRouteScale(stops,road.segmentDistancesKm,road.distanceKm,{
+          approx:Boolean(road.approx),
+          durations:road.segmentDurationsSec,
+          totalDurationSec:road.durationSec,
+          modes:road.segmentModes,
+          labels:road.segmentLabels
+        });
+        qs('#routeDistanceSuffix').innerHTML=` / <span id="routeTotal">${road.distanceKm<100?road.distanceKm.toFixed(1):Math.round(road.distanceKm)}</span> km`;
+        if(!road.hasFlight)updateRouteAt(+qs('#routeSlider').value);
+        else{
+          qs('#routeCurrent').textContent=stops[0]?.title||derivedDayTitle(d,dayIndex);
+          qs('#routeMeta').textContent=`${d.label} · 地面里程，不含航班`;
+          qs('#routeDistance').textContent='0';
+        }
       }
     }catch(err){
       console.warn(`Road routing unavailable for ${d.label}; keeping fallback.`,err);
@@ -1932,12 +2226,12 @@ async function renderMapDay(){
       else{totalKm+=Number(TRIP.days[dayIndex].km)||0;totalSec+=parseDriveSeconds(TRIP.days[dayIndex].drive)}
     }
     qs('#routeDistance').textContent=totalKm.toFixed(1);
-    setRouteScaleMessage(`${indices.length} 天合計 · 約 ${totalKm.toFixed(1)} km · ${formatDriveTime(totalSec)} · `+indices.map(i=>TRIP.days[i].label).join(' + '));
+    setRouteScaleMessage(`${indices.length} 天合計 · 約 ${totalKm.toFixed(1)} km · ${formatDriveTime(totalSec)} · 航班不計入開車里程 · `+indices.map(i=>TRIP.days[i].label).join(' + '));
     updateMapRangeText(indices,totalKm,totalSec);
   }else if(!results[0]?.road){
-    const d=singleDay,stops=getRouteStops(d);
-    renderRouteScale(stops,routeSegmentDistancesKm,routeTotalKm,{approx:true});
-    qs('#routeMeta').textContent=`${d.label} · 離線備援距離`;
+    const d=singleDay,stops=getRouteStops(d),meta=routeSegmentMeta(stops),seg=fallbackRouteSegments(stops);
+    renderRouteScale(stops,seg,seg.reduce((a,b)=>a+b,0),{approx:true,modes:meta.map(x=>x.mode),labels:meta.map(x=>x.label)});
+    qs('#routeMeta').textContent=dayHasFlightRoute(d)?`${d.label} · 航班不計入開車里程`:`${d.label} · 離線備援距離`;
   }
 }
 
