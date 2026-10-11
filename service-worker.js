@@ -1,5 +1,5 @@
-const CACHE='travel-os-share-target-install-v1';
-const ASSETS=['./','./index.html','./app.css?v=20261011-ios-pwa-entry-v1','./app.js?v=20261011-ios-pwa-entry-v1','./data.js?v=20261011-ios-pwa-entry-v1','./config.js?v=20261011-ios-pwa-entry-v1','./auth.js?v=20261011-ios-pwa-entry-v1','./local-db.js?v=20261011-ios-pwa-entry-v1','./sync-engine.js?v=20261011-ios-pwa-entry-v1','./manifest.json','./manifest.json?v=20261011-share-target-install-v1','./icon.svg','./icon-192.png','./icon-512.png','./404.html'];
+const CACHE='travel-os-login-email-code-v1';
+const ASSETS=['./','./index.html','./app.css?v=20261011-login-email-code-v1','./app.js?v=20261011-login-email-code-v1','./data.js?v=20261011-login-email-code-v1','./config.js?v=20261011-login-email-code-v1','./auth.js?v=20261011-login-email-code-v1','./local-db.js?v=20261011-login-email-code-v1','./sync-engine.js?v=20261011-login-email-code-v1','./manifest.json','./manifest.json?v=20261011-share-target-install-v1','./icon.svg','./icon-192.png','./icon-512.png','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
