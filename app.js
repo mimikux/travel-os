@@ -464,8 +464,8 @@ function showView(name){
   }
   if(name==='checklist'){
     renderChecklist();
-    if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId){
-      setTimeout(()=>{if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet('checklist')},120);
+    if(checklistTab!=='notes'&&cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId){
+      setTimeout(()=>{if(checklistTab!=='notes'&&cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet('checklist')},120);
     }
   }
   if(name==='more') renderMoreView();
