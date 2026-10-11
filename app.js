@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.5';
+const APP_VERSION='1.5.7';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3905,7 +3905,7 @@ function setAuthGateState(state){
   }else if(state==='device_error'){
     if(msg) msg.textContent='帳號已登入，但這支裝置尚未完成授權。請保持連線後重試。';
   }else if(state==='signed_out'){
-    if(msg) msg.textContent='私人旅程需要驗證此裝置。第一次登入後，這支裝置會被記住。';
+    if(msg) msg.textContent='輸入 Email 和一次性登入碼即可登入。';
   }
 }
 
