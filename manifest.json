@@ -28,7 +28,7 @@
   "id": "./",
   "scope": "./",
   "share_target": {
-    "action": "./?share_target=1",
+    "action": "https://mimikux.github.io/travel-os/share.html",
     "method": "GET",
     "enctype": "application/x-www-form-urlencoded",
     "params": {
