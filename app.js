@@ -4262,31 +4262,44 @@ function extractSharedUrl(value){
 }
 function incomingSharePayload(){
   const params=new URLSearchParams(location.search);
-  const isShare=params.get('share_target')==='1';
-  if(!isShare)return null;
-
-  let title=String(params.get('shared_title')||'').trim();
-  let text=String(params.get('shared_text')||'').trim();
-  let url=String(params.get('shared_url')||'').trim();
-  if(!url)url=extractSharedUrl(text);
-  if(url&&text)text=text.replace(url,'').trim();
-  const payloadFromQuery=(title||text||url)?{
-    title:title.slice(0,220),
-    text:text.slice(0,5000),
-    url:url.slice(0,2000),
-    receivedAt:new Date().toISOString()
-  }:null;
-  if(payloadFromQuery){
-    try{sessionStorage.setItem(SHARE_TARGET_KEY,JSON.stringify(payloadFromQuery))}catch(_){}
-    return payloadFromQuery;
+  // Chrome WebAPK GET share targets may replace the action's existing query
+  // string. Recognize the manifest's mapped data even without share_target=1.
+  const isShare=params.get('share_target')==='1'
+    ||params.has('shared_title')||params.has('shared_text')||params.has('shared_url');
+  if(isShare){
+    const title=String(params.get('shared_title')||'').trim();
+    let text=String(params.get('shared_text')||'').trim();
+    let url=String(params.get('shared_url')||'').trim();
+    if(!url)url=extractSharedUrl(text);
+    if(url&&text)text=text.replace(url,'').trim();
+    if(title||text||url){
+      const payload={
+        title:title.slice(0,220),text:text.slice(0,5000),
+        url:url.slice(0,2000),receivedAt:new Date().toISOString()
+      };
+      const packed=JSON.stringify(payload);
+      try{sessionStorage.setItem(SHARE_TARGET_KEY,packed)}catch(_){}
+      // sessionStorage is per-window; WebAPK navigation may open a fresh one.
+      try{localStorage.setItem(SHARE_TARGET_KEY,packed)}catch(_){}
+      return payload;
+    }
   }
-  try{
-    const saved=JSON.parse(sessionStorage.getItem(SHARE_TARGET_KEY)||'null');
-    return saved&&typeof saved==='object'?saved:null;
-  }catch{return null}
+  let saved=null;
+  for(const storage of [sessionStorage,localStorage]){
+    try{
+      saved=JSON.parse(storage.getItem(SHARE_TARGET_KEY)||'null');
+      if(saved&&typeof saved==='object')break;
+    }catch(_){}
+  }
+  // Don't reopen an unrelated old share. Pending handoffs live for 60 minutes.
+  if(!saved||typeof saved!=='object'||!saved.receivedAt
+    ||Date.now()-Date.parse(saved.receivedAt)>3600000
+    ||Date.parse(saved.receivedAt)>Date.now()+60000)return null;
+  return saved;
 }
 function clearIncomingShare(){
   try{sessionStorage.removeItem(SHARE_TARGET_KEY)}catch(_){}
+  try{localStorage.removeItem(SHARE_TARGET_KEY)}catch(_){}
   const slug=window.TRAVEL_CONFIG?.tripSlug;
   if(slug)history.replaceState(null,'',tripHref(slug));
 }
