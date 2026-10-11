@@ -3240,3 +3240,11 @@ html.item-editor-open .global-edit-toolbar{
   #authGate .auth-card{padding:26px 22px 25px}
 }
 
+/* Android share recovery shown only when the OS opened a share without data. */
+#shareMissingFallback[hidden],#tripList[hidden]{display:none!important}
+.share-missing-fallback{display:grid;gap:10px;margin:0 0 18px;padding:18px;border-radius:20px;background:#fffdfa}
+.share-missing-fallback strong{font-size:16px;color:var(--ink)}
+.share-missing-fallback p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+.share-missing-fallback textarea{box-sizing:border-box;width:100%;min-height:78px;resize:vertical;padding:14px;border:0;border-radius:14px;background:#e9eee9;color:var(--ink);font:inherit}
+.share-missing-fallback button{padding:15px;border:0;border-radius:14px;background:var(--green);color:white;font:inherit;font-weight:800}
+.share-missing-fallback small{color:#a33b30}
