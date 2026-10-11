@@ -4,19 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#173c35" />
-  <title>Matt's Travel OS V1.4.8</title>
+  <title>Matt's Travel OS V1.5.0</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261009-checklist-v10" />
+  <link rel="stylesheet" href="app.css?v=20261011-notes-v1" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
     <div class="auth-card">
       <div class="auth-mark">I</div>
       <span class="section-kicker">TRAVEL OS</span>
-      <h1 id="authTripTitle">Matt's Travel OS V1.4.8</h1>
+      <h1 id="authTripTitle">Matt's Travel OS V1.5.0</h1>
       <p id="authMessage">正在確認這台裝置的登入狀態…</p>
       <form id="magicLinkForm" class="auth-form" hidden>
         <label for="authEmail">Email</label>
@@ -280,6 +280,7 @@
         <div class="checklist-tab-row">
           <button type="button" class="active" data-checklist-tab="pack">要帶</button>
           <button type="button" data-checklist-tab="buy">要買</button>
+          <button type="button" data-checklist-tab="notes">筆記</button>
         </div>
 
         <div class="checklist-toolbar">
@@ -294,6 +295,13 @@
         </section>
         <section class="checklist-panel" id="checklistBuyPanel">
           <div class="checklist-list" id="checklistBuyList"></div>
+        </section>
+        <section class="checklist-panel travel-notes-panel" id="checklistNotesPanel">
+          <div class="travel-notes-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="travelNotesSearch" type="search" placeholder="搜尋標題、備註、網站…" autocomplete="off">
+          </div>
+          <div class="travel-notes-list" id="travelNotesList"></div>
         </section>
       </section>
 
@@ -335,7 +343,7 @@
         <section class="more-section more-app-section">
           <div class="more-section-head"><span class="section-kicker">APP</span><h2>Travel OS</h2></div>
           <div class="more-about-card">
-            <div><strong id="moreAppVersion">V1.4.8</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
+            <div><strong id="moreAppVersion">V1.5.0</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
             <small>旅程層級操作請使用右上角 •••</small>
           </div>
         </section>
@@ -466,11 +474,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261009-checklist-v10"></script>
-  <script src="data.js?v=20261009-checklist-v10"></script>
-  <script src="local-db.js?v=20261009-checklist-v10"></script>
-  <script src="sync-engine.js?v=20261009-checklist-v10"></script>
-  <script src="auth.js?v=20261009-checklist-v10"></script>
-  <script src="app.js?v=20261009-checklist-v10"></script>
+  <script src="config.js?v=20261011-notes-v1"></script>
+  <script src="data.js?v=20261011-notes-v1"></script>
+  <script src="local-db.js?v=20261011-notes-v1"></script>
+  <script src="sync-engine.js?v=20261011-notes-v1"></script>
+  <script src="auth.js?v=20261011-notes-v1"></script>
+  <script src="app.js?v=20261011-notes-v1"></script>
 </body>
 </html>
