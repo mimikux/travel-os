@@ -7,7 +7,7 @@
   var path=location.pathname;
   if(path.indexOf(base)!==0){ location.replace(base); return; }
   var rel=path.slice(base.length).split('/').filter(Boolean);
-  var slug=rel[0]||'';
+  var slug=((rel[0]||'').match(/^([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)/)||[])[1]||'';
   var params=new URLSearchParams(location.search);
   if(slug) params.set('trip',slug);
   var q=params.toString();

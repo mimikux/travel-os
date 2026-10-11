@@ -6320,7 +6320,7 @@ async function issueMemberDeviceCode(email,card,button){
       throw new Error(detail?.error||'code_issue_failed');
     }
     if(!data?.ok||!data.code)throw new Error(data?.error||'code_issue_failed');
-    const link=location.origin+window.TRAVEL_CONFIG.appBasePath+encodeURIComponent(window.TRAVEL_CONFIG.tripSlug);
+    const link=location.origin+window.TRAVEL_CONFIG.appBasePath+'?trip='+encodeURIComponent(window.TRAVEL_CONFIG.tripSlug);
     const shareText=['Travel OS 登入資訊','旅程：'+link,'Email：'+email,'一次性登入碼：'+data.code,'有效 60 分鐘，只能使用一次'].join('\n');
     const box=document.createElement('section');box.className='member-pairing-result';
     const label=document.createElement('small');
@@ -6470,7 +6470,7 @@ qs('#inviteMemberForm').onsubmit=async e=>{
 
 async function initCloudShell(){
   try{
-    const fallbackSeed=window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'?TRIP:null;
+    const fallbackSeed=null;
     const local=await window.TravelStore?.init?.(fallbackSeed);
     if(window.TRAVEL_CONFIG?.tripSlug&&local?.trip?.days?.length){
       TRIP=local.trip;
@@ -6513,12 +6513,8 @@ async function initCloudShell(){
 qs('.app-shell')?.classList.add('today-mode');
 const authTitle=qs('#authTripTitle');
 if(authTitle) authTitle.textContent=`${APP_NAME} V${APP_VERSION}`;
-if(window.TRAVEL_CONFIG?.tripSlug==='iceland-2026'){
-  syncToReferenceTripDay(false,true);
-  updateDemoModeUI();
-  renderAll();
-  updateHeroCollapse();
-}else if(window.TRAVEL_CONFIG?.tripSlug){
+// Hide unauthenticated private itinerary until Trusted Device is approved.
+if(window.TRAVEL_CONFIG?.tripSlug){
   qs('.app-shell').style.visibility='hidden';
 }
 initCloudShell().finally(()=>{if(qs('.app-shell'))qs('.app-shell').style.visibility=''});

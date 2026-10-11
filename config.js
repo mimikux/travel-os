@@ -5,7 +5,11 @@
   const rel=location.pathname.startsWith(basePath)?location.pathname.slice(basePath.length):'';
   const firstPathPart=rel.split('/').filter(Boolean)[0]||'';
   const pathSlug=firstPathPart.toLowerCase()==='index.html'?'':firstPathPart;
-  const tripSlug=(querySlug||pathSlug||'').toLowerCase()||null;
+  const tripSlug=(()=>{
+    const raw=String(querySlug||pathSlug||'').trim().toLowerCase();
+    // Reject everything after the canonical slug (e.g. LINE message "\\nEmail").
+    return (raw.match(/^([a-z0-9]+(?:-[a-z0-9]+)*)/)||[])[1]||null;
+  })();
   const tripLabel=tripSlug?tripSlug.split('-').map((part,i)=>{
     if(/^\d{4}$/.test(part)) return part;
     return part.charAt(0).toUpperCase()+part.slice(1);

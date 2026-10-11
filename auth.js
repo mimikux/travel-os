@@ -4,6 +4,7 @@
   let currentSession=null;
   let state='loading';
   let manualSignOut=false;
+  let trustedDeviceApproved=false;
   const LAST_ACTIVE_KEY='travel-os-last-active';
   const listeners=new Set();
 
@@ -35,7 +36,7 @@
     const msg=document.getElementById('authMessage');
     const foot=document.getElementById('authFoot');
     if(gate){
-      const ready=next==='ready'||next==='offline_ready';
+      const ready=(next==='ready'||next==='offline_ready')&&(!cfg.tripSlug||trustedDeviceApproved);
       gate.hidden=ready;
       gate.style.display=ready?'none':'';
       gate.setAttribute('aria-hidden',String(ready));
@@ -114,12 +115,14 @@
     }
     if(currentSession){
       if(!cfg.tripSlug){
+        trustedDeviceApproved=true;
         setState('ready');
       }else if(navigator.onLine){
         setState('registering_device');
         try{await registerTrustedDevice()}catch(_){ }
       }else{
-        setState('ready');
+        trustedDeviceApproved=localOfflineAccess;
+        setState(localOfflineAccess?'offline_ready':'reauth_required');
       }
     }else if(state==='offline_ready'&&!navigator.onLine){
       setState('offline_ready');
@@ -131,9 +134,10 @@
       if(currentSession){
         manualSignOut=false;
         if(!cfg.tripSlug){
+          trustedDeviceApproved=true;
           setState('ready');
         }else{
-          const silent=state==='ready';
+          const silent=state==='ready'&&trustedDeviceApproved;
           if(!silent) setState('registering_device');
           // Supabase documents that awaiting another Supabase API call inside
           // onAuthStateChange can deadlock. Defer the bootstrap outside the callback.
@@ -184,6 +188,7 @@
       const verified=await client.auth.verifyOtp({token_hash:data.tokenHash,type:'magiclink'});
       if(verified.error||!verified.data?.session)throw new Error(verified.error?.message||'session_verification_failed');
       currentSession=verified.data.session;
+      trustedDeviceApproved=false;
       // The existing SIGNED_IN observer handles Trusted Device enrollment.
       setState('registering_device');
       return {ok:true};
@@ -208,11 +213,13 @@
       if(error) throw error;
       if(!data?.ok) throw new Error(data?.error||'Device registration failed');
       await window.TravelStore.setCloudState('trusted_device');
+      trustedDeviceApproved=true;
       setState('ready');
       window.dispatchEvent(new CustomEvent('travel-auth-ready',{detail:data}));
       return data;
     }catch(err){
       console.error('Trusted device bootstrap failed',err);
+      trustedDeviceApproved=false;
       if(!silent) setState('device_error');
       throw err;
     }
@@ -222,6 +229,7 @@
     manualSignOut=true;
     if(client) await client.auth.signOut({scope:'local'});
     currentSession=null;
+    trustedDeviceApproved=false;
     setState('signed_out');
   }
 
@@ -245,11 +253,21 @@
     currentSession=session;
     if(currentSession){
       manualSignOut=false;
-      setState('ready');
-      if(cfg.tripSlug) registerTrustedDevice({silent:true}).catch(()=>{});
+      if(!cfg.tripSlug){
+        trustedDeviceApproved=true;
+        setState('ready');
+      }else if(trustedDeviceApproved){
+        setState('ready');
+        registerTrustedDevice({silent:true}).catch(()=>{});
+      }else{
+        setState('registering_device');
+        registerTrustedDevice().catch(()=>{});
+      }
     }else if(manualSignOut){
+      trustedDeviceApproved=false;
       setState('signed_out');
     }else{
+      trustedDeviceApproved=false;
       setState('reauth_required');
     }
     return snapshot();
@@ -299,9 +317,9 @@
       return;
     }
     if(state==='ready'||state==='offline_ready') markActive();
-    resumeSessionCheck({keepReady:state==='ready'}).catch(()=>{});
+    if(currentSession)resumeSessionCheck({keepReady:state==='ready'}).catch(()=>{});
   });
-  window.addEventListener('pageshow',()=>{ if(state!=='loading') resumeSessionCheck({keepReady:state==='ready'}).catch(()=>{}); });
+  window.addEventListener('pageshow',()=>{ if(state!=='loading'&&currentSession) resumeSessionCheck({keepReady:state==='ready'}).catch(()=>{}); });
   window.addEventListener('focus',()=>{ if(state==='ready') resumeSessionCheck({keepReady:true}).catch(()=>{}); });
 
   const boot=()=>{
