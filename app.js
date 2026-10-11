@@ -2304,9 +2304,16 @@ function maskCode(code,secret){if(!code)return '—';return secret?`${code} · P
 function toggleCode(i,code,secret){const el=qs('#code-'+i);const masked=maskCode(code,secret);el.textContent=el.textContent===masked?(secret?`${code} · PIN ${secret}`:code):masked}
 
 const AIRPORT_COORDS={
-  KEF:{name:'Keflavík International Airport',lat:63.985,lng:-22.6056},
+  TPE:{name:'Taiwan Taoyuan International Airport',lat:25.0797,lng:121.2342},
+  KHH:{name:'高雄國際機場',lat:22.5706,lng:120.3500},
+  HKG:{name:'Hong Kong International Airport',lat:22.3080,lng:113.9185},
+  AMS:{name:'Amsterdam Airport Schiphol',lat:52.3105,lng:4.7683},
+  KEF:{name:'Keflavík International Airport',lat:63.9850,lng:-22.6056},
+  LHR:{name:'Heathrow Airport',lat:51.4700,lng:-0.4543},
   KMJ:{name:'熊本機場',lat:32.8373,lng:130.8551},
-  KHH:{name:'高雄國際機場',lat:22.5771,lng:120.3500}
+  AKL:{name:'Auckland Airport',lat:-37.0082,lng:174.7850},
+  CHC:{name:'Christchurch Airport',lat:-43.4894,lng:172.5322},
+  ZQN:{name:'Queenstown Airport',lat:-45.0211,lng:168.7392}
 };
 function arrivalAirportForDay(day){
   const flight=(day?.events||[]).find(e=>e?.type==='flight');
