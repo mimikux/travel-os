@@ -6,7 +6,6 @@
   let manualSignOut=false;
   const LAST_ACTIVE_KEY='travel-os-last-active';
   const listeners=new Set();
-  let magicLinkPromise=null;
 
   function readLastActive(){
     try{return Number(localStorage.getItem(LAST_ACTIVE_KEY)||0)}catch(_){return 0}
@@ -43,22 +42,22 @@
     }
     if(next==='ready') markActive();
     if(form){
-      const showForm=['signed_out','reauth_required','link_sent','unauthorized_email','device_error','sdk_error'].includes(next);
-      form.hidden=!showForm;
+      const showForm=['signed_out','reauth_required','unauthorized_email','device_error','sdk_error'].includes(next);
+      form.hidden=!showForm||!cfg.tripSlug;
     }
     if(msg){
       if(next==='loading') msg.textContent='正在確認這台裝置的登入狀態…';
       else if(next==='registering_device') msg.textContent='已找到登入狀態，正在驗證 Trusted Device…';
-      else if(next==='signed_out') msg.textContent='這台裝置尚未驗證，請用已授權 Email 取得登入連結。';
-      else if(next==='reauth_required') msg.textContent='本機行程仍保留，但雲端登入已失效。請重新取得一次 Magic Link 以恢復同步。';
-      else if(next==='link_sent') msg.textContent='登入連結已寄出，請到信箱點一下 Magic Link。';
+      else if(next==='signed_out') msg.textContent=cfg.tripSlug?'請輸入 Owner 核發的裝置登入碼。':'請使用 Owner 提供的旅程專屬連結進入，再輸入登入碼。';
+      else if(next==='reauth_required') msg.textContent='雲端登入已失效，請向 Owner 索取新的裝置登入碼。';
+      else if(next==='redeeming_code') msg.textContent='正在驗證一次性登入碼並授權裝置…';
       else if(next==='unauthorized_email') msg.textContent='此信箱不在授權清單，請找 Trip Owner 加入再登入。';
       else if(next==='device_error') msg.textContent='帳號已登入，但這台裝置驗證失敗。請保持連線後重新整理。';
       else if(next==='sdk_error') msg.textContent='登入模組載入失敗，請重新整理。';
     }
     if(msg) msg.classList.toggle('auth-error',next==='unauthorized_email');
     if(foot){
-      foot.textContent=next==='loading'||next==='registering_device'?'已有權限的裝置會自動進入，不需要重新寄信。':next==='reauth_required'?'這只會更新此裝置的登入憑證，不會覆蓋或修改伺服器行程資料。':'不需要密碼。Magic Link 使用一次後失效。';
+      foot.textContent=next==='loading'||next==='registering_device'?'已授權裝置會自動登入，無須再次配對。':next==='reauth_required'?'重新配對不會覆蓋雲端行程或登出其他裝置。':'登入碼由 Owner 產生，有效 60 分鐘，每組只能使用一次，不寄驗證信。';
     }
     emit();
   }
@@ -159,34 +158,39 @@
     return initPromise;
   }
 
-  async function sendMagicLink(email){
-    if(!client) throw new Error('Auth not initialized');
-    if(magicLinkPromise) return magicLinkPromise;
-    magicLinkPromise=(async()=>{
-      setState('sending_link');
-      const redirectTo=location.origin+location.pathname;
-      const normalized=String(email||'').trim().toLowerCase();
-      const {data:gate,error:gateError}=await client.functions.invoke('request-travel-login',{
-        body:{email:normalized,tripSlug:cfg.tripSlug||'',redirectTo}
+
+  // Pairing codes are Owner issued. No verification email is sent.
+  async function signInWithDeviceCode(email,code){
+    if(!client)throw new Error('auth_not_initialized');
+    if(!cfg.tripSlug)throw new Error('open_trip_link');
+    const normalized=String(email||'').trim().toLowerCase();
+    const normalizedCode=String(code||'').toUpperCase().replace(/[\s-]/g,'');
+    if(!/^[A-HJ-NP-Z2-9]{8}$/.test(normalizedCode))throw new Error('invalid_code_format');
+    setState('redeeming_code');
+    try{
+      const device=await window.TravelStore.getDevice();
+      const {data,error}=await client.functions.invoke('travel-device-code',{
+        body:{
+          action:'redeem',tripSlug:cfg.tripSlug,email:normalized,code:normalizedCode,
+          devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label
+        }
       });
-      if(gateError){setState('signed_out');throw gateError;}
-      if(gate?.existing){
-        const {error}=await client.auth.signInWithOtp({
-          email:normalized,
-          options:{emailRedirectTo:redirectTo,shouldCreateUser:false}
-        });
-        if(error){setState('signed_out');throw error;}
-        setState('link_sent');
-        return {ok:true,mode:'existing'};
+      if(error){
+        let code='device_login_failed';
+        try{code=(await error.context?.clone().json())?.error||code}catch(_){}
+        throw new Error(code);
       }
-      if(gate?.invited){
-        setState('link_sent');
-        return {ok:true,mode:'invite'};
-      }
-      setState('unauthorized_email');
-      return {ok:false,mode:'unauthorized'};
-    })().finally(()=>{magicLinkPromise=null;});
-    return magicLinkPromise;
+      if(!data?.ok||!data.tokenHash)throw new Error(data?.error||'device_login_failed');
+      const verified=await client.auth.verifyOtp({token_hash:data.tokenHash,type:'magiclink'});
+      if(verified.error||!verified.data?.session)throw new Error(verified.error?.message||'session_verification_failed');
+      currentSession=verified.data.session;
+      // The existing SIGNED_IN observer handles Trusted Device enrollment.
+      setState('registering_device');
+      return {ok:true};
+    }catch(err){
+      setState('signed_out');
+      throw err;
+    }
   }
 
   async function registerTrustedDevice({silent=false}={}){
@@ -258,25 +262,31 @@
     form.addEventListener('submit',async e=>{
       e.preventDefault();
       const email=document.getElementById('authEmail')?.value||'';
+      const code=document.getElementById('authPairCode')?.value||'';
       const msg=document.getElementById('authMessage');
+      const button=document.getElementById('magicLinkBtn');
       try{
-        if(!client) await init();
-        await sendMagicLink(email);
+        if(button)button.disabled=true;
+        if(!client)await init();
+        await signInWithDeviceCode(email,code);
       }catch(err){
-        console.error('Magic Link failed',err);
-        const status=Number(err?.status||err?.context?.status||0);
-        const code=String(err?.code||err?.context?.code||'');
-        if(msg){
-          msg.textContent=(status===429||code.includes('rate_limit'))
-            ?'登入信寄送太頻繁，請稍後再試。若剛剛已收到登入信，可直接使用最新一封。'
-            :'登入連結寄送失敗，請稍後再試。';
-        }
+        console.error('Device pairing login failed',err);
+        const key=String(err?.message||'');
+        if(msg)msg.textContent=
+          key==='too_many_attempts'?'輸入錯誤次數過多，請 15 分鐘後再試。':
+          key==='invalid_code'?'登入碼已使用、過期或輸入錯誤，請向 Owner 索取新碼。':
+          key==='invalid_code_format'?'請輸入 8 位英數登入碼（可省略中間的連字號）。':
+          key==='open_trip_link'?'請用 Owner 分享的旅程網址進入登入頁。':
+          key==='device_revoked_or_mismatch'?'這台裝置已撤銷或識別不符，請聯絡 Owner。':
+          '裝置登入失敗：'+(key||'網路或伺服器暫時異常');
+      }finally{
+        if(button)button.disabled=false;
       }
     });
   }
 
   window.TravelAuth={
-    init,sendMagicLink,signOut,resumeSessionCheck,getClient:()=>client,
+    init,signInWithDeviceCode,signOut,resumeSessionCheck,getClient:()=>client,
     onChange(fn){listeners.add(fn);return()=>listeners.delete(fn)},snapshot
   };
 

@@ -3120,3 +3120,13 @@ html.item-editor-open .global-edit-toolbar{
     line-height:1.15!important;
   }
 }
+
+/* Owner-issued device login code */
+#authPairCode{text-transform:uppercase;text-align:center;letter-spacing:.14em;font-size:18px;font-weight:850}
+.member-actions{flex-wrap:wrap;justify-content:flex-end}
+.member-issue-code{background:var(--green);color:#fff;border:0;border-radius:9px;padding:8px 10px;font-weight:850;font-size:11px}
+.member-issue-code:disabled{opacity:.55}
+.member-pairing-result{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px;border:1px solid var(--theme-accent-border,#ddd);background:var(--theme-surface,#f4efe5);padding:12px;border-radius:13px}
+.member-pairing-result small{width:100%;font-size:11px;color:var(--muted)}
+.member-pairing-result strong{font-size:23px;font-weight:900;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+.member-pairing-result button{margin-left:auto;background:var(--green);color:#fff;border:0;border-radius:9px;padding:9px 12px;font-weight:850}

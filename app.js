@@ -19,7 +19,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.3';
+const APP_VERSION='1.5.4';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3872,10 +3872,10 @@ if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{e.stopPropagation();
 
 function setAuthGateState(state){
   const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
-  if(btn) btn.disabled=state==='sending_link'||state==='loading'||state==='registering_device';
+  if(btn) btn.disabled=state==='redeeming_code'||state==='loading'||state==='registering_device';
   if(state==='link_sent'){
-    if(msg) msg.textContent='登入連結已寄出，請到信箱點一下 Magic Link。';
-    if(foot) foot.textContent='點開後會回到 Travel OS，並把這支裝置記為 Trusted Device。';
+    if(msg) msg.textContent='請輸入 Owner 提供的裝置登入碼。';
+    if(foot) foot.textContent='登入碼使用一次即失效，此裝置日後會被記住。';
   }else if(state==='unauthorized_email'){
     if(msg) msg.textContent='此信箱不在授權清單，請找 Trip Owner 加入再登入。';
   }else if(state==='device_error'){
@@ -6279,6 +6279,45 @@ async function tripAdmin(action='list',payload={}){
   }
   return response.data;
 }
+
+async function issueMemberDeviceCode(email,card,button){
+  const status=qs('#memberStatus');
+  button.disabled=true;
+  status.textContent='產生裝置登入碼中…';
+  try{
+    const client=window.TravelAuth?.getClient?.();
+    if(!client)throw new Error('auth_not_ready');
+    const {data,error}=await client.functions.invoke('travel-device-code',{
+      body:{action:'issue',tripSlug:window.TRAVEL_CONFIG.tripSlug,email}
+    });
+    if(error){
+      let detail=null;
+      try{detail=await error.context?.clone().json()}catch(_){}
+      throw new Error(detail?.error||'code_issue_failed');
+    }
+    if(!data?.ok||!data.code)throw new Error(data?.error||'code_issue_failed');
+    const link=location.origin+window.TRAVEL_CONFIG.appBasePath+encodeURIComponent(window.TRAVEL_CONFIG.tripSlug);
+    const shareText=['Travel OS 登入資訊','旅程：'+link,'Email：'+email,'一次性登入碼：'+data.code,'有效 60 分鐘，只能使用一次'].join('\\n');
+    const box=document.createElement('section');box.className='member-pairing-result';
+    const label=document.createElement('small');
+    label.textContent='有效至 '+new Date(data.expiresAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})+' · 有效碼 '+data.active+'/3';
+    const code=document.createElement('strong');code.textContent=data.code;
+    const copy=document.createElement('button');copy.type='button';copy.textContent='複製登入資訊';
+    copy.onclick=async()=>{try{await navigator.clipboard.writeText(shareText);status.textContent='已複製旅程連結、Email 和登入碼。'}catch(_){status.textContent='無法自動複製，請手動記下登入碼。'}};
+    box.append(label,code,copy);
+    card.querySelector('.member-pairing-result')?.remove();
+    card.append(box);
+    status.textContent='登入碼已產生，不會寄出驗證信。';
+  }catch(err){
+    status.textContent=err.message==='code_limit'?'這個 Email 已有 3 組有效碼，使用或到期後可再產生。':'核發失敗：'+String(err.message||err);
+  }finally{button.disabled=false}
+}
+function memberPairingButton(email,card){
+  const button=document.createElement('button');
+  button.type='button';button.className='member-issue-code';button.textContent='產生登入碼';
+  button.onclick=()=>issueMemberDeviceCode(email,card,button);
+  return button;
+}
 function closeMembersSheet(){
   qs('#membersSheet')?.classList.remove('show');
   qs('#membersBackdrop')?.classList.remove('show');
@@ -6313,6 +6352,7 @@ async function loadMembers(){
       }else{
         const badge=document.createElement('span');badge.className='member-role';badge.textContent=m.role;actions.append(badge);
       }
+      if(owner&&m.email)actions.append(memberPairingButton(m.email,card));
       head.append(actions);card.append(head);
 
       const list=document.createElement('div');list.className='device-list';
@@ -6343,29 +6383,14 @@ async function loadMembers(){
       const head=document.createElement('div');head.className='member-head';
       const who=document.createElement('div');
       const strong=document.createElement('strong');strong.textContent=i.email;
-      const small=document.createElement('small');small.textContent='待完成登入 · '+String(i.role||'viewer').toUpperCase()+' · 未收到邀請信也可直接登入';
+      const small=document.createElement('small');small.textContent='待完成登入 · '+String(i.role||'viewer').toUpperCase()+' · 由 Owner 核發登入碼';
       who.append(strong,small);head.append(who);
       if(owner){
         const actions=document.createElement('div');actions.className='member-actions';
-        const resend=document.createElement('button');resend.className='mini-btn';resend.textContent='重新寄送';
-        resend.onclick=async()=>{
-          resend.disabled=true;status.textContent='正在重新寄送邀請信…';
-          try{
-            const result=await tripAdmin('resend_invite',{inviteId:i.id});
-            status.textContent=result.mode==='existing_user_allowed'
-              ?'此 Email 已有帳號，不需邀請信；請對方直接用相同 Email 登入。'
-              :'邀請信已重新寄出。';
-            await loadMembers();
-          }catch(err){
-            console.warn(err);
-            status.textContent=err.code==='invite_email_rate_limited'
-              ?'Supabase 寄信頻率已達上限，邀請仍保留。請稍後再按「重新寄送」。'
-              :'邀請信寄送失敗，邀請仍保留，可稍後重新寄送。';
-          }finally{resend.disabled=false}
-        };
+        actions.append(memberPairingButton(i.email,card));
         const cancel=document.createElement('button');cancel.className='member-remove';cancel.textContent='取消邀請';
         cancel.onclick=async()=>{await tripAdmin('revoke_invite',{inviteId:i.id});await loadMembers()};
-        actions.append(resend,cancel);head.append(actions);
+        actions.append(cancel);head.append(actions);
       }
       card.append(head);box.append(card);
     }
@@ -6401,9 +6426,7 @@ qs('#inviteMemberForm').onsubmit=async e=>{
   try{
     const result=await tripAdmin('invite',{email,role});
     qs('#inviteEmail').value='';
-    status.textContent=result.mode==='invite_sent'
-      ?`已授權 ${email} 使用此旅程。邀請信已寄出；若未收到，也可直接前往 Travel OS 使用此 Email 登入。`
-      :`已授權 ${email} 使用此旅程；對方可直接使用相同 Email 登入。`;
+    status.textContent='成員已授權。請在下方產生裝置登入碼，無需驗證信。';
     await loadMembers();
   }catch(err){
     console.warn(err);

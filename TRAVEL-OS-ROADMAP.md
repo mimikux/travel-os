@@ -1,3 +1,5 @@
+- [x] 2026-10-11 Owner device code frontend: add 60-minute email-free pairing code login, Owner issuance/copy on member and pending invite cards, preserve existing trusted-device sessions; 3 active code limit enforced by database. No trip data modified.
+
 - [x] 2026-10-11 Responsive date chips: Map mobile now shows exactly five full-width day chips, matching the already-approved Today mobile chip width/height/type. On desktop, Today uses the compact Map day-chip dimensions instead of the legacy fixed 112px / 22px override. Date selection and map multiselect behavior unchanged; CSS-only, no trip or Supabase data edits.
 
 - [x] 2026-10-11 v1.5.3 Map flight-route regression: deduplicate adjacent records of the same flight (Iceland D0 HV6887 AMS→KEF appeared both as manual itinerary and linked booking). Never infer a drive leg between synthetic arrival/departure airport stops: mark unplanned connections as no-route gaps, omit their polylines, distance and duration. Preserve drive/flight/drive segments for New Zealand D13, keep existing Supabase trip data unchanged, and bump PWA asset/cache revision.
