@@ -3896,7 +3896,10 @@ if(qs('#moreSignOut')) qs('#moreSignOut').onclick=()=>window.TravelAuth?.signOut
 if(qs('#moreRerouteMail')) qs('#moreRerouteMail').onclick=rerouteGlobalMail;
 
 if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
-if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{e.stopPropagation();showView('more');};
+if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{
+  e.stopPropagation();
+  location.href='/travel-os/';
+};
 
 function setAuthGateState(state){
   const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
