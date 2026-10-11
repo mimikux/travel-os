@@ -4066,7 +4066,7 @@ async function renderMoreView(){
     host.querySelectorAll('[data-more-trip]').forEach(btn=>btn.onclick=()=>{
       if(btn.dataset.moreTrip!==window.TRAVEL_CONFIG.tripSlug) location.href=tripHref(btn.dataset.moreTrip);
     });
-    const canCreate=!sharePayload&&trips.some(t=>t.role==='owner');
+    const canCreate=trips.some(t=>t.role==='owner');
     if(qs('#moreNewTrip')) qs('#moreNewTrip').hidden=!canCreate;
     await loadGlobalMailInbox();
   }catch(err){
