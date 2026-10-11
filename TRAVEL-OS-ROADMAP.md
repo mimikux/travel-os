@@ -445,3 +445,16 @@ Later:
 - 已買項目可一鍵帶入「花費」新增表單，預填購物品項與備註。
 - Iceland 2026 已匯入首批 30 筆出發準備項目；原本 OK 的綠咖哩 / 冬陰功先映射為 Ready。
 - 新增 Supabase 資料表 `trip_checklist_items`、`trip_checklist_item_people`、`trip_checklist_pack_status`，並納入 `travel-data`、`travel-editor`、每日備份。
+
+
+## V1.5.0 · Travel Notes (2026-10-11)
+
+### 已完成
+- 「清單」新增第三頁籤「筆記」，與「要帶 / 要買」共存在同一底部主模組，不增加第六個底部 Tab。
+- 新增 `trip_notes`：可保存文章、Threads / Instagram / Facebook / YouTube / Google Maps / 一般網頁連結。
+- 筆記欄位：標題、連結、分類（攻略 / 景點 / 美食 / 購物 / 住宿 / 交通 / 其他）、自己的重點、關聯日期、置頂。
+- 筆記頁支援分類篩選與全文關鍵字搜尋（標題、備註、URL、來源）。
+- 筆記卡提供「原文 ↗」快速回到來源；Owner / Editor 可新增、編輯、刪除。
+- Iceland 2026 已先加入使用者提供的 Threads 範例連結，標題暫為「Threads 貼文（待補標題）」。
+- `travel-data` / `travel-editor` 已支援筆記讀寫，並納入每日 Travel OS Backup。
+- PWA / frontend 版本升級至 V1.5.0。
