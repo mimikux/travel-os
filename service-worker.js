@@ -1,5 +1,5 @@
-const CACHE='travel-os-notes-v1';
-const ASSETS=['./','./index.html','./app.css?v=20261011-notes-v1','./app.js?v=20261011-notes-v1','./data.js?v=20261011-notes-v1','./config.js?v=20261011-notes-v1','./auth.js?v=20261011-notes-v1','./local-db.js?v=20261011-notes-v1','./sync-engine.js?v=20261011-notes-v1','./manifest.json','./icon.svg','./404.html'];
+const CACHE='travel-os-share-v1';
+const ASSETS=['./','./index.html','./app.css?v=20261011-share-v1','./app.js?v=20261011-share-v1','./data.js?v=20261011-share-v1','./config.js?v=20261011-share-v1','./auth.js?v=20261011-share-v1','./local-db.js?v=20261011-share-v1','./sync-engine.js?v=20261011-share-v1','./manifest.json','./icon.svg','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
