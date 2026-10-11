@@ -18,7 +18,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.4.8';
+const APP_VERSION='1.5.0';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -2652,10 +2652,12 @@ function chooseReceiptPhoto(){
 }
 
 
-let checklistTab=(()=>{try{const v=localStorage.getItem('travelChecklistTab');return ['pack','buy'].includes(v)?v:''}catch(_){return ''}})();
+let checklistTab=(()=>{try{const v=localStorage.getItem('travelChecklistTab');return ['pack','buy','notes'].includes(v)?v:''}catch(_){return ''}})();
 let checklistScope=(()=>{try{return localStorage.getItem('travelChecklistScope')==='team'?'team':'mine'}catch(_){return 'mine'}})();
 const CHECKLIST_CATEGORIES=['食','衣','行','盥洗','藥品','娛樂','其他'];
+const NOTE_CATEGORIES=['攻略','景點','美食','購物','住宿','交通','其他'];
 let checklistCategory='all';
+let travelNotesQuery='';
 
 function tripTodayISO(){
   try{
@@ -2695,7 +2697,7 @@ function checklistStatusButton(status,itemId,personId,enabled=true){
   return `<button type="button" class="pack-status-btn ${status}" data-pack-item="${escapeHtml(itemId)}" data-pack-person="${escapeHtml(personId)}" title="${title}" aria-label="${title}" ${enabled?'':'disabled'}>${mark}</button>`;
 }
 function checklistCategoryRows(){
-  return ['all',...CHECKLIST_CATEGORIES];
+  return ['all',...(checklistTab==='notes'?NOTE_CATEGORIES:CHECKLIST_CATEGORIES)];
 }
 function renderChecklistFilters(){
   const host=qs('#checklistFilters');if(!host)return;
@@ -2795,6 +2797,167 @@ function renderChecklistBuy(){
   }).join('');
   bindChecklistRows();
 }
+function travelNoteRows(){
+  const q=String(travelNotesQuery||'').trim().toLowerCase();
+  let rows=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[]).slice();
+  if(checklistCategory!=='all')rows=rows.filter(n=>String(n.category||'其他')===checklistCategory);
+  if(q){
+    rows=rows.filter(n=>[n.title,n.note,n.url,n.category,travelNoteSourceLabel(n.sourceType)]
+      .some(v=>String(v||'').toLowerCase().includes(q)));
+  }
+  return rows.sort((a,b)=>{
+    const pin=Number(Boolean(b.isPinned))-Number(Boolean(a.isPinned));
+    if(pin)return pin;
+    return String(b.createdAt||'').localeCompare(String(a.createdAt||''));
+  });
+}
+function travelNoteSourceLabel(type){
+  return ({threads:'Threads',instagram:'Instagram',facebook:'Facebook',youtube:'YouTube',google_maps:'Google Maps',article:'文章',link:'連結',other:'筆記'})[type]||'連結';
+}
+function travelNoteHost(url){
+  try{return new URL(url).hostname.replace(/^www\./,'')}catch{return ''}
+}
+function travelNoteDayLabel(note){
+  if(!note?.dayId)return '';
+  const day=(TRIP?.days||[]).find(d=>String(d.id)===String(note.dayId));
+  return day?.label||day?.date||'';
+}
+function renderTravelNotes(){
+  const host=qs('#travelNotesList');if(!host)return;
+  const rows=travelNoteRows();
+  if(!rows.length){
+    host.innerHTML=`<div class="checklist-empty travel-notes-empty"><strong>${travelNotesQuery?'找不到符合的筆記':'還沒有旅遊筆記'}</strong><p>${canEditTrip()?'看到 Threads、文章或攻略時就存進來，旅行時不用再回群組翻。':'旅伴新增的文章與貼文會整理在這裡。'}</p></div>`;
+    return;
+  }
+  host.innerHTML=rows.map(n=>{
+    const hostName=travelNoteHost(n.url);
+    const day=travelNoteDayLabel(n);
+    const meta=[travelNoteSourceLabel(n.sourceType),hostName,day].filter(Boolean).join(' · ');
+    return `<article class="travel-note-card ${n.isPinned?'pinned':''}" data-note-id="${escapeHtml(n.id)}">
+      <div class="travel-note-main">
+        <div class="travel-note-topline">
+          <span class="travel-note-category">${escapeHtml(n.category||'其他')}</span>
+          ${n.isPinned?'<span class="travel-note-pin">置頂</span>':''}
+        </div>
+        <h3>${escapeHtml(n.title||'未命名筆記')}</h3>
+        ${n.note?`<p>${escapeHtml(n.note)}</p>`:''}
+        ${meta?`<small>${escapeHtml(meta)}</small>`:''}
+      </div>
+      <div class="travel-note-actions">
+        ${n.url?`<button type="button" data-open-note-url="${escapeHtml(n.id)}">原文 ↗</button>`:''}
+        ${canEditTrip()?`<button type="button" class="travel-note-more" data-edit-note="${escapeHtml(n.id)}" aria-label="編輯筆記">•••</button>`:''}
+      </div>
+    </article>`;
+  }).join('');
+  host.querySelectorAll('[data-open-note-url]').forEach(btn=>btn.onclick=()=>{
+    const note=(TRIP?.travelNotes||[]).find(n=>String(n.id)===String(btn.dataset.openNoteUrl));
+    if(note?.url)window.open(note.url,'_blank','noopener');
+  });
+  host.querySelectorAll('[data-edit-note]').forEach(btn=>btn.onclick=()=>{
+    const note=(TRIP?.travelNotes||[]).find(n=>String(n.id)===String(btn.dataset.editNote));
+    if(note)openTravelNoteEditor(note);
+  });
+}
+function noteDayOptions(selected=''){
+  return ['<option value="">不指定日期</option>',...(TRIP?.days||[]).map(day=>`<option value="${escapeHtml(day.id)}" ${String(day.id)===String(selected)?'selected':''}>${escapeHtml(day.label||'')} · ${escapeHtml(day.date||'')} ${escapeHtml(day.name||'')}</option>`)].join('');
+}
+function ensureTravelNoteEditor(){
+  let sheet=qs('#travelNoteSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='travelNoteBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet travel-note-sheet';sheet.id='travelNoteSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">TRAVEL NOTE</span><h2 id="travelNoteEditTitle">新增旅遊筆記</h2><p>文章、Threads、貼文、攻略與臨時看到的資訊都可以存。</p></div>
+      <button class="round-btn" id="closeTravelNote">×</button>
+    </div>
+    <form class="edit-form" id="travelNoteForm">
+      <input type="hidden" id="travelNoteId"><input type="hidden" id="travelNoteVersion">
+      <label><span>連結</span><input id="travelNoteUrl" type="url" inputmode="url" placeholder="貼上 Threads / 網頁 / Google Maps 連結"></label>
+      <label><span>標題</span><input id="travelNoteTitle" maxlength="220" placeholder="例如：雷克雅維克必吃魚湯" required></label>
+      <div class="edit-form-grid">
+        <label><span>分類</span><select id="travelNoteCategory">${NOTE_CATEGORIES.map(x=>`<option value="${x}">${x}</option>`).join('')}</select></label>
+        <label><span>關聯日期</span><select id="travelNoteDay"></select></label>
+      </div>
+      <label><span>自己的重點 / 為什麼存</span><textarea id="travelNoteText" rows="4" maxlength="5000" placeholder="例如：D3 經過時可以去、記得買這個、文章第 2 段有停車資訊…"></textarea></label>
+      <label class="travel-note-pin-field"><input id="travelNotePinned" type="checkbox"><span>置頂這筆筆記</span></label>
+      <div class="edit-form-actions expense-form-actions">
+        <button type="button" class="edit-delete" id="deleteTravelNoteBtn">刪除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="travelNoteStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeTravelNote').onclick=close;backdrop.onclick=close;
+  qs('#travelNoteForm').onsubmit=saveTravelNote;
+  qs('#deleteTravelNoteBtn').onclick=deleteTravelNote;
+  return sheet;
+}
+function inferNoteTitleFromUrl(url){
+  try{
+    const u=new URL(url);
+    const host=u.hostname.replace(/^www\./,'');
+    if(host.includes('threads.'))return 'Threads 貼文';
+    if(host.includes('instagram.'))return 'Instagram 貼文';
+    if(host.includes('youtube.')||host==='youtu.be')return 'YouTube 影片';
+    if(host.includes('google.')||host==='maps.app.goo.gl')return 'Google Maps 收藏';
+    return host;
+  }catch{return ''}
+}
+function openTravelNoteEditor(note=null,preset={}){
+  if(!canEditTrip())return;
+  const sheet=ensureTravelNoteEditor();
+  const data=note||{};
+  const url=preset.url??data.url??'';
+  qs('#travelNoteId').value=data.id||'';
+  qs('#travelNoteVersion').value=data.version||1;
+  qs('#travelNoteEditTitle').textContent=note?'編輯旅遊筆記':'新增旅遊筆記';
+  qs('#travelNoteUrl').value=url;
+  qs('#travelNoteTitle').value=preset.title??data.title??inferNoteTitleFromUrl(url);
+  qs('#travelNoteCategory').value=NOTE_CATEGORIES.includes(preset.category??data.category)?(preset.category??data.category):'攻略';
+  qs('#travelNoteDay').innerHTML=noteDayOptions(preset.dayId??data.dayId??'');
+  qs('#travelNoteText').value=preset.note??data.note??'';
+  qs('#travelNotePinned').checked=Boolean(preset.isPinned??data.isPinned);
+  qs('#deleteTravelNoteBtn').hidden=!note;
+  qs('#travelNoteStatus').textContent='';
+  qs('#travelNoteBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>{(url?qs('#travelNoteTitle'):qs('#travelNoteUrl'))?.focus()},50);
+}
+async function saveTravelNote(e){
+  e.preventDefault();
+  const status=qs('#travelNoteStatus');
+  const url=qs('#travelNoteUrl').value.trim();
+  const title=qs('#travelNoteTitle').value.trim()||inferNoteTitleFromUrl(url);
+  if(!title){status.textContent='請輸入標題。';return}
+  const note={
+    id:qs('#travelNoteId').value||null,
+    baseVersion:Number(qs('#travelNoteVersion').value||1),
+    url,title,
+    category:qs('#travelNoteCategory').value,
+    dayId:qs('#travelNoteDay').value||null,
+    note:qs('#travelNoteText').value.trim(),
+    isPinned:qs('#travelNotePinned').checked
+  };
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_trip_note',{note});
+    qs('#travelNoteSheet').classList.remove('show');qs('#travelNoteBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){
+    status.textContent=(err.code||err.message)==='invalid_note_url'?'連結格式不正確。':'儲存失敗：'+(err.code||err.message);
+  }
+}
+async function deleteTravelNote(){
+  const id=qs('#travelNoteId').value;if(!id)return;
+  if(!confirm('刪除這筆旅遊筆記？'))return;
+  try{
+    await travelEditor('delete_trip_note',{id,baseVersion:Number(qs('#travelNoteVersion').value||1)});
+    qs('#travelNoteSheet').classList.remove('show');qs('#travelNoteBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){qs('#travelNoteStatus').textContent='刪除失敗：'+(err.code||err.message)}
+}
+
 function renderChecklistPersonHead(){
   const head=qs('#checklistPersonHead');if(!head)return;
   const show=checklistTab==='pack'||checklistTab==='buy';
@@ -2816,30 +2979,45 @@ function renderChecklist(){
   qsa('[data-checklist-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.checklistTab===checklistTab));
   qs('#checklistPackPanel')?.classList.toggle('active',checklistTab==='pack');
   qs('#checklistBuyPanel')?.classList.toggle('active',checklistTab==='buy');
+  qs('#checklistNotesPanel')?.classList.toggle('active',checklistTab==='notes');
+
   const scope=qs('#checklistScopeBtn');
   if(scope){
     scope.hidden=checklistTab!=='pack';
     scope.textContent=checklistScope==='mine'?'全部隊友':'只看我';
     scope.classList.toggle('team',checklistScope==='team');
   }
-  const add=qs('#addChecklistItemBtn');if(add)add.hidden=!canEditTrip();
   const importBtn=qs('#checklistImportBtn');if(importBtn)importBtn.hidden=checklistTab!=='pack'||!canEditTrip();
+  const legend=qs('#checklistLegend');if(legend)legend.hidden=checklistTab!=='pack';
+  const add=qs('#addChecklistItemBtn');
+  if(add){
+    add.hidden=!canEditTrip();
+    add.textContent=checklistTab==='notes'?'＋ 新增筆記':'＋ 新增';
+  }
+
   const heroTitle=qs('#checklistHeroTitle'),heroSummary=qs('#checklistHeroSummary');
-  if(heroTitle)heroTitle.textContent=checklistTab==='pack'?'出發準備':'旅途中要買';
+  if(heroTitle)heroTitle.textContent=checklistTab==='pack'?'出發準備':checklistTab==='buy'?'旅途中要買':'旅遊筆記';
   if(heroSummary){
     if(checklistTab==='pack'){
       const mine=TRIP?.currentPersonId?checklistRows('pack').filter(x=>packApplies(x,TRIP.currentPersonId)):[];
       const packed=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length;
       const ready=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length;
       heroSummary.textContent=TRIP?.currentPersonId?`${packed}/${mine.length} 已打包 · ${ready} 已準備`:'設定旅伴身份後就能追蹤自己的打包進度。';
-    }else{
+    }else if(checklistTab==='buy'){
       const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
       heroSummary.textContent=`${done}/${rows.length} 已買 · ${rows.length-done} 待買`;
+    }else{
+      const rows=Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[];
+      const pinned=rows.filter(n=>n.isPinned).length;
+      heroSummary.textContent=rows.length?`${rows.length} 筆收藏${pinned?` · ${pinned} 筆置頂`:''}`:'把網路上看到的文章、貼文與攻略收在這裡。';
     }
   }
+
   renderChecklistFilters();
   renderChecklistPersonHead();
-  if(checklistTab==='pack')renderChecklistPack();else renderChecklistBuy();
+  if(checklistTab==='pack')renderChecklistPack();
+  else if(checklistTab==='buy')renderChecklistBuy();
+  else renderTravelNotes();
 }
 function ensureChecklistImportSheet(){
   let sheet=qs('#checklistImportSheet');if(sheet)return sheet;
@@ -3265,8 +3443,12 @@ if(qs('#checklistScopeBtn'))qs('#checklistScopeBtn').onclick=()=>{
   try{localStorage.setItem('travelChecklistScope',checklistScope)}catch(_){}
   renderChecklist();
 };
-if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>openChecklistEditor();
+if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>checklistTab==='notes'?openTravelNoteEditor():openChecklistEditor();
 if(qs('#checklistImportBtn'))qs('#checklistImportBtn').onclick=openChecklistImportSheet;
+if(qs('#travelNotesSearch'))qs('#travelNotesSearch').oninput=e=>{
+  travelNotesQuery=e.target.value||'';
+  if(checklistTab==='notes')renderTravelNotes();
+};
 if(qs('#addExpenseBtn'))qs('#addExpenseBtn').onclick=()=>openExpenseEditor();
 if(qs('#receiptExpenseBtn'))qs('#receiptExpenseBtn').onclick=chooseReceiptPhoto;
 if(qs('#expenseIdentityBtn'))qs('#expenseIdentityBtn').onclick=openExpenseIdentitySheet;
@@ -3508,6 +3690,7 @@ function cloudTripToUi(data){
     currentPersonId:data.currentPersonId||null,
     expenses:Array.isArray(data.expenses)?data.expenses:[],
     checklistItems:Array.isArray(data.checklistItems)?data.checklistItems:[],
+    travelNotes:Array.isArray(data.travelNotes)?data.travelNotes:[],
     mailImports:Array.isArray(data.mailImports)?data.mailImports:[]
   };
 }
