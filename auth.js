@@ -5,6 +5,7 @@
   let state='loading';
   let manualSignOut=false;
   let trustedDeviceApproved=false;
+  let pairingInProgress=false;
   const LAST_ACTIVE_KEY='travel-os-last-active';
   const listeners=new Set();
 
@@ -45,15 +46,15 @@
     if(next==='ready') markActive();
     if(form){
       const showForm=['signed_out','reauth_required','unauthorized_email','device_error','sdk_error'].includes(next);
-      form.hidden=!showForm||!cfg.tripSlug;
+      form.hidden=!showForm;
       form.style.display=form.hidden?'none':'grid';
     }
-    const showRoot=!cfg.tripSlug&&['signed_out','reauth_required','sdk_error','unauthorized_email','device_error'].includes(next);
+    const showRoot=false;
     if(rootForm){rootForm.hidden=!showRoot;rootForm.style.display=showRoot?'grid':'none'}
     if(msg){
       if(next==='loading') msg.textContent='正在確認這台裝置的登入狀態…';
       else if(next==='registering_device') msg.textContent='已找到登入狀態，正在驗證 Trusted Device…';
-      else if(next==='signed_out') msg.textContent=cfg.tripSlug?'請輸入 Owner 核發的裝置登入碼。':'請使用 Owner 提供的旅程專屬連結進入，再輸入登入碼。';
+      else if(next==='signed_out') msg.textContent='請輸入 Email 與一次性登入碼。';
       else if(next==='reauth_required') msg.textContent='雲端登入已失效，請向 Owner 索取新的裝置登入碼。';
       else if(next==='redeeming_code') msg.textContent='正在驗證一次性登入碼並授權裝置…';
       else if(next==='unauthorized_email') msg.textContent='此信箱不在授權清單，請找 Trip Owner 加入再登入。';
@@ -140,7 +141,7 @@
         manualSignOut=false;
         if(!cfg.tripSlug){
           trustedDeviceApproved=true;
-          setState('ready');
+          setState(pairingInProgress?'redeeming_code':'ready');
         }else{
           const silent=state==='ready'&&trustedDeviceApproved;
           if(!silent) setState('registering_device');
@@ -171,10 +172,10 @@
   // Pairing codes are Owner issued. No verification email is sent.
   async function signInWithDeviceCode(email,code){
     if(!client)throw new Error('auth_not_initialized');
-    if(!cfg.tripSlug)throw new Error('open_trip_link');
     const normalized=String(email||'').trim().toLowerCase();
     const normalizedCode=String(code||'').toUpperCase().replace(/[\s-]/g,'');
     if(!/^[A-HJ-NP-Z2-9]{8}$/.test(normalizedCode))throw new Error('invalid_code_format');
+    pairingInProgress=true;
     setState('redeeming_code');
     try{
       const device=await window.TravelStore.getDevice();
@@ -194,10 +195,19 @@
       if(verified.error||!verified.data?.session)throw new Error(verified.error?.message||'session_verification_failed');
       currentSession=verified.data.session;
       trustedDeviceApproved=false;
-      // The existing SIGNED_IN observer handles Trusted Device enrollment.
+      if(!cfg.tripSlug){
+        const resolved=String(data.tripSlug||'').toLowerCase();
+        if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(resolved))throw new Error('trip_resolution_failed');
+        const query=new URLSearchParams(location.search);
+        const share=query.get('share_target')==='1'?'&'+query.toString():'';
+        location.replace(cfg.appBasePath+'?trip='+encodeURIComponent(resolved)+share);
+        return {ok:true,tripSlug:resolved};
+      }
+      pairingInProgress=false;
       setState('registering_device');
       return {ok:true};
     }catch(err){
+      pairingInProgress=false;
       setState('signed_out');
       throw err;
     }
@@ -336,7 +346,7 @@
           key==='too_many_attempts'?'輸入錯誤次數過多，請 15 分鐘後再試。':
           key==='invalid_code'?'登入碼已使用、過期或輸入錯誤，請向 Owner 索取新碼。':
           key==='invalid_code_format'?'請輸入 8 位英數登入碼（可省略中間的連字號）。':
-          key==='open_trip_link'?'請用 Owner 分享的旅程網址進入登入頁。':
+          key==='trip_resolution_failed'?'登入碼已驗證，無法辨識所屬旅程，請洽 Owner。':
           key==='device_revoked_or_mismatch'?'這台裝置已撤銷或識別不符，請聯絡 Owner。':
           '裝置登入失敗：'+(key||'網路或伺服器暫時異常');
       }finally{
