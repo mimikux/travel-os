@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#173c35">
+<title>Travel OS · 接收分享</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;background:#173c35;color:#203a34;font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;padding:22px}
+main{max-width:430px;width:100%;padding:30px 24px;background:#faf8f3;border-radius:27px}
+h1{font-size:24px;margin:5px 0 12px}p{color:#6a7873;font-size:14px;line-height:1.6}
+textarea{width:100%;padding:14px;border:0;background:#e9eee9;border-radius:15px;font:inherit;resize:vertical;min-height:106px;color:#203a34}
+button{width:100%;margin-top:13px;border:0;border-radius:16px;background:#173c35;color:white;font-size:16px;font-weight:800;padding:17px}
+</style>
+</head>
+<body>
+<main>
+<small>TRAVEL OS · SHARE</small>
+<h1>正在接收文章…</h1>
+<p id="shareStatus" role="status">準備將 Threads／網頁分享帶到旅遊筆記。</p>
+<form id="shareFallback" hidden>
+<label for="shareInput">Android 未提供分享內容，請貼上文章連結</label>
+<textarea id="shareInput" placeholder="https://www.threads.com/..." required></textarea>
+<button type="submit">選擇旅程</button>
+</form>
+</main>
+<script>
+(()=>{
+  'use strict';
+  const KEY='travelOSIncomingShareV1';
+  const params=new URLSearchParams(location.search);
+  const text=String(params.get('shared_text')||params.get('text')||'').trim();
+  const title=String(params.get('shared_title')||params.get('title')||'').trim();
+  const fromUrl=String(params.get('shared_url')||params.get('url')||'').trim();
+  const extractUrl=value=>(String(value||'').match(/https?:\/\/[^\s<>"]+/i)||[])[0]?.replace(/[),.;!?]+$/,'')||'';
+  const url=fromUrl||extractUrl(text);
+  const noteText=url?text.replace(url,'').trim():text;
+  function forward(payload){
+    const stored=JSON.stringify({
+      title:String(payload.title||'').slice(0,220),
+      text:String(payload.text||'').slice(0,5000),
+      url:String(payload.url||'').slice(0,2000),
+      receivedAt:new Date().toISOString()
+    });
+    try{localStorage.setItem(KEY,stored)}catch(_){}
+    try{sessionStorage.setItem(KEY,stored)}catch(_){}
+    location.replace('./?share_target=1');
+  }
+  if(title||noteText||url){forward({title,text:noteText,url});return}
+  const fallback=document.getElementById('shareFallback');
+  const status=document.getElementById('shareStatus');
+  fallback.hidden=false;
+  status.textContent='Android 沒有送出貼文連結；請貼上文章網址後再選擇旅程。';
+  fallback.addEventListener('submit',event=>{
+    event.preventDefault();
+    const raw=document.getElementById('shareInput').value.trim();
+    const link=extractUrl(raw);
+    if(!link){status.textContent='請貼上含有 https:// 的有效連結。';return}
+    forward({title:'',text:raw.replace(link,'').trim(),url:link});
+  });
+})();
+</script>
+</body>
+</html>
