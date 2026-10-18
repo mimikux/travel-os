@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.14';
+const APP_VERSION='1.5.15';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3183,6 +3183,11 @@ function travelNoteDayLabel(note){
 }
 function renderTravelNotes(){
   const host=qs('#travelNotesList');if(!host)return;
+  const unresolved=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
+    .filter(n=>isThreadsUrl(n.url)&&isGenericThreadsNoteTitle(n.title));
+  const controls=qs('#travelNoteRecoveryBar'),button=qs('#travelNoteRecoverTitlesBtn');
+  if(controls)controls.hidden=!canEditTrip()||!unresolved.length;
+  if(button)button.textContent='補抓標題（'+unresolved.length+'）';
   const rows=travelNoteRows();
   if(!rows.length){
     host.innerHTML=`<div class="checklist-empty travel-notes-empty"><strong>${travelNotesQuery?'找不到符合的筆記':'還沒有旅遊筆記'}</strong><p>${canEditTrip()?'看到 Threads、文章或攻略時就存進來，旅行時不用再回群組翻。':'旅伴新增的文章與貼文會整理在這裡。'}</p></div>`;
@@ -3234,6 +3239,7 @@ function ensureTravelNoteEditor(){
       <input type="hidden" id="travelNoteId"><input type="hidden" id="travelNoteVersion">
       <label><span>連結</span><input id="travelNoteUrl" type="url" inputmode="url" placeholder="貼上 Threads / 網頁 / Google Maps 連結"></label>
       <label><span>標題</span><input id="travelNoteTitle" maxlength="220" placeholder="例如：雷克雅維克必吃魚湯" required></label>
+      <button type="button" class="travel-note-fetch-title" id="travelNoteFetchTitle">從 Threads 取得標題</button>
       <div class="edit-form-grid">
         <label><span>分類</span><select id="travelNoteCategory">${NOTE_CATEGORIES.map(x=>`<option value="${x}">${x}</option>`).join('')}</select></label>
         <label><span>關聯日期</span><select id="travelNoteDay"></select></label>
@@ -3251,6 +3257,17 @@ function ensureTravelNoteEditor(){
   qs('#closeTravelNote').onclick=close;backdrop.onclick=close;
   qs('#travelNoteForm').onsubmit=saveTravelNote;
   qs('#deleteTravelNoteBtn').onclick=deleteTravelNote;
+  qs('#travelNoteFetchTitle').onclick=async()=>{
+    const btn=qs('#travelNoteFetchTitle'),status=qs('#travelNoteStatus'),url=qs('#travelNoteUrl').value.trim();
+    if(!isThreadsUrl(url)){status.textContent='請先貼上 Threads 文章網址。';return}
+    btn.disabled=true;status.textContent='正在從 Threads 取得標題…';
+    try{
+      const title=await lookupThreadsPostTitle(url);
+      if(title){qs('#travelNoteTitle').value=title;status.textContent='已取得標題，確認後按儲存。';}
+      else status.textContent='Threads 沒有提供公開文字。可手動輸入標題，原文連結仍會保留。';
+    }catch(_){status.textContent='暫時無法取得 Threads 內容，請手動輸入標題。';}
+    finally{btn.disabled=false;}
+  };
   return sheet;
 }
 function inferNoteTitleFromUrl(url){
@@ -3283,6 +3300,31 @@ function openTravelNoteEditor(note=null,preset={}){
   qs('#travelNoteBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
   setTimeout(()=>{(url?qs('#travelNoteTitle'):qs('#travelNoteUrl'))?.focus()},50);
 }
+let threadsRecovering=false;
+async function recoverMissingThreadsTitles(){
+  if(threadsRecovering||!canEditTrip())return;
+  const target=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
+    .filter(n=>isThreadsUrl(n.url)&&isGenericThreadsNoteTitle(n.title)).slice(0,12);
+  if(!target.length)return;
+  const btn=qs('#travelNoteRecoverTitlesBtn'),status=qs('#travelNoteRecoveryStatus');
+  threadsRecovering=true;if(btn)btn.disabled=true;
+  let updated=0,unavailable=0,failed=0;
+  try{
+    for(const n of target){
+      if(status)status.textContent='正在辨識 '+(updated+unavailable+failed+1)+' / '+target.length+' 篇…';
+      try{
+        const title=await lookupThreadsPostTitle(n.url);
+        if(!title){unavailable++;continue;}
+        await travelEditor('save_trip_note',{note:tripNoteUpdatePayload(n,title)});
+        updated++;
+      }catch(err){console.warn('Threads title recovery unsuccessful',String(err?.code||err?.message||err));failed++;}
+    }
+    if(updated)await hydratePrivateCloudData();
+    renderTravelNotes();
+    if(status)status.textContent='已補上 '+updated+' 篇；'+(unavailable+failed)+' 篇無法自動讀取，可點 ⋯ 手動編輯。';
+  }finally{threadsRecovering=false;if(btn)btn.disabled=false;}
+}
+
 async function saveTravelNote(e){
   e.preventDefault();
   const status=qs('#travelNoteStatus');
@@ -3808,6 +3850,7 @@ if(qs('#checklistScopeBtn'))qs('#checklistScopeBtn').onclick=()=>{
 };
 if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>checklistTab==='notes'?openTravelNoteEditor():openChecklistEditor();
 if(qs('#checklistImportBtn'))qs('#checklistImportBtn').onclick=openChecklistImportSheet;
+if(qs('#travelNoteRecoverTitlesBtn'))qs('#travelNoteRecoverTitlesBtn').onclick=recoverMissingThreadsTitles;
 if(qs('#travelNotesSearch'))qs('#travelNotesSearch').oninput=e=>{
   travelNotesQuery=e.target.value||'';
   if(checklistTab==='notes')renderTravelNotes();
@@ -4146,15 +4189,13 @@ async function maybeAutoCheckPlaceHours(){
 }
 
 function compactSharedSentence(text,maxChars=32){
-  const clean=String(text||'')
-    .replace(/https?:\/\/\S+/gi,' ')
-    .replace(/\s+/g,' ')
-    .trim();
-  if(!clean)return '';
-  const first=(clean.match(/^.*?[。！？!?](?:\s|$)/)?.[0]||clean).trim();
+  const raw=String(text||'').replace(/https?:\/\/\S+/gi,' ').replace(/\r/g,'').trim();
+  if(!raw)return '';
+  const firstLine=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean)[0]||'';
+  const first=(firstLine.match(/^[^。！？!?]+[。！？!?]?/)?.[0]||firstLine).replace(/\s+/g,' ').trim();
+  if(!first)return '';
   const chars=Array.from(first);
-  if(chars.length<=maxChars)return first;
-  return chars.slice(0,maxChars).join('').replace(/[，、；;：:]$/,'')+'…';
+  return chars.length<=maxChars?first:chars.slice(0,maxChars).join('').replace(/[，、；;：:]$/,'')+'…';
 }
 function isThreadsUrl(url){
   try{
@@ -4162,12 +4203,32 @@ function isThreadsUrl(url){
     return host==='threads.com'||host==='threads.net'||host.endsWith('.threads.com')||host.endsWith('.threads.net');
   }catch{return false}
 }
+function isGenericThreadsNoteTitle(title){
+  const value=String(title||'').trim();
+  return !value||/^(?:Threads|Threads 貼文|Threads 貼文[（(]待補標題[）)])$/i.test(value);
+}
+async function lookupThreadsPostTitle(url){
+  if(!isThreadsUrl(url))return '';
+  const client=window.TravelAuth?.getClient?.();
+  if(!client)return '';
+  const {data,error}=await client.functions.invoke('travel-threads-preview',{body:{url}});
+  if(error||data?.error||data?.available!==true||!data?.text)return '';
+  const title=compactSharedSentence(data.text,32);
+  return isGenericThreadsNoteTitle(title)?'':title;
+}
+function tripNoteUpdatePayload(note,title){
+  return {id:note.id,baseVersion:Number(note.version||1),url:note.url,
+    title,category:note.category,dayId:note.dayId||null,
+    note:note.note||'',isPinned:Boolean(note.isPinned)};
+}
+
 function sharedNotePreset(payload){
   const url=String(payload?.url||'').trim();
   const text=String(payload?.text||'').trim();
   const sharedTitle=String(payload?.title||'').trim();
   const threadsTitle=isThreadsUrl(url)?compactSharedSentence(text,32):'';
-  const title=threadsTitle||sharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
+  const safeSharedTitle=isThreadsUrl(url)&&isGenericThreadsNoteTitle(sharedTitle)?'':sharedTitle;
+  const title=threadsTitle||safeSharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
   return {url,title,note:text,category:'攻略',isPinned:false};
 }
 async function maybeOpenIncomingShare(){
@@ -4185,7 +4246,18 @@ async function maybeOpenIncomingShare(){
   try{
     const draft=sharedNotePreset(payload);
     const duplicate=draft.url&&(TRIP.travelNotes||[]).find(n=>String(n.url||'').trim()===draft.url);
-    if(!duplicate)await travelEditor('save_trip_note',{note:draft});
+    // Native Android Threads sharing usually includes only the short URL.
+    // Resolve real public post text if available before saving.
+    if(isThreadsUrl(draft.url)&&isGenericThreadsNoteTitle(draft.title)){
+      const fetchedTitle=await lookupThreadsPostTitle(draft.url).catch(()=> '');
+      draft.title=fetchedTitle||'Threads 貼文（待補標題）';
+    }
+    if(!duplicate){
+      await travelEditor('save_trip_note',{note:draft});
+    }else if(isThreadsUrl(duplicate.url)&&isGenericThreadsNoteTitle(duplicate.title)&&
+      !isGenericThreadsNoteTitle(draft.title)){
+      await travelEditor('save_trip_note',{note:tripNoteUpdatePayload(duplicate,draft.title)});
+    }
     clearIncomingShare();
     await hydratePrivateCloudData();
     showView('checklist');
