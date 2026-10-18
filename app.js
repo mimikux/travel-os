@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.13';
+const APP_VERSION='1.5.14';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -5147,15 +5147,22 @@ async function reparseTripMail(){
     if(data?.error){const e=new Error(data.error);e.code=data.error;throw e;}
     await hydratePrivateCloudData();
     renderMailImportSheet();
+    const total=Number(data?.total??data?.changed??0);
+    const autoIgnored=Number(data?.autoIgnored||0);
+    const pending=Number(data?.pendingReview||0);
+    const excluded=Number(data?.excluded||0);
+    const failed=Number(data?.failed||0);
     alert([
       '信件重新辨識完成',
       '',
-      '重新解析：'+Number(data?.changed||0),
-      '回到待確認：'+Number(data?.pendingReview||0),
-      '已分類：'+Number(data?.classified||0),
-      '已忽略非必要信件：'+Number(data?.ignored||0),
+      '總共辨識：'+total+' 封',
+      '已有相同資料，已自動忽略：'+autoIgnored+' 封',
+      '待人工確認：'+pending+' 封',
+      ...(excluded?['非預訂信件已排除：'+excluded+' 封']:[]),
+      ...(failed?['⚠️ 處理失敗：'+failed+' 封（尚未略過，請稍後重試）']:[]),
       '',
-      '重新辨識不會直接修改正式預訂，請在下方逐筆確認後再套用。'
+      '已略過的信不會重複出現在待確認列表；有差異的信件仍需逐筆確認。',
+      '重新辨識不會覆寫任何正式預訂。'
     ].join('\n'));
   }catch(err){
     alert('重新辨識失敗：'+(err.code||err.message||'unknown'));
