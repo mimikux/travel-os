@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.11';
+const APP_VERSION='1.5.12';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -451,7 +451,12 @@ function renderBookingIcons(){
 
 function renderStaticIcons(){}
 
+let lastNonMoreView='today';
+function returnFromMore(){
+  showView(lastNonMoreView==='more'?'today':lastNonMoreView);
+}
 function showView(name){
+  if(name!=='more'&&titles[name])lastNonMoreView=name;
   qs('.app-shell')?.classList.toggle('today-mode',name==='today');
   qsa('.view').forEach(v=>v.classList.remove('active'));
   qs('#'+name+'View')?.classList.add('active');
@@ -3892,10 +3897,17 @@ if(qs('#moreResync')) qs('#moreResync').onclick=async()=>{
     await renderMoreView();
   }finally{btn.disabled=false;}
 };
-if(qs('#moreSignOut')) qs('#moreSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
+async function confirmTravelSignOut(){
+  const answer=window.confirm('確定要登出 Travel OS？\\n\\n此裝置登出後，重新登入可能需要 Owner 核發一次性登入碼。\\n旅程和雲端資料不會被刪除。');
+  if(!answer)return;
+  try{await window.TravelAuth?.signOut?.();location.reload();}
+  catch(err){alert('登出失敗：'+(err?.message||'unknown'));}
+}
+if(qs('#moreSignOut')) qs('#moreSignOut').onclick=confirmTravelSignOut;
+if(qs('#moreBackBtn')) qs('#moreBackBtn').onclick=returnFromMore;
 if(qs('#moreRerouteMail')) qs('#moreRerouteMail').onclick=rerouteGlobalMail;
 
-if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=()=>window.TravelAuth?.signOut?.().then(()=>location.reload());
+if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=confirmTravelSignOut;
 if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{
   e.stopPropagation();
   location.href='/travel-os/';
