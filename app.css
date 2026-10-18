@@ -3257,3 +3257,9 @@ html.item-editor-open .global-edit-toolbar{
 .share-missing-fallback textarea{box-sizing:border-box;width:100%;min-height:78px;resize:vertical;padding:14px;border:0;border-radius:14px;background:#e9eee9;color:var(--ink);font:inherit}
 .share-missing-fallback button{padding:15px;border:0;border-radius:14px;background:var(--green);color:white;font:inherit;font-weight:800}
 .share-missing-fallback small{color:#a33b30}
+
+
+/* Notes tab cleanup v1.5.11 */
+.checklist-person-head[hidden]{
+  display:none!important;
+}
