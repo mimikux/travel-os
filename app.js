@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.10';
+const APP_VERSION='1.5.11';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -4133,10 +4133,29 @@ async function maybeAutoCheckPlaceHours(){
   }finally{placeAutoCheckRunning=false}
 }
 
+function compactSharedSentence(text,maxChars=32){
+  const clean=String(text||'')
+    .replace(/https?:\/\/\S+/gi,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  if(!clean)return '';
+  const first=(clean.match(/^.*?[。！？!?](?:\s|$)/)?.[0]||clean).trim();
+  const chars=Array.from(first);
+  if(chars.length<=maxChars)return first;
+  return chars.slice(0,maxChars).join('').replace(/[，、；;：:]$/,'')+'…';
+}
+function isThreadsUrl(url){
+  try{
+    const host=new URL(url).hostname.toLowerCase().replace(/^www\./,'');
+    return host==='threads.com'||host==='threads.net'||host.endsWith('.threads.com')||host.endsWith('.threads.net');
+  }catch{return false}
+}
 function sharedNotePreset(payload){
   const url=String(payload?.url||'').trim();
   const text=String(payload?.text||'').trim();
-  const title=String(payload?.title||'').trim()||inferNoteTitleFromUrl(url)||'旅遊筆記';
+  const sharedTitle=String(payload?.title||'').trim();
+  const threadsTitle=isThreadsUrl(url)?compactSharedSentence(text,32):'';
+  const title=threadsTitle||sharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
   return {url,title,note:text,category:'攻略',isPinned:false};
 }
 async function maybeOpenIncomingShare(){
