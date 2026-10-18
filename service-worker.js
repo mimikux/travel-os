@@ -1,5 +1,5 @@
-const CACHE='travel-os-20261018-fixes-v1';
-const ASSETS=['./','./index.html','./app.css?v=20261018-fixes-v1','./app.js?v=20261018-fixes-v1','./data.js?v=20261018-fixes-v1','./config.js?v=20261018-fixes-v1','./auth.js?v=20261018-fixes-v1','./local-db.js?v=20261018-fixes-v1','./sync-engine.js?v=20261018-fixes-v1','./manifest.json','./manifest.json?v=20261018-fixes-v1','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-20261019-owner-recovery-v1';
+const ASSETS=['./','./index.html','./app.css?v=20261019-owner-recovery-v1','./app.js?v=20261019-owner-recovery-v1','./data.js?v=20261019-owner-recovery-v1','./config.js?v=20261019-owner-recovery-v1','./auth.js?v=20261019-owner-recovery-v1','./local-db.js?v=20261019-owner-recovery-v1','./sync-engine.js?v=20261019-owner-recovery-v1','./manifest.json','./manifest.json?v=20261019-owner-recovery-v1','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
