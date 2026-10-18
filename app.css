@@ -3277,3 +3277,11 @@ html.item-editor-open .global-edit-toolbar{
 .owner-recovery-form input{width:100%;min-height:42px;border:0;border-radius:11px;padding:10px;background:var(--paper,#fff)}
 .owner-recovery-form button{min-height:42px;border:0;border-radius:11px;background:var(--green);color:#fff;font-weight:900}
 .owner-recovery-form p{margin:0;font-size:12px;line-height:1.45}
+
+/* v1.5.15: recover missing public Threads titles without changing notes layout. */
+.travel-note-recovery-bar:not([hidden]){display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.travel-note-recovery-bar[hidden]{display:none!important}
+.travel-note-recovery-bar button,.travel-note-fetch-title{border:1px solid var(--theme-accent-border);border-radius:13px;background:var(--paper);color:var(--green);min-height:38px;padding:8px 13px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+.travel-note-recovery-bar button:disabled,.travel-note-fetch-title:disabled{opacity:.55;cursor:wait}
+.travel-note-recovery-bar small{color:var(--muted);font-size:11px;line-height:1.45}
+.travel-note-fetch-title{display:block;justify-self:start;margin-top:-7px;margin-bottom:5px}
