@@ -1,5 +1,5 @@
-const CACHE='travel-os-note-ellipsis-v1';
-const ASSETS=['./','./index.html','./app.css?v=20261011-note-ellipsis-v1','./app.js?v=20261011-note-ellipsis-v1','./data.js?v=20261011-note-ellipsis-v1','./config.js?v=20261011-note-ellipsis-v1','./auth.js?v=20261011-note-ellipsis-v1','./local-db.js?v=20261011-note-ellipsis-v1','./sync-engine.js?v=20261011-note-ellipsis-v1','./manifest.json','./manifest.json?v=20261011-note-ellipsis-v1','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-thread-title-v1';
+const ASSETS=['./','./index.html','./app.css?v=20261011-thread-title-v1','./app.js?v=20261011-thread-title-v1','./data.js?v=20261011-thread-title-v1','./config.js?v=20261011-thread-title-v1','./auth.js?v=20261011-thread-title-v1','./local-db.js?v=20261011-thread-title-v1','./sync-engine.js?v=20261011-thread-title-v1','./manifest.json','./manifest.json?v=20261011-thread-title-v1','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
