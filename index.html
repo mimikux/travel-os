@@ -4,19 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#173c35" />
-  <title>Matt's Travel OS V1.5.14</title>
-  <link rel="manifest" href="manifest.json?v=20261019-mail-dedupe-v2" />
+  <title>Matt's Travel OS V1.5.15</title>
+  <link rel="manifest" href="manifest.json?v=20261019-threads-title-v3" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="app.css?v=20261019-mail-dedupe-v2" />
+  <link rel="stylesheet" href="app.css?v=20261019-threads-title-v3" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
     <div class="auth-card">
       <div class="auth-mark">I</div>
       <span class="section-kicker">TRAVEL OS</span>
-      <h1 id="authTripTitle">Matt's Travel OS V1.5.14</h1>
+      <h1 id="authTripTitle">Matt's Travel OS V1.5.15</h1>
       <p id="authMessage">正在確認這台裝置的登入狀態…</p>
       <form id="magicLinkForm" class="auth-form" hidden>
         <label for="authEmail">Email</label>
@@ -318,6 +318,10 @@
             <span aria-hidden="true">⌕</span>
             <input id="travelNotesSearch" type="search" placeholder="搜尋標題、備註、網站…" autocomplete="off">
           </div>
+          <div class="travel-note-recovery-bar" id="travelNoteRecoveryBar" hidden>
+            <button type="button" id="travelNoteRecoverTitlesBtn">補抓標題</button>
+            <small id="travelNoteRecoveryStatus" role="status"></small>
+          </div>
           <div class="travel-notes-list" id="travelNotesList"></div>
         </section>
       </section>
@@ -492,11 +496,11 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=20261019-mail-dedupe-v2"></script>
-  <script src="data.js?v=20261019-mail-dedupe-v2"></script>
-  <script src="local-db.js?v=20261019-mail-dedupe-v2"></script>
-  <script src="sync-engine.js?v=20261019-mail-dedupe-v2"></script>
-  <script src="auth.js?v=20261019-mail-dedupe-v2"></script>
-  <script src="app.js?v=20261019-mail-dedupe-v2"></script>
+  <script src="config.js?v=20261019-threads-title-v3"></script>
+  <script src="data.js?v=20261019-threads-title-v3"></script>
+  <script src="local-db.js?v=20261019-threads-title-v3"></script>
+  <script src="sync-engine.js?v=20261019-threads-title-v3"></script>
+  <script src="auth.js?v=20261019-threads-title-v3"></script>
+  <script src="app.js?v=20261019-threads-title-v3"></script>
 </body>
 </html>
