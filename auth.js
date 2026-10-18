@@ -319,6 +319,30 @@
     });
   }
 
+  function bindOwnerRecovery(){
+    const button=document.getElementById('ownerRecoveryToggle');
+    const form=document.getElementById('ownerRecoveryForm');
+    const status=document.getElementById('ownerRecoveryStatus');
+    const emailInput=document.getElementById('ownerRecoveryEmail');
+    if(!button||!form||!status||!emailInput)return;
+    button.onclick=()=>{form.hidden=!form.hidden; if(!form.hidden){emailInput.value=document.getElementById('authEmail')?.value||cfg.ownerEmail||'';emailInput.focus();}};
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const submit=form.querySelector('button[type="submit"]');
+      if(submit)submit.disabled=true;
+      status.textContent='正在處理救援要求…';
+      try{
+        const response=await fetch(cfg.supabaseUrl+'/functions/v1/travel-owner-recovery',{
+          method:'POST',headers:{'content-type':'application/json','apikey':cfg.supabasePublishableKey},
+          body:JSON.stringify({email:emailInput.value,tripSlug:cfg.tripSlug||''})
+        });
+        if(!response.ok)throw new Error('recovery_unavailable');
+        status.textContent='如果此 Email 是已授權 Owner，系統將寄送救援登入連結。請檢查收件匣和垃圾郵件。';
+      }catch(err){status.textContent='救援服務暫時無法連線，請稍後重試。';}
+      finally{if(submit)submit.disabled=false;}
+    });
+  }
+
   function bindLoginForm(){
     const form=document.getElementById('magicLinkForm');
     if(!form||form.dataset.authBound==='1') return;
@@ -377,6 +401,7 @@
   const boot=()=>{
     bindTripLinkForm();
     bindLoginForm();
+    bindOwnerRecovery();
     init().catch(err=>console.error('Auth boot failed',err));
   };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
