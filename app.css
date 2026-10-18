@@ -3263,3 +3263,8 @@ html.item-editor-open .global-edit-toolbar{
 .checklist-person-head[hidden]{
   display:none!important;
 }
+
+/* v1.5.12: More page has an explicit in-app return target. */
+.more-page-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.more-back-btn{border:0;background:var(--theme-accent-soft,var(--paper));color:var(--green);border-radius:12px;padding:10px 14px;font:inherit;font-weight:900;cursor:pointer;min-height:42px}
+.more-back-btn:focus-visible{outline:2px solid var(--green);outline-offset:3px}
