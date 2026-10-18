@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.15';
+const APP_VERSION='1.5.16';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3156,12 +3156,17 @@ function renderChecklistBuy(){
   }).join('');
   bindChecklistRows();
 }
+function travelNoteSharerName(note){
+  const userId=String(note?.createdByUserId||'');
+  const person=(TRIP?.people||[]).find(p=>String(p.linkedUserId||'')===userId);
+  return String(person?.displayName||'').trim()||'旅伴';
+}
 function travelNoteRows(){
   const q=String(travelNotesQuery||'').trim().toLowerCase();
   let rows=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[]).slice();
   if(checklistCategory!=='all')rows=rows.filter(n=>String(n.category||'其他')===checklistCategory);
   if(q){
-    rows=rows.filter(n=>[n.title,n.note,n.url,n.category,travelNoteSourceLabel(n.sourceType)]
+    rows=rows.filter(n=>[n.title,n.sourceText,n.note,n.url,n.category,travelNoteSharerName(n)]
       .some(v=>String(v||'').toLowerCase().includes(q)));
   }
   return rows.sort((a,b)=>{
@@ -3184,28 +3189,34 @@ function travelNoteDayLabel(note){
 function renderTravelNotes(){
   const host=qs('#travelNotesList');if(!host)return;
   const unresolved=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
-    .filter(n=>isThreadsUrl(n.url)&&isGenericThreadsNoteTitle(n.title));
+    .filter(n=>isThreadsUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericThreadsNoteTitle(n.title)));
   const controls=qs('#travelNoteRecoveryBar'),button=qs('#travelNoteRecoverTitlesBtn');
   if(controls)controls.hidden=!canEditTrip()||!unresolved.length;
-  if(button)button.textContent='補抓標題（'+unresolved.length+'）';
+  if(button)button.textContent='補抓內文（'+unresolved.length+'）';
   const rows=travelNoteRows();
   if(!rows.length){
     host.innerHTML=`<div class="checklist-empty travel-notes-empty"><strong>${travelNotesQuery?'找不到符合的筆記':'還沒有旅遊筆記'}</strong><p>${canEditTrip()?'看到 Threads、文章或攻略時就存進來，旅行時不用再回群組翻。':'旅伴新增的文章與貼文會整理在這裡。'}</p></div>`;
     return;
   }
   host.innerHTML=rows.map(n=>{
-    const hostName=travelNoteHost(n.url);
+    const sharer=travelNoteSharerName(n);
+    const sourceText=String(n.sourceText||'').trim();
+    const personalNote=String(n.note||'').trim();
+    const longText=sourceText.length>155||sourceText.split('\\n').length>4;
     const day=travelNoteDayLabel(n);
-    const meta=[travelNoteSourceLabel(n.sourceType),hostName,day].filter(Boolean).join(' · ');
     return `<article class="travel-note-card ${n.isPinned?'pinned':''}" data-note-id="${escapeHtml(n.id)}">
       <div class="travel-note-main">
         <div class="travel-note-topline">
           <span class="travel-note-category">${escapeHtml(n.category||'其他')}</span>
+          <span class="travel-note-sharer" aria-label="分享者：${escapeHtml(sharer)}">${escapeHtml(sharer)}</span>
+          ${day?`<span class="travel-note-day">${escapeHtml(day)}</span>`:''}
           ${n.isPinned?'<span class="travel-note-pin">置頂</span>':''}
         </div>
         <h3>${escapeHtml(n.title||'未命名筆記')}</h3>
-        ${n.note?`<p>${escapeHtml(n.note)}</p>`:''}
-        ${meta?`<small>${escapeHtml(meta)}</small>`:''}
+        ${sourceText?`<p class="travel-note-source-body">${escapeHtml(sourceText)}</p>`
+          :(isThreadsUrl(n.url)?'<p class="travel-note-unavailable">尚未擷取貼文內文</p>':'')}
+        ${longText?`<button type="button" class="travel-note-expand" data-expand-note="${escapeHtml(n.id)}" aria-expanded="false">展開全文</button>`:''}
+        ${personalNote?`<p class="travel-note-personal">備註：${escapeHtml(personalNote)}</p>`:''}
       </div>
       <div class="travel-note-actions">
         ${n.url?`<button type="button" data-open-note-url="${escapeHtml(n.id)}">原文 ↗</button>`:''}
@@ -3213,6 +3224,12 @@ function renderTravelNotes(){
       </div>
     </article>`;
   }).join('');
+  host.querySelectorAll('[data-expand-note]').forEach(btn=>btn.onclick=()=>{
+    const card=btn.closest('.travel-note-card');
+    const expanded=card?.classList.toggle('note-expanded');
+    btn.setAttribute('aria-expanded',String(Boolean(expanded)));
+    btn.textContent=expanded?'收合內文':'展開全文';
+  });
   host.querySelectorAll('[data-open-note-url]').forEach(btn=>btn.onclick=()=>{
     const note=(TRIP?.travelNotes||[]).find(n=>String(n.id)===String(btn.dataset.openNoteUrl));
     if(note?.url)window.open(note.url,'_blank','noopener');
