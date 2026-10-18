@@ -1,5 +1,5 @@
-const CACHE='travel-os-20261019-threads-title-v3';
-const ASSETS=['./','./index.html','./app.css?v=20261019-threads-title-v3','./app.js?v=20261019-threads-title-v3','./data.js?v=20261019-threads-title-v3','./config.js?v=20261019-threads-title-v3','./auth.js?v=20261019-threads-title-v3','./local-db.js?v=20261019-threads-title-v3','./sync-engine.js?v=20261019-threads-title-v3','./manifest.json','./manifest.json?v=20261019-threads-title-v3','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-20261019-note-body-v4';
+const ASSETS=['./','./index.html','./app.css?v=20261019-note-body-v4','./app.js?v=20261019-note-body-v4','./data.js?v=20261019-note-body-v4','./config.js?v=20261019-note-body-v4','./auth.js?v=20261019-note-body-v4','./local-db.js?v=20261019-note-body-v4','./sync-engine.js?v=20261019-note-body-v4','./manifest.json','./manifest.json?v=20261019-note-body-v4','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
