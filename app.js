@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.12';
+const APP_VERSION='1.5.13';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -5212,21 +5212,27 @@ function mailReviewRows(mail){
   const d=mail?.parsed_data||{};
   const existing=mailExistingReservation(mail);
   const raw=existing?._raw||{};
+  const imported=raw?.details?.mailImport?.parsed||existing?.imported||{};
+  const mailMeta=raw?.details?.mailImport||{};
+  const first=(...values)=>values.find(v=>v!==null&&v!==undefined&&v!=='')??'';
+  const forwarders=Array.isArray(mailMeta.forwardedByHistory)&&mailMeta.forwardedByHistory.length
+    ?mailMeta.forwardedByHistory.join('、')
+    :mailMeta.forwardedBy||'';
   const rows=[];
   const add=(label,oldValue,newValue)=>{
     if(newValue===null||newValue===undefined||newValue==='')return;
     rows.push([label,mailValue(oldValue),mailValue(newValue)]);
   };
-  add('轉寄自','',mail?.envelope_from);
+  add('轉寄自',forwarders,mail?.envelope_from);
   add('名稱',raw.title||existing?.title,d.title);
-  add('訂位代碼',raw.confirmation_code||existing?.code,d.confirmationCode);
+  add('訂位代碼',first(raw.confirmation_code,imported.confirmationCode,existing?.code),d.confirmationCode);
   add('PIN',raw.pin_code||existing?.secret,d.pinCode);
-  add('金額',raw.amount,d.amount!==undefined&&d.amount!==null?(d.currency?d.amount+' '+d.currency:d.amount):'');
+  add('金額',raw.amount===null||raw.amount===undefined?'':String(raw.amount)+(raw.currency?' '+raw.currency:''),d.amount!==undefined&&d.amount!==null?(d.currency?d.amount+' '+d.currency:d.amount):'');
   add('付款',raw.payment_status,d.paymentStatus);
   add('開始',raw.starts_at,[d.startDate||d.date,d.startTime||d.time||d.departureTime].filter(Boolean).join(' '));
   add('結束',raw.ends_at,[d.endDate||d.date,d.endTime||d.arrivalTime].filter(Boolean).join(' '));
   if(mail?.reservation_type==='flight'){
-    add('航空公司','',d.airlineName||d.provider);
+    add('航空公司',imported.airlineName||imported.provider,d.airlineName||d.provider);
     if(Array.isArray(d.segments)&&d.segments.length){
       add('航段','',d.segments.map(seg=>[
         seg.flightNo,
@@ -5235,7 +5241,7 @@ function mailReviewRows(mail){
         [seg.arrivalDate&&seg.arrivalDate!==seg.date?seg.arrivalDate:'',seg.arrivalTime,seg.arrivalAirport].filter(Boolean).join(' ')
       ].filter(Boolean).join(' ')).join(' / '));
     }
-    add('行李','',d.baggageSummary);
+    add('行李',imported.baggageSummary,d.baggageSummary);
     add('兌換里數','',d.awardMiles?Number(d.awardMiles).toLocaleString():'');
   }
   add('地址',raw.address,d.address);
@@ -5246,10 +5252,10 @@ function mailReviewRows(mail){
   add('房間數','',d.roomCount?String(d.roomCount):'');
   add('晚數','',d.nightCount?String(d.nightCount):'');
   add('方案 / 餐食','',d.amenities);
-  add('付款卡','',d.paymentCardLast4?'••••'+d.paymentCardLast4:'');
-  add('PNR / 訂單','',d.confirmationCode);
+  add('付款卡',imported.paymentCardLast4?'••••'+imported.paymentCardLast4:'',d.paymentCardLast4?'••••'+d.paymentCardLast4:'');
+  add('PNR / 訂單',first(imported.confirmationCode,raw.confirmation_code,existing?.code),d.confirmationCode);
   if(d.flightNo)add('航班',raw.title,d.flightNo+' '+(d.departureAirport||'')+' → '+(d.arrivalAirport||''));
-  if(d.participants)add('人數 / 方案','',d.participants);
+  if(d.participants)add('人數 / 方案',imported.participants,d.participants);
   if(d.vehicle)add('車型',raw.title,d.vehicle);
   return rows;
 }
