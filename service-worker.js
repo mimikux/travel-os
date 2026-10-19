@@ -1,5 +1,5 @@
-const CACHE='travel-os-20261019-note-body-v4';
-const ASSETS=['./','./index.html','./app.css?v=20261019-note-body-v4','./app.js?v=20261019-note-body-v4','./data.js?v=20261019-note-body-v4','./config.js?v=20261019-note-body-v4','./auth.js?v=20261019-note-body-v4','./local-db.js?v=20261019-note-body-v4','./sync-engine.js?v=20261019-note-body-v4','./manifest.json','./manifest.json?v=20261019-note-body-v4','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-20261019-social-archive-v5';
+const ASSETS=['./','./index.html','./app.css?v=20261019-social-archive-v5','./app.js?v=20261019-social-archive-v5','./data.js?v=20261019-social-archive-v5','./config.js?v=20261019-social-archive-v5','./auth.js?v=20261019-social-archive-v5','./local-db.js?v=20261019-social-archive-v5','./sync-engine.js?v=20261019-social-archive-v5','./manifest.json','./manifest.json?v=20261019-social-archive-v5','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
