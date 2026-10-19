@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.17';
+const APP_VERSION='1.5.18';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3296,7 +3296,8 @@ function ensureTravelNoteEditor(){
       }else if(content.text){
         status.textContent='已有手動填寫的標題或內文，已保留原內容。';
       }else{
-        status.textContent='無法讀取公開內文（可能需要 Facebook 登入）。可手動貼上原文，連結仍會保留。';
+        const platform=isThreadsUrl(url)?'Threads':'Facebook';
+        status.textContent='目前無法取得這篇 '+platform+' 的公開內文；可能受貼文權限或平台讀取限制影響。可手動貼上原文，連結會保留。';
       }
     }catch(_){status.textContent='暫時無法取得公開貼文內容，可手動貼入原文。';}
     finally{btn.disabled=false;}
