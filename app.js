@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.16';
+const APP_VERSION='1.5.17';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -4498,6 +4498,63 @@ async function travelTripsApi(action,payload={}){
   return data||{};
 }
 
+let chooserPastTripsExpanded=false;
+function chooserTodayIso(){
+  const local=new Date();
+  return new Date(local.getTime()-local.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+function chooserTripCard(t){
+  const start=t.start_date||t.startDate||'';
+  const end=t.end_date||t.endDate||'';
+  return `<button type="button" class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}">
+    <div><h2>${escapeHtml(t.title||t.slug||'旅程')}</h2>
+    <p>${escapeHtml(start)} ${end?'→ '+escapeHtml(end):''}</p></div>
+    <span class="trip-role">${escapeHtml(t.role||'viewer')}</span>
+  </button>`;
+}
+function showChooserTrips(host,rows){
+  if(!host)return;
+  const trips=(Array.isArray(rows)?rows:[]).filter(t=>t?.slug);
+  if(!trips.length){
+    host.innerHTML='<div class="booking-empty">目前沒有可使用的旅程。</div>';
+    return;
+  }
+  const today=chooserTodayIso();
+  const isPast=t=>{
+    const end=String(t.end_date||t.endDate||'');
+    return /^\d{4}-\d{2}-\d{2}$/.test(end)&&end<today;
+  };
+  const current=trips.filter(t=>!isPast(t))
+    .sort((a,b)=>String(a.start_date||a.startDate||'9999-12-31')
+      .localeCompare(String(b.start_date||b.startDate||'9999-12-31')));
+  const past=trips.filter(isPast)
+    .sort((a,b)=>String(b.end_date||b.endDate||'')
+      .localeCompare(String(a.end_date||a.endDate||'')));
+  host.innerHTML=current.map(chooserTripCard).join('')+
+    (past.length?`<section class="trip-archive-section">
+      <button type="button" class="trip-archive-toggle" data-chooser-past-toggle
+        aria-expanded="${chooserPastTripsExpanded?'true':'false'}" aria-controls="chooserPastTripList">
+        <span>過去行程 <small>${past.length} 趟</small></span>
+        <span class="trip-archive-toggle-action">${chooserPastTripsExpanded?'收合':'展開'} <span aria-hidden="true">${chooserPastTripsExpanded?'▴':'▾'}</span></span>
+      </button>
+      <div class="trip-archive-content" id="chooserPastTripList" ${chooserPastTripsExpanded?'':'hidden'}>
+        ${past.map(chooserTripCard).join('')}
+      </div>
+    </section>`:'');
+  host.querySelectorAll('[data-trip-slug]').forEach(btn=>{
+    btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)};
+  });
+  const toggle=host.querySelector('[data-chooser-past-toggle]');
+  if(toggle)toggle.onclick=()=>{
+    chooserPastTripsExpanded=!chooserPastTripsExpanded;
+    const body=host.querySelector('#chooserPastTripList');
+    if(body)body.hidden=!chooserPastTripsExpanded;
+    toggle.setAttribute('aria-expanded',String(chooserPastTripsExpanded));
+    const label=toggle.querySelector('.trip-archive-toggle-action');
+    if(label)label.innerHTML=chooserPastTripsExpanded?'收合 <span aria-hidden="true">▴</span>':'展開 <span aria-hidden="true">▾</span>';
+  };
+}
+
 async function renderTripChooser(){
   const chooser=qs('#tripChooser'),shell=qs('.app-shell');
   if(!chooser)return;
@@ -4537,8 +4594,7 @@ async function renderTripChooser(){
   }
   if(cached.length&&!navigator.onLine){
     authorizedTrips=cached;
-    list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
-    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+    showChooserTrips(list,cached);
     const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=navigator.onLine?'正在更新旅程清單…':'離線模式 · 顯示此裝置已下載的旅程';
@@ -4550,8 +4606,7 @@ async function renderTripChooser(){
 
   try{
     const trips=shareEditableTrips(await fetchAuthorizedTrips());
-    list.innerHTML=trips.length?trips.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join(''):`<div class="booking-empty">目前沒有可使用的旅程。</div>`;
-    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+    showChooserTrips(list,trips);
     const canCreate=!sharePayload&&!missingShare&&trips.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=sharePayload?'選擇旅程後會立即將文章儲存到「筆記」。':'';
@@ -4560,8 +4615,7 @@ async function renderTripChooser(){
     const cached=shareEditableTrips(await window.TravelStore?.listTrips?.().catch(()=>[]));
     if(cached?.length){
       authorizedTrips=cached;
-      list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
-      list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+      showChooserTrips(list,cached);
       const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
       const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
       status.textContent='離線模式 · 顯示此裝置已下載的旅程';
