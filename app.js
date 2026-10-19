@@ -4412,6 +4412,7 @@ const openTripSheet=()=>{
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
 qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
+if(qs('#globalManageGroups')) qs('#globalManageGroups').onclick=openTravelGroupsManager;
 if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
 if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
 if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
@@ -7124,7 +7125,12 @@ async function loadMembers(){
       const head=document.createElement('div');head.className='member-head';
       const who=document.createElement('div');
       const strong=document.createElement('strong');strong.textContent=m.email||m.user_id;
-      const small=document.createElement('small');small.textContent=m.role==='owner'?'Trip Owner':'已啟用';
+      const small=document.createElement('small');
+      const claimedPerson=(TRIP?.people||[]).find(p=>p.linkedUserId&&String(p.linkedUserId)===String(m.user_id));
+      const claimText=claimedPerson
+        ?'已認領：'+claimedPerson.displayName+(claimedPerson.shortCode?'（'+claimedPerson.shortCode+'）':'')
+        :'尚未認領旅伴身份';
+      small.textContent=(m.role==='owner'?'Trip Owner':'已啟用')+' · '+claimText;
       who.append(strong,small);head.append(who);
 
       const actions=document.createElement('div');actions.className='member-actions';
