@@ -1395,8 +1395,9 @@ function renderToday(){
   hero.dataset.heroSource=d.heroImageUrl?'manual':'fallback';
   hero.dataset.heroSubject='';
   refreshHeroPhoto(dayIndex);
-  qs('#todayKm').textContent=`${d.km} km`;
-  qs('#todayDrive').textContent=driveText(d);
+  const groupEstimateHidden=routeGroups().length&&activeRouteGroupId!=='all';
+  qs('#todayKm').textContent=groupEstimateHidden?'— km':`${d.km} km`;
+  qs('#todayDrive').textContent=groupEstimateHidden?'依本組路線計算':driveText(d);
   const sun=sunTimesForDay(dayIndex);
   qs('#todaySunrise').textContent=sun.sunrise;
   qs('#todaySunset').textContent=sun.sunset;
@@ -1901,7 +1902,15 @@ async function refreshTodayRouteStats(dayIndex){
   try{
     await ensureFlightAirportsForDay(TRIP.days[dayIndex]);
     const road=await getRoadRouteForDay(dayIndex);
-    if(token!==todayRouteToken||selectedDay!==dayIndex||!road) return;
+    if(token!==todayRouteToken||selectedDay!==dayIndex)return;
+    if(!road){
+      if(routeGroups().length&&activeRouteGroupId!=='all'){
+        qs('#todayKm').textContent='0 km';
+        qs('#todayDrive').textContent=groupActiveOnDay(activeRouteGroupId,TRIP.days[dayIndex])
+          ?'目前沒有可計算的地面路線':'本組當日沒有行程';
+      }
+      return;
+    }
     qs('#todayKm').textContent=`${road.distanceKm.toFixed(1)} km`;
     qs('#todayDrive').textContent=formatDriveTime(road.durationSec);
   }catch(err){
@@ -2264,6 +2273,12 @@ function shouldShowMapStop(stops,segments,index){
 function selectionFallbackTotals(indices){
   return indices.reduce((acc,i)=>{
     const d=TRIP.days[i];
+    if(!groupActiveOnDay(activeRouteGroupId,d))return acc;
+    if(routeGroups().length&&activeRouteGroupId!=='all'){
+      const stops=getRouteStops(d);
+      const driveLegs=routeSegmentMeta(stops).filter(x=>x.mode==='drive');
+      if(!driveLegs.length)return acc;
+    }
     acc.km+=Number(d.km)||0;
     acc.sec+=Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive);
     return acc;
