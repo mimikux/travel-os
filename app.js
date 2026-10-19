@@ -2546,14 +2546,34 @@ function renderBookings(){
   const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>
     (currentFilter==='all'||b.type===currentFilter)&&
     (!routeGroups().length||activeRouteGroupId==='all'||!b.routeGroupId||String(b.routeGroupId)===String(activeRouteGroupId)));
-  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${escapeHtml(b.provider||"")}${b.routeGroupId?'<span class="booking-group-badge">'+escapeHtml(routeGroupCode(b.routeGroupId))+'</span>':""}</div><h3>${escapeHtml(b.title||"")}</h3><div class="booking-dates">${b.dates}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${b.meta}</div><div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
+  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${escapeHtml(b.provider||"")}${b.routeGroupId?'<span class="booking-group-badge">'+escapeHtml(routeGroupCode(b.routeGroupId))+'</span>':""}</div><h3>${escapeHtml(b.title||"")}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${escapeHtml(b.meta||'')}</div>${(canEditTrip()&&routeGroups().length)?'<label class="booking-group-assignment"><span>預訂組別</span><select class="booking-group-select" data-booking-id="'+escapeHtml(b.id||'')+'" data-original-group="'+escapeHtml(b.routeGroupId||'')+'"><option value="">共同</option>'+routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'"'+(g.id===b.routeGroupId?' selected':'')+'>'+escapeHtml(g.name)+'</option>').join('')+'</select></label>':''}<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
   renderBookingIcons();
   decorateBookingEditor(list);
+  qs('#bookingList').querySelectorAll('.booking-group-select').forEach(el=>{
+    el.onclick=e=>e.stopPropagation();
+    el.onchange=async()=>{
+      const id=String(el.dataset.bookingId||''),previous=String(el.dataset.originalGroup||'');
+      const current=String(el.value||'');
+      if(current===previous)return;
+      const name=current?routeGroupById(current)?.name||'指定組':'共同（全部組）';
+      if(!window.confirm('確定將這張預訂設定為「'+name+'」？\n訂位代碼和所有原始信件不會被修改。')){
+        el.value=previous;return;
+      }
+      el.disabled=true;
+      try{
+        await travelEditor('assign_reservation_route_group',{reservationId:id,routeGroupId:current||null});
+        await hydratePrivateCloudData();
+      }catch(err){
+        el.value=previous;
+        alert('更新預訂組別失敗：'+String(err?.code||err?.message||err));
+      }finally{el.disabled=false}
+    };
+  });
   qsa('.expandable-booking').forEach((card,visualIndex)=>{
     const item=list[visualIndex];
     if(!item?.b?.details)return;
     card.addEventListener('click',e=>{
-      if(e.target.closest('button'))return;
+      if(e.target.closest('button,select,label.booking-group-assignment'))return;
       toggleBookingDetails(item.idx);
     });
   });
@@ -6020,6 +6040,10 @@ function ensureItemEditor(){
         <label><span>類型</span><select id="editItemType"><option value="spot">景點</option><option value="drive">移動</option><option value="stay">住宿</option><option value="food">餐食</option><option value="tour">Tour</option><option value="flight">航班</option><option value="car">租車</option><option value="shop">補給</option><option value="plan">備案</option><option value="other">其他</option></select></label>
         <label><span>名稱</span><input id="editItemName" required></label>
       </div>
+      <label class="route-group-edit-row" id="itemRouteGroupRow" hidden>
+        <span>參加組別</span><select id="editItemRouteGroup"><option value="">共同（A、B 兩組）</option></select>
+        <small class="field-help">分組行程只出現在指定小組；共同景點只需建立一次。</small>
+      </label>
       <label class="uncertain-row"><input id="editItemUncertain" type="checkbox"><span>不確定</span><small>可能不會去；不列入地圖、里程與駕車時間</small></label>
       <label id="stayReservationLinkRow"><span>住宿預訂連動</span><select id="editItemReservation"><option value="">不連動預訂</option></select><small class="field-help">連動後，名稱以每日行程為準；地址、GPS、Google Maps 由住宿預訂共用。</small></label>
       <label><span>副標題</span><input id="editItemSubtitle"></label>
@@ -6052,6 +6076,9 @@ function ensureItemEditor(){
   qs('#editItemType').onchange=()=>{
     const row=qs('#stayReservationLinkRow');
     if(row) row.hidden=qs('#editItemType').value!=='stay';
+    const assigned=qs('#editItemRouteGroup');
+    if(qs('#editItemType').value==='flight'&&!assigned.value&&routeGroups().length&&activeRouteGroupId!=='all')
+      assigned.value=activeRouteGroupId;
   };
   return sheet;
 }
@@ -6085,6 +6112,12 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemVersion').value=event?.version||'';
   qs('#editItemTime').value=event?.time||'';
   qs('#editItemType').value=event?.type||'spot';
+  const groupRow=qs('#itemRouteGroupRow'),groupSelect=qs('#editItemRouteGroup');
+  groupRow.hidden=!routeGroups().length;
+  groupSelect.innerHTML='<option value="">共同（A、B 兩組）</option>'+
+    routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
+  groupSelect.value=event?.routeGroupId||(event?.type==='flight'||(!event&&activeRouteGroupId!=='all'&&qs('#editItemType').value==='flight')
+    ?(activeRouteGroupId==='all'?'':activeRouteGroupId):'');
   qs('#editItemName').value=event?.title||'';
   qs('#editItemUncertain').checked=Boolean(event?.uncertain);
   const reservationSelect=qs('#editItemReservation');
@@ -6233,6 +6266,7 @@ async function saveItemEditor(e){
     id:qs('#editItemId').value||null,baseVersion:Number(qs('#editItemVersion').value)||0,
     date:selectedDate,dayId:existingDayIndex>=0?TRIP.days[existingDayIndex].id:null,
     time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
+    ...(routeGroups().length?{routeGroupId:qs('#editItemRouteGroup').value||null}:{}),
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
     reservationId:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?qs('#editItemReservation').value:null,
@@ -6253,6 +6287,9 @@ async function saveItemEditor(e){
     hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null,
     uncertain:qs('#editItemUncertain').checked
   };
+  if(routeGroups().length&&item.type==='flight'&&!item.routeGroupId){
+    qs('#itemEditStatus').textContent='分組旅程新增航班時，請選擇 A 組或 B 組。';return;
+  }
   qs('#itemEditStatus').textContent='儲存中…';
   try{
     await travelEditor('save_item',{item});
