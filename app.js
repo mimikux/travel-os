@@ -546,12 +546,90 @@ function renderRouteGroupSelectors(){
       '<small class="route-group-hint">'+escapeHtml(activeRouteGroupId==='all'
         ?'兩組獨立路線；地面里程不合併計算'
         :(routeGroupById(activeRouteGroupId)?.name||'')+' · '+
-          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>';
+          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>'+
+      (sel==='#mapRouteGroups'&&canEditTrip()
+        ?'<button type="button" class="route-group-manage" id="editRouteGroupPeopleBtn">✎ 組員設定</button>':'');
     wrap.querySelectorAll('[data-route-group]').forEach(btn=>{
       btn.onclick=()=>setRouteGroupSelection(btn.dataset.routeGroup);
     });
+    const editButton=wrap.querySelector('#editRouteGroupPeopleBtn');
+    if(editButton)editButton.onclick=openRouteGroupPeopleSheet;
   }
 }
+
+function openRouteGroupPeopleSheet(){
+  if(!canEditTrip()||!routeGroups().length)return;
+  let sheet=qs('#routeGroupPeopleSheet'),backdrop=qs('#routeGroupPeopleBackdrop');
+  if(!sheet){
+    backdrop=document.createElement('div');
+    backdrop.className='modal-backdrop';backdrop.id='routeGroupPeopleBackdrop';
+    sheet=document.createElement('aside');
+    sheet.className='edit-sheet route-group-people-sheet';sheet.id='routeGroupPeopleSheet';
+    sheet.setAttribute('aria-hidden','true');
+    sheet.innerHTML='<div class="sheet-handle"></div>'+
+      '<div class="sheet-title"><div><span class="section-kicker">TRAVEL GROUPS</span>'+
+      '<h2>設定同行小組</h2></div><button type="button" class="round-btn" id="closeRouteGroupPeopleSheet">×</button></div>'+
+      '<form class="edit-form" id="routeGroupPeopleForm">'+
+      '<label><span>選擇小組</span><select id="routeGroupPeopleGroup"></select></label>'+
+      '<div class="route-group-person-list" id="routeGroupPeopleList"></div>'+
+      '<p class="edit-help">這裡只設定旅伴與組別，不會修改機票訂單。若缺少旅伴姓名，先到「花費 → 分帳人員」新增。</p>'+
+      '<div class="edit-form-actions"><button type="submit" class="edit-save">儲存組員</button></div>'+
+      '<p class="edit-status" id="routeGroupPeopleStatus"></p></form>';
+    document.body.append(backdrop,sheet);
+    const close=()=>{
+      sheet.classList.remove('show');backdrop.classList.remove('show');
+      sheet.setAttribute('aria-hidden','true');
+    };
+    qs('#closeRouteGroupPeopleSheet').onclick=close;backdrop.onclick=close;
+    qs('#routeGroupPeopleGroup').onchange=renderGroupPeopleCheckboxes;
+    qs('#routeGroupPeopleForm').onsubmit=async e=>{
+      e.preventDefault();
+      const groupId=qs('#routeGroupPeopleGroup').value;
+      const checked=qsa('#routeGroupPeopleList input[type="checkbox"]:checked').map(x=>x.value);
+      const status=qs('#routeGroupPeopleStatus');
+      status.textContent='儲存中…';
+      try{
+        await travelEditor('assign_route_group_people',{routeGroupId:groupId,personIds:checked});
+        close();
+        await hydratePrivateCloudData();
+      }catch(err){
+        status.textContent=(err?.code==='person_already_in_another_group')
+          ?'旅伴已屬於另一組，請先在另一組取消勾選，再重新指定。'
+          :'儲存失敗：'+String(err?.code||err?.message||err);
+      }
+    };
+  }
+  qs('#routeGroupPeopleGroup').innerHTML=routeGroups().map(g=>
+    '<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
+  qs('#routeGroupPeopleGroup').value=activeRouteGroupId==='all'?routeGroups()[0].id:activeRouteGroupId;
+  qs('#routeGroupPeopleStatus').textContent='';
+  renderGroupPeopleCheckboxes();
+  sheet.classList.add('show');backdrop.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+}
+function renderGroupPeopleCheckboxes(){
+  const id=qs('#routeGroupPeopleGroup')?.value||'',g=routeGroupById(id);
+  const wrap=qs('#routeGroupPeopleList');
+  if(!wrap||!g)return;
+  const people=Array.isArray(TRIP?.people)?TRIP.people:[];
+  if(!people.length){wrap.textContent='尚未建立旅伴名單。';return;}
+  wrap.innerHTML=people.map(p=>{
+    const assigned=(g.personIds||[]).includes(p.id);
+    const other=routeGroups().find(x=>x.id!==g.id&&(x.personIds||[]).includes(p.id));
+    const disabled=Boolean(other);
+    return '<label class="route-group-person">'+
+      '<input type="checkbox" value="'+escapeHtml(p.id)+'"'+(assigned?' checked':'')+
+       (disabled?' disabled':'')+'><span>'+escapeHtml(p.displayName||'未命名旅伴')+'</span>'+
+      (disabled?'<small>已在 '+escapeHtml(other.name)+'</small>':'')+
+      '</label>';
+  }).join('');
+  const count=(g.personIds||[]).length,remaining=Math.max(0,Number(g.expectedPeopleCount||0)-count);
+  if(remaining){
+    wrap.insertAdjacentHTML('beforeend','<small class="route-group-remaining">此組預計 '+
+      String(g.expectedPeopleCount)+' 人，目前已指派 '+count+' 人，還差 '+remaining+' 人姓名待補。</small>');
+  }
+}
+
 function setRouteGroupSelection(id){
   if(id!=='all'&&!routeGroupById(id))return;
   activeRouteGroupId=id;
