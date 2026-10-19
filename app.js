@@ -2204,6 +2204,98 @@ function updateMapRangeText(indices,km,sec){
   if(summary) summary.textContent=`${indices.length} 天 · ${km.toFixed(1)} km · ${formatDriveTime(sec)}`;
 }
 
+
+function isKumamotoMapLocal(stop){
+  return TRIP?.slug==='kumamoto-2027'&&stop&&
+    Number(stop.lat)>=30&&Number(stop.lat)<=40&&
+    Number(stop.lng)>=128&&Number(stop.lng)<=140;
+}
+function preferredRouteMapBounds(local,bounds){
+  return local?.isValid?.()?local:bounds;
+}
+async function renderRouteGroupsOverview(indices,token){
+  const groups=routeGroups();
+  const multi=indices.length>1;
+  const day=TRIP.days[indices[0]];
+  qs('#mapDayLabel').textContent=multi?indices.length+'天':day.label;
+  qs('#mapDayName').textContent=multi?'分組總覽':derivedDayTitle(day,indices[0]);
+  clearMapTripLayers();
+  const play=qs('#playRoute'),exportBtn=qs('#exportGoogleRoute');
+  play.disabled=true;play.textContent='分組總覽';
+  play.title='請先選 A 或 B 組，才能播放該組道路路線';
+  exportBtn.disabled=true;exportBtn.title='請先選 A 或 B 組匯出道路導航';
+  qs('#routePanel').classList.add('multi-mode','group-overview');
+  qs('#routePanel').classList.remove('has-flight');
+  qs('#routeSlider').disabled=true;
+  qs('#routeDistance').textContent='—';
+  qs('#routeDistanceSuffix').textContent=' km';
+  qs('#routeCurrent').textContent='兩組路線分開顯示';
+  qs('#routeMeta').textContent='不同組別不相互連接，飛機不列入開車里程';
+  qs('#mapRangeSummary').textContent=String(indices.length)+' 天 · '+String(groups.length)+' 組路線';
+  qs('#mapRangeHint').textContent='各小組獨立，不跨組串接';
+  setRouteScaleMessage('分組總覽 · 請選 A 或 B 組查看該組道路距離及 Google 導航。');
+  routeGeometry=[];routeCumulative=[];routeStopFractions=[];routeSegmentDistancesKm=[];
+  routeSegmentDurationsSec=[];routeTotalKm=0;routeTotalDurationSec=0;
+  const bounds=L.latLngBounds([]),localBounds=L.latLngBounds([]);
+  let count=0;
+  const totalLabels=[];
+  for(const g of groups){
+    let km=0;
+    for(const index of indices){
+      if(token!==routeRenderToken)return;
+      const d=TRIP.days[index];
+      if(!groupActiveOnDay(g.id,d))continue;
+      await ensureFlightAirportsForDay(d,g.id);
+      if(token!==routeRenderToken)return;
+      const stops=getRouteStops(d,g.id);
+      if(!stops.length)continue;
+      const segments=routeSegmentMeta(stops);
+      for(let i=0;i<stops.length;i++){
+        const item=stops[i];
+        if(!shouldShowMapStop(stops,segments,i)||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+        const label=String(g.code||'').toUpperCase()+String(++count);
+        const mark=L.marker([item.lat,item.lng],{
+          icon:markerIcon(label),tripMarker:true
+        }).addTo(map);
+        mark.bindPopup(escapeHtml(g.name)+' · '+escapeHtml(item.title||''));
+        bounds.extend([item.lat,item.lng]);
+        if(isKumamotoMapLocal(item))localBounds.extend([item.lat,item.lng]);
+      }
+      let road=null;
+      // Multi-day overview uses lightweight separate paths; do not request 16
+      // simultaneous full road routes. In single-day mode, use real roads.
+      if(!multi&&stops.length>1){
+        try{road=await getRoadRouteForDay(index,g.id)}
+        catch(err){console.warn('Grouped route fallback',g.code,err)}
+      }
+      if(token!==routeRenderToken)return;
+      const legs=road?.legs?.length?road.legs:segments.map((segment,i)=>({
+        mode:segment.mode,
+        points:[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]],
+        distanceKm:segment.mode==='drive'
+          ?haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]):0
+      }));
+      for(const leg of legs){
+        if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
+        const flight=leg.mode==='flight';
+        const layer=L.polyline(leg.points,{
+          color:flight?'#786D91':g.color||'#386981',
+          weight:flight?3:5,opacity:flight?.85:.95,
+          dashArray:flight?'12,10':multi?'8,7':null,
+          lineCap:'round',lineJoin:'round'
+        }).addTo(map);
+        mapRouteLayers.push(layer);
+        if(!flight)km+=Number(leg.distanceKm)||0;
+      }
+    }
+    totalLabels.push(String(g.code).toUpperCase()+' 組'+(multi?'路線預覽':'約 '+km.toFixed(1)+' km'));
+  }
+  qs('#routeMeta').textContent=totalLabels.join(' · ')+' · 各組不串接';
+  if(token!==routeRenderToken)return;
+  const preferred=preferredRouteMapBounds(localBounds,bounds);
+  if(preferred.isValid())map.fitBounds(preferred,{padding:[30,30],maxZoom:13});
+}
+
 async function renderMapDay(){
   if(!map) return;
   if(!TRIP.days?.length){
@@ -2214,6 +2306,8 @@ async function renderMapDay(){
   }
   const token=++routeRenderToken;
   const indices=sortedMapDays().length?sortedMapDays():[selectedDay];
+  if(routeGroups().length&&activeRouteGroupId==='all')
+    return renderRouteGroupsOverview(indices,token);
   const isMulti=indices.length>1;
   const singleIndex=indices[0];
   const singleDay=TRIP.days[singleIndex];
@@ -2237,6 +2331,7 @@ async function renderMapDay(){
     googleRouteBtn.title=isMulti?'請先切回單日模式':singleHasFlight?'含航班的日期會自動分段，請直接點各地點導航':'用今天所有地圖點建立 Google Maps 路線';
   }
   qs('#routePanel').classList.toggle('multi-mode',isMulti);
+  qs('#routePanel').classList.remove('group-overview');
   qs('#routePanel').classList.toggle('has-flight',singleHasFlight);
   qs('#routeSlider').disabled=isMulti||singleHasFlight;
   qs('#routeSlider').value=0;
@@ -2246,6 +2341,7 @@ async function renderMapDay(){
   routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeSegmentDurationsSec=[]; routeTotalKm=0; routeTotalDurationSec=0; routeScaleState=null;
 
   const bounds=L.latLngBounds([]);
+  const localBounds=L.latLngBounds([]);
   const visibleMapStops=[];
   const fallbackLayers=new Map();
 
@@ -2270,6 +2366,7 @@ async function renderMapDay(){
       m.bindPopup(`<b>${metaText} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
       visibleMapStops.push([e.lat,e.lng]);
       bounds.extend([e.lat,e.lng]);
+      if(isKumamotoMapLocal(e))localBounds.extend([e.lat,e.lng]);
     });
 
     const layers=[];
@@ -2308,8 +2405,9 @@ async function renderMapDay(){
   });
 
   if(bounds.isValid()){
+    const preferred=preferredRouteMapBounds(localBounds,bounds);
     if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
-    else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+    else map.fitBounds(preferred,{padding:[28,28],maxZoom:14});
   }
 
   if(isMulti){
@@ -2382,8 +2480,9 @@ async function renderMapDay(){
 
   if(token!==routeRenderToken) return;
   if(bounds.isValid()){
+    const preferred=preferredRouteMapBounds(localBounds,bounds);
     if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
-    else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+    else map.fitBounds(preferred,{padding:[28,28],maxZoom:14});
   }
 
   if(isMulti){
