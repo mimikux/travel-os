@@ -1,5 +1,5 @@
-const CACHE='travel-os-20261019-social-archive-v5';
-const ASSETS=['./','./index.html','./app.css?v=20261019-social-archive-v5','./app.js?v=20261019-social-archive-v5','./data.js?v=20261019-social-archive-v5','./config.js?v=20261019-social-archive-v5','./auth.js?v=20261019-social-archive-v5','./local-db.js?v=20261019-social-archive-v5','./sync-engine.js?v=20261019-social-archive-v5','./manifest.json','./manifest.json?v=20261019-social-archive-v5','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-20261019-threads-head-v6';
+const ASSETS=['./','./index.html','./app.css?v=20261019-threads-head-v6','./app.js?v=20261019-threads-head-v6','./data.js?v=20261019-threads-head-v6','./config.js?v=20261019-threads-head-v6','./auth.js?v=20261019-threads-head-v6','./local-db.js?v=20261019-threads-head-v6','./sync-engine.js?v=20261019-threads-head-v6','./manifest.json','./manifest.json?v=20261019-threads-head-v6','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
