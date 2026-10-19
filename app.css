@@ -3373,3 +3373,20 @@ html.item-editor-open .global-edit-toolbar{
  .route-group-chip{padding:8px 12px}
  .route-group-heading{flex-basis:100%}
 }
+
+.route-group-manage{
+ border:0;background:none;color:var(--green,#365a6c);
+ cursor:pointer;font-size:11px;font-weight:850;padding:6px 3px
+}
+.route-group-people-sheet{max-height:min(90dvh,720px);overflow-y:auto}
+.route-group-person-list{display:grid;gap:8px;margin:3px 0 8px}
+.route-group-person{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--paper,#fff);border-radius:12px}
+.route-group-person input{width:18px;height:18px;accent-color:var(--green,#365a6c)}
+.route-group-person span{font-size:13px;font-weight:750}
+.route-group-person small{margin-left:auto;color:var(--muted);font-size:11px}
+.route-group-remaining{color:var(--muted);font-size:11px;line-height:1.5;margin:6px}
+.booking-group-assignment{display:flex;align-items:center;gap:10px;margin:7px 0 4px;padding:4px 0}
+.booking-group-assignment span{font-size:11px;font-weight:800;color:var(--muted)}
+.booking-group-select{flex:1;max-width:210px;min-width:0;border-radius:10px;
+ border:1px solid var(--theme-accent-border,rgba(40,40,40,.15));color:var(--ink);
+ background:var(--paper,#fff);padding:6px 7px;font:inherit;font-size:12px;font-weight:650}
