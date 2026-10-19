@@ -19,9 +19,10 @@ let cloudSyncState='cache';
 let cloudLastError='';
 let editMode=false;
 let authorizedTrips=[];
+let activeRouteGroupId='all', routeGroupTripSlug='';
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.18';
+const APP_VERSION='1.5.19';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -479,6 +480,92 @@ function showView(name){
   if(name==='more') renderMoreView();
 }
 
+
+function routeGroups(){
+  return Array.isArray(TRIP?.travelGroups)?TRIP.travelGroups:[];
+}
+function routeGroupById(id){
+  return routeGroups().find(g=>String(g.id)===String(id||''))||null;
+}
+function routeGroupCode(id){
+  const g=routeGroupById(id);
+  return g?String(g.code||'').toUpperCase()+' 組':'共同';
+}
+function groupForPerson(id){
+  return routeGroups().find(g=>(g.personIds||[]).includes(id))||null;
+}
+function selectRouteGroupFromTrip(){
+  const groups=routeGroups();
+  const slug=String(TRIP?.slug||'');
+  if(!groups.length){activeRouteGroupId='all';routeGroupTripSlug=slug;return;}
+  if(routeGroupTripSlug===slug&&(activeRouteGroupId==='all'||routeGroupById(activeRouteGroupId)))return;
+  const key='travelRouteGroup:'+slug;
+  let saved='';
+  try{saved=localStorage.getItem(key)||''}catch(_){}
+  const own=groupForPerson(TRIP?.currentPersonId);
+  const preferred=own||groups.find(g=>g.code==='b')||groups[0];
+  activeRouteGroupId=saved==='all'?'all':(routeGroupById(saved)?saved:String(preferred?.id||'all'));
+  routeGroupTripSlug=slug;
+}
+function groupActiveOnDay(groupId,day){
+  if(groupId==='all'||!routeGroups().length)return true;
+  const g=routeGroupById(groupId),date=String(day?.date||'');
+  if(!g)return false;
+  return Boolean(date&&(!g.startDate||date>=g.startDate)&&(!g.endDate||date<=g.endDate));
+}
+function eventVisibleForGroup(event,day,groupId=activeRouteGroupId){
+  if(!routeGroups().length||groupId==='all')return true;
+  if(!groupActiveOnDay(groupId,day))return false;
+  return !event?.routeGroupId||String(event.routeGroupId)===String(groupId);
+}
+function groupEvents(day,groupId=activeRouteGroupId){
+  if(!groupActiveOnDay(groupId,day))return [];
+  return (day?.events||[]).filter(e=>eventVisibleForGroup(e,day,groupId));
+}
+function routeGroupCaption(g){
+  const people=(TRIP?.people||[]).filter(p=>(g.personIds||[]).includes(p.id)).map(p=>p.displayName);
+  const expected=Number(g.expectedPeopleCount)||people.length;
+  return people.join('、')+(expected>people.length?' · 其他 '+(expected-people.length)+' 人待補':'');
+}
+function renderRouteGroupSelectors(){
+  const groups=routeGroups();
+  const containers=['#todayRouteGroups','#mapRouteGroups','#bookingRouteGroups'];
+  for(const sel of containers){
+    const wrap=qs(sel);
+    if(!wrap)continue;
+    wrap.hidden=!groups.length;
+    if(!groups.length){wrap.innerHTML='';continue;}
+    wrap.innerHTML='<span class="route-group-heading">同行路線</span>'+
+      [['all','全部'],...groups.map(g=>[String(g.id),String(g.code).toUpperCase()+' 組'])].map(([id,label])=>{
+        const g=routeGroupById(id);
+        const caption=g?routeGroupCaption(g):'分組總覽，不跨組接線';
+        return '<button type="button" class="route-group-chip '+(activeRouteGroupId===id?'active':'')+
+          '" data-route-group="'+escapeHtml(id)+'" title="'+escapeHtml((g?.name||'全部路線')+' · '+caption)+'">'+
+          escapeHtml(label)+'</button>';
+      }).join('')+
+      '<small class="route-group-hint">'+escapeHtml(activeRouteGroupId==='all'
+        ?'兩組獨立路線；地面里程不合併計算'
+        :(routeGroupById(activeRouteGroupId)?.name||'')+' · '+
+          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>';
+    wrap.querySelectorAll('[data-route-group]').forEach(btn=>{
+      btn.onclick=()=>setRouteGroupSelection(btn.dataset.routeGroup);
+    });
+  }
+}
+function setRouteGroupSelection(id){
+  if(id!=='all'&&!routeGroupById(id))return;
+  activeRouteGroupId=id;
+  try{localStorage.setItem('travelRouteGroup:'+String(TRIP?.slug||''),id)}catch(_){}
+  routeRenderToken++;
+  todayRouteToken++;
+  routeGeometry=[]; routeCumulative=[];routeTotalKm=0;
+  clearRouteTimer();
+  renderDayStrip();
+  renderToday();
+  renderBookings();
+  if(map&&qs('#mapView')?.classList.contains('active'))renderMapDay();
+}
+
 function renderDayStrip(){
   const dateLabel=d=>String(d.date||'').slice(5).replace('-','/');
   const html=TRIP.days.map((d,i)=>{
@@ -505,6 +592,7 @@ function renderDayStrip(){
     multiBtn.textContent='複選';
     multiBtn.classList.toggle('active',mapMultiSelectMode);
   }
+  renderRouteGroupSelectors();
   const flightsBtn=qs('#mapFlightsToggle');
   if(flightsBtn){
     flightsBtn.classList.toggle('active',mapShowFlights);
@@ -1239,14 +1327,33 @@ function renderToday(){
   renderDayNote(d);
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  const prevStay=dayIndex>0?stayForNight(dayIndex-1):null;
-  const firstEvent=d.events[0]||null;
+  const groupPresent=groupActiveOnDay(activeRouteGroupId,d);
+  const prevStay=groupPresent&&dayIndex>0?stayForNight(dayIndex-1):null;
+  const firstEvent=groupEvents(d)[0]||null;
   const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>renderTimelineEvent(e,eventIndex,d,selectedDay)).join('');
-  const stay=stayForNight(dayIndex);
+  const visible=groupEvents(d);
+  const groupOutside=routeGroups().length&&activeRouteGroupId!=='all'&&!groupActiveOnDay(activeRouteGroupId,d);
+  const noEventsHint=(!visible.length&&routeGroups().length)
+    ?'<div class="route-group-empty">'+(groupOutside?'這一組此日已不在旅程中。':'此組當日尚未安排活動或路線。')+'</div>':'';
+  qs('#timeline').innerHTML=groupOutside?'':overnightDeparture;
+  qs('#timeline').innerHTML+=d.events.map((e,eventIndex)=>
+    eventVisibleForGroup(e,d)?renderTimelineEvent(e,eventIndex,d,selectedDay):'').join('')+noEventsHint;
+  qsa('#timeline .timeline-item[data-event-index]').forEach(el=>{
+    const item=d.events[Number(el.dataset.eventIndex)];
+    const g=routeGroupById(item?.routeGroupId);
+    if(!g)return;
+    const host=el.querySelector('.timeline-top');
+    if(host){
+      const tag=document.createElement('span');
+      tag.className='route-group-event-label';
+      tag.textContent=String(g.code||'').toUpperCase()+' 組';
+      host.appendChild(tag);
+    }
+  });
+  const stay=groupPresent?stayForNight(dayIndex):null;
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div>${stay.note?`<p style="margin-top:10px">${escapeHtml(stay.note)}</p>`:''}${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
   refreshTodayRouteStats(dayIndex);
@@ -4109,6 +4216,7 @@ function normalizeReservation(row){
     code:row?.confirmation_code||d.code||'',
     secret:row?.pin_code||d.secret||'',
     status:d.status||row?.status||'confirmed',
+    routeGroupId:row?.route_group_id||null,
     alert:d.alert||'',
     notice:d.notice||row?.private_notes||'',
     details:{
@@ -4144,6 +4252,7 @@ function cloudTripToUi(data){
     days,
     bookings:(data.reservations||[]).map(normalizeReservation),
     people:Array.isArray(data.people)?data.people:[],
+    travelGroups:Array.isArray(data.travelGroups)?data.travelGroups:[],
     currentPersonId:data.currentPersonId||null,
     expenses:Array.isArray(data.expenses)?data.expenses:[],
     checklistItems:Array.isArray(data.checklistItems)?data.checklistItems:[],
@@ -4362,6 +4471,7 @@ async function hydratePrivateCloudData(){
     const normalized=cloudTripToUi(data);
     currentTripRole=normalized.role||'viewer';
     TRIP=normalized;
+    selectRouteGroupFromTrip();
     cloudLoaded=true;
     cloudSyncState='synced';
     cloudLastError='';
