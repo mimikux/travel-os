@@ -4246,15 +4246,29 @@ function isGenericThreadsNoteTitle(title){
   const value=String(title||'').trim();
   return !value||/^(?:Threads|Threads 貼文|Threads 貼文[（(]待補標題[）)])$/i.test(value);
 }
-async function lookupThreadsPostContent(url){
-  if(!isThreadsUrl(url))return {title:'',text:''};
+function isFacebookUrl(url){
+  try{
+    const host=new URL(url).hostname.toLowerCase();
+    return ['facebook.com','www.facebook.com','m.facebook.com','mobile.facebook.com',
+      'mbasic.facebook.com','web.facebook.com','fb.watch','www.fb.watch'].includes(host);
+  }catch{return false}
+}
+function isSupportedSocialUrl(url){return isThreadsUrl(url)||isFacebookUrl(url)}
+function isGenericSocialNoteTitle(title,url){
+  const v=String(title||'').trim();
+  if(isThreadsUrl(url))return isGenericThreadsNoteTitle(v);
+  if(isFacebookUrl(url))return !v||/^(?:Facebook|Facebook 貼文(?:[（(]待補標題[）)])?|facebook\.com|www\.facebook\.com|臉書貼文|FB 貼文)$/i.test(v);
+  return false;
+}
+async function lookupSocialPostContent(url){
+  if(!isSupportedSocialUrl(url))return {title:'',text:''};
   const client=window.TravelAuth?.getClient?.();
   if(!client)return {title:'',text:''};
-  const {data,error}=await client.functions.invoke('travel-threads-preview',{body:{url}});
-  if(error||data?.error||data?.available!==true||!data?.text)return {title:'',text:''};
+  const {data,error}=await client.functions.invoke('travel-social-preview',{body:{url}});
+  if(error||data?.error||data?.available!==true)return {title:'',text:''};
   const text=String(data.text||'').trim().slice(0,8000);
-  const title=compactSharedSentence(text,32);
-  return {title:isGenericThreadsNoteTitle(title)?'':title,text};
+  const title=compactSharedSentence(data.title||text,32);
+  return {title:isGenericSocialNoteTitle(title,url)?'':title,text};
 }
 function tripNoteUpdatePayload(note,content={}){
   const resolvedTitle=String(content.title||'').trim();
@@ -4262,7 +4276,7 @@ function tripNoteUpdatePayload(note,content={}){
   const providedText=String(content.text||'').trim();
   return {
     id:note.id,baseVersion:Number(note.version||1),url:note.url,
-    title:isGenericThreadsNoteTitle(currentTitle)&&resolvedTitle?resolvedTitle:currentTitle,
+    title:isGenericSocialNoteTitle(currentTitle,note.url)&&resolvedTitle?resolvedTitle:currentTitle,
     category:note.category,dayId:note.dayId||null,
     note:note.note||'',sourceText:String(note.sourceText||'').trim()||providedText.slice(0,8000),
     isPinned:Boolean(note.isPinned)
@@ -4272,11 +4286,12 @@ function sharedNotePreset(payload){
   const url=String(payload?.url||'').trim();
   const text=String(payload?.text||'').trim();
   const sharedTitle=String(payload?.title||'').trim();
-  const threadsTitle=isThreadsUrl(url)?compactSharedSentence(text,32):'';
-  const safeSharedTitle=isThreadsUrl(url)&&isGenericThreadsNoteTitle(sharedTitle)?'':sharedTitle;
-  const title=threadsTitle||safeSharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
+  const platformText=isSupportedSocialUrl(url)&&/^(?:Facebook|Threads|分享貼文|Share)$/i.test(text)?'':text;
+  const socialTitle=isSupportedSocialUrl(url)?compactSharedSentence(platformText,32):'';
+  const safeSharedTitle=isSupportedSocialUrl(url)&&isGenericSocialNoteTitle(sharedTitle,url)?'':sharedTitle;
+  const title=socialTitle||safeSharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
   // Source post content and the traveler's own notes must remain independent.
-  return {url,title,sourceText:text.slice(0,8000),note:'',category:'攻略',isPinned:false};
+  return {url,title,sourceText:platformText.slice(0,8000),note:'',category:'攻略',isPinned:false};
 }
 async function maybeOpenIncomingShare(){
   const payload=incomingSharePayload();
@@ -4293,13 +4308,14 @@ async function maybeOpenIncomingShare(){
   try{
     const draft=sharedNotePreset(payload);
     const duplicate=draft.url&&(TRIP.travelNotes||[]).find(n=>String(n.url||'').trim()===draft.url);
-    // Android share targets sometimes provide only a short Threads URL.
-    // Retrieve the full public post description, not only the headline.
-    if(isThreadsUrl(draft.url)){
-      const content=await lookupThreadsPostContent(draft.url).catch(()=>({title:'',text:''}));
+    // Android may share only a short Facebook/Threads URL. Use public text
+    // when available, without replacing traveler edits or their own notes.
+    if(isSupportedSocialUrl(draft.url)){
+      const content=await lookupSocialPostContent(draft.url).catch(()=>({title:'',text:''}));
       if(content.text&&content.text.length>draft.sourceText.length)draft.sourceText=content.text;
-      if(isGenericThreadsNoteTitle(draft.title))
-        draft.title=content.title||compactSharedSentence(draft.sourceText,32)||'Threads 貼文（待補標題）';
+      if(isGenericSocialNoteTitle(draft.title,draft.url))
+        draft.title=content.title||compactSharedSentence(draft.sourceText,32)||
+          (isFacebookUrl(draft.url)?'Facebook 貼文（待補標題）':'Threads 貼文（待補標題）');
     }
     if(!duplicate){
       await travelEditor('save_trip_note',{note:draft});
