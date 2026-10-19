@@ -1,5 +1,5 @@
-const CACHE='travel-os-20261019-route-groups-v7';
-const ASSETS=['./','./index.html','./app.css?v=20261019-route-groups-v7','./app.js?v=20261019-route-groups-v7','./data.js?v=20261019-route-groups-v7','./config.js?v=20261019-route-groups-v7','./auth.js?v=20261019-route-groups-v7','./local-db.js?v=20261019-route-groups-v7','./sync-engine.js?v=20261019-route-groups-v7','./manifest.json','./manifest.json?v=20261019-route-groups-v7','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-20261019-groups-manager-v8';
+const ASSETS=['./','./index.html','./app.css?v=20261019-groups-manager-v8','./app.js?v=20261019-groups-manager-v8','./data.js?v=20261019-groups-manager-v8','./config.js?v=20261019-groups-manager-v8','./auth.js?v=20261019-groups-manager-v8','./local-db.js?v=20261019-groups-manager-v8','./sync-engine.js?v=20261019-groups-manager-v8','./manifest.json','./manifest.json?v=20261019-groups-manager-v8','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
