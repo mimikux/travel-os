@@ -1463,10 +1463,10 @@ function flightRouteInfo(event,day){
   return {dep,arr,flightNo,eventId:event.id||'',event};
 }
 
-function dayFlightInfos(day){
-  return (day?.events||[]).map(e=>flightRouteInfo(e,day)).filter(Boolean);
+function dayFlightInfos(day,groupId=activeRouteGroupId){
+  return groupEvents(day,groupId).map(e=>flightRouteInfo(e,day)).filter(Boolean);
 }
-function dayHasFlightRoute(day){return dayFlightInfos(day).length>0}
+function dayHasFlightRoute(day,groupId=activeRouteGroupId){return dayFlightInfos(day,groupId).length>0}
 
 function cachedAirportPoint(iata){
   const code=String(iata||'').toUpperCase();
@@ -1506,8 +1506,8 @@ async function ensureAirportRoutePoint(iata){
   return null;
 }
 
-async function ensureFlightAirportsForDay(day){
-  const codes=[...new Set(dayFlightInfos(day).flatMap(x=>[x.dep,x.arr]))];
+async function ensureFlightAirportsForDay(day,groupId=activeRouteGroupId){
+  const codes=[...new Set(dayFlightInfos(day,groupId).flatMap(x=>[x.dep,x.arr]))];
   await Promise.all(codes.map(ensureAirportRoutePoint));
 }
 
@@ -1533,12 +1533,13 @@ function flightAirportStop(info,role){
   };
 }
 
-function getRouteStops(d){
+function getRouteStops(d,groupId=activeRouteGroupId){
+  if(!groupActiveOnDay(groupId,d))return [];
   const dayIndex=TRIP.days.indexOf(d);
   const raw=[];
   let previousFlightInfo=null;
 
-  for(const event of d.events||[]){
+  for(const event of groupEvents(d,groupId)){
     if(event?.type==='flight'){
       const info=flightRouteInfo(event,d);
       if(info){
@@ -1700,10 +1701,11 @@ function routeCacheKey(dayIndex,stops){
   return `${dayIndex}:${modes}:`+stops.map(e=>`${e.lat.toFixed(5)},${e.lng.toFixed(5)}`).join('|');
 }
 
-async function getRoadRouteForDay(dayIndex){
+async function getRoadRouteForDay(dayIndex,groupId=activeRouteGroupId){
   const d=TRIP.days[dayIndex];
-  await ensureFlightAirportsForDay(d);
-  const stops=getRouteStops(d);
+  if(!groupActiveOnDay(groupId,d))return null;
+  await ensureFlightAirportsForDay(d,groupId);
+  const stops=getRouteStops(d,groupId);
   if(stops.length<2) return null;
 
   const key=routeCacheKey(dayIndex,stops);
@@ -2442,8 +2444,10 @@ function renderBookings(){
   const filters=[['all','全部'],['stay','住宿'],['flight','航班'],['car','租車'],['tour','Tour']];
   qs('#bookingFilters').innerHTML=filters.map(([k,n])=>`<button class="filter-btn ${currentFilter===k?'active':''}" data-filter="${k}">${n}</button>`).join('');
   qsa('[data-filter]').forEach(b=>b.onclick=()=>{currentFilter=b.dataset.filter;renderBookings()});
-  const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>currentFilter==='all'||b.type===currentFilter);
-  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${b.provider}</div><h3>${b.title}</h3><div class="booking-dates">${b.dates}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${b.meta}</div><div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
+  const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>
+    (currentFilter==='all'||b.type===currentFilter)&&
+    (!routeGroups().length||activeRouteGroupId==='all'||!b.routeGroupId||String(b.routeGroupId)===String(activeRouteGroupId)));
+  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${escapeHtml(b.provider||"")}${b.routeGroupId?'<span class="booking-group-badge">'+escapeHtml(routeGroupCode(b.routeGroupId))+'</span>':""}</div><h3>${escapeHtml(b.title||"")}</h3><div class="booking-dates">${b.dates}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${b.meta}</div><div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
   renderBookingIcons();
   decorateBookingEditor(list);
   qsa('.expandable-booking').forEach((card,visualIndex)=>{
@@ -2476,6 +2480,7 @@ const AIRPORT_COORDS={
   KEF:{name:'Keflavík International Airport',lat:63.9850,lng:-22.6056},
   LHR:{name:'Heathrow Airport',lat:51.4700,lng:-0.4543},
   KMJ:{name:'熊本機場',lat:32.8373,lng:130.8551},
+  FUK:{name:'福岡機場',lat:33.5859,lng:130.4507},
   AKL:{name:'Auckland Airport',lat:-37.0082,lng:174.7850},
   CHC:{name:'Christchurch Airport',lat:-43.4894,lng:172.5322},
   ZQN:{name:'Queenstown Airport',lat:-45.0211,lng:168.7392}
