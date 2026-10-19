@@ -1796,7 +1796,10 @@ function getRouteStops(d,groupId=activeRouteGroupId){
 
   // End: tonight's accommodation.
   const tonight=stayForNight(dayIndex);
-  if(tonight&&!tonight.uncertain&&validCoord(tonight)){
+  const branchEndsToday=routeGroups().length&&groupId!=='all'&&routeGroupById(groupId)?.endDate===d.date;
+  const finalStop=raw[raw.length-1];
+  const flightHomeToday=branchEndsToday&&finalStop?._airportStop&&finalStop?._airportRole==='arrival';
+  if(!flightHomeToday&&tonight&&!tonight.uncertain&&validCoord(tonight)){
     const last=raw[raw.length-1];
     if(!last||Math.abs(last.lat-tonight.lat)>1e-6||Math.abs(last.lng-tonight.lng)>1e-6){
       raw.push({...tonight,_routeReturnStay:true,_routeReturnDay:d.label});
@@ -2449,8 +2452,8 @@ async function renderRouteGroupsOverview(indices,token){
   clearMapTripLayers();
   const play=qs('#playRoute'),exportBtn=qs('#exportGoogleRoute');
   play.disabled=true;play.textContent='分組總覽';
-  play.title='請先選 A 或 B 組，才能播放該組道路路線';
-  exportBtn.disabled=true;exportBtn.title='請先選 A 或 B 組匯出道路導航';
+  play.title='請先選單一組別，才能播放該組道路路線';
+  exportBtn.disabled=true;exportBtn.title='請先選單一組別匯出道路導航';
   qs('#routePanel').classList.add('multi-mode','group-overview');
   qs('#routePanel').classList.remove('has-flight');
   qs('#routeSlider').disabled=true;
@@ -2460,10 +2463,11 @@ async function renderRouteGroupsOverview(indices,token){
   qs('#routeMeta').textContent='各組路線不相互連接，飛機不列入開車里程';
   qs('#mapRangeSummary').textContent=String(indices.length)+' 天 · '+String(groups.length)+' 組路線';
   qs('#mapRangeHint').textContent='各小組獨立，不跨組串接';
-  setRouteScaleMessage('分組總覽 · 請選 A 或 B 組查看該組道路距離及 Google 導航。');
+  setRouteScaleMessage('分組總覽 · 選擇單一組別，即可查看該組道路距離及 Google 導航。');
   routeGeometry=[];routeCumulative=[];routeStopFractions=[];routeSegmentDistancesKm=[];
   routeSegmentDurationsSec=[];routeTotalKm=0;routeTotalDurationSec=0;
   const bounds=L.latLngBounds([]),localBounds=L.latLngBounds([]);
+  const displayedStops=new Set(),displayedPaths=new Set();
   let count=0;
   const totalLabels=[];
   for(const g of groups){
@@ -2480,11 +2484,14 @@ async function renderRouteGroupsOverview(indices,token){
       for(let i=0;i<stops.length;i++){
         const item=stops[i];
         if(!shouldShowMapStop(stops,segments,i)||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
-        const label=String(g.shortLabel||'組')+String(++count);
+        const markerKey=[index,item.id||item._flightKey||'',item.lat.toFixed(5),item.lng.toFixed(5),item.title||''].join(':');
+        if(displayedStops.has(markerKey))continue;
+        displayedStops.add(markerKey);
+        const label=(item.routeGroupId?String(g.shortLabel||'組'):'共')+String(++count);
         const mark=L.marker([item.lat,item.lng],{
           icon:markerIcon(label),tripMarker:true
         }).addTo(map);
-        mark.bindPopup(escapeHtml(g.name)+' · '+escapeHtml(item.title||''));
+        mark.bindPopup(escapeHtml(item.routeGroupId?g.name:'共同')+' · '+escapeHtml(item.title||''));
         bounds.extend([item.lat,item.lng]);
         if(isKumamotoMapLocal(item))localBounds.extend([item.lat,item.lng]);
       }
@@ -2505,6 +2512,14 @@ async function renderRouteGroupsOverview(indices,token){
       for(const leg of legs){
         if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
         const flight=leg.mode==='flight';
+        const midpoint=leg.points[Math.floor(leg.points.length/2)];
+        const pathKey=[index,leg.mode,leg.points.length,
+          leg.points[0].join(','),midpoint.join(','),leg.points[leg.points.length-1].join(',')].join(':');
+        if(displayedPaths.has(pathKey)){
+          if(!flight)km+=Number(leg.distanceKm)||0;
+          continue;
+        }
+        displayedPaths.add(pathKey);
         const layer=L.polyline(leg.points,{
           color:flight?'#786D91':g.color||'#386981',
           weight:flight?3:5,opacity:flight?.85:.95,
