@@ -3390,3 +3390,64 @@ html.item-editor-open .global-edit-toolbar{
 .booking-group-select{flex:1;max-width:210px;min-width:0;border-radius:10px;
  border:1px solid var(--theme-accent-border,rgba(40,40,40,.15));color:var(--ink);
  background:var(--paper,#fff);padding:6px 7px;font:inherit;font-size:12px;font-weight:650}
+
+/* v1.5.20: unified Travel Groups management in edit mode. */
+.travel-groups-manager{
+ max-height:min(92dvh,900px);overflow-y:auto;overscroll-behavior:contain;
+ padding-bottom:max(20px,env(safe-area-inset-bottom))
+}
+.travel-group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 10px}
+.travel-group-head strong{font-size:14px;font-weight:850}
+.travel-group-head button{border:0;border-radius:12px;padding:10px 13px;min-height:40px;
+ background:var(--green,#4b3c2f);color:white;font:inherit;font-size:12px;font-weight:850;cursor:pointer}
+.travel-group-list{display:grid;gap:8px}
+.travel-group-choice{display:flex;align-items:center;width:100%;gap:12px;
+ background:var(--paper,#fff);color:var(--ink);text-align:left;
+ border:1px solid var(--theme-accent-border,rgba(70,60,50,.14));
+ border-radius:15px;padding:12px;font:inherit;cursor:pointer}
+.travel-group-choice span:nth-child(2){display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.travel-group-choice span:nth-child(2)>strong{font-size:13px;overflow-wrap:anywhere}
+.travel-group-choice small{font-size:11px;color:var(--muted);font-weight:650}
+.travel-group-choice-badge{display:inline-flex;align-items:center;justify-content:center;
+ border-radius:11px;padding:8px;min-width:48px;background:var(--theme-accent-soft,rgba(100,80,60,.12));
+ color:var(--green);font-size:12px;font-weight:900;white-space:nowrap}
+.travel-group-detail{margin-top:15px;padding-top:15px;border-top:1px solid var(--theme-accent-border,rgba(90,80,60,.18))}
+.travel-group-detail[hidden]{display:none!important}
+.travel-group-detail>h3{margin:0 0 14px;font-size:17px}
+.travel-group-section{margin:15px 0;padding:12px 0;
+ border-top:1px solid var(--theme-accent-border,rgba(90,80,60,.16))}
+.travel-group-section h3{font-size:15px;font-weight:850;margin:0 0 5px}
+.travel-group-section p,.travel-group-tip{font-size:11px;line-height:1.6;
+ color:var(--muted);margin:0 0 10px}
+.travel-group-check-list,.travel-group-itinerary{display:grid;gap:7px}
+.travel-group-itinerary{max-height:330px;overflow:auto;overscroll-behavior:contain;
+ border:1px solid var(--theme-accent-border,rgba(80,75,60,.13));
+ border-radius:13px;padding:8px}
+.travel-group-checkbox{display:flex;align-items:center;gap:10px;padding:10px 12px;
+ border-radius:11px;background:var(--paper,#fff);cursor:pointer;min-width:0}
+.travel-group-checkbox input{flex-shrink:0;width:18px;height:18px;accent-color:var(--green)}
+.travel-group-checkbox>span{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px;
+ font-size:12px;font-weight:750;overflow-wrap:anywhere}
+.travel-group-checkbox small{font-size:10px;color:var(--muted);
+ font-weight:600;line-height:1.35}
+.travel-group-checkbox>small{text-align:right;max-width:120px}
+.travel-group-checkbox[hidden],.travel-group-day[hidden]{display:none!important}
+.travel-group-day{display:grid;gap:7px}
+.travel-group-day h4{position:sticky;top:0;z-index:1;margin:8px 0 1px;
+ padding:7px 5px;background:var(--cream,var(--paper,#fff));font-size:11px}
+.travel-group-actions{display:flex;gap:9px;align-items:center}
+.travel-group-actions .edit-save{flex:1;min-height:43px}
+.travel-group-actions .edit-delete{flex:0 1 115px;min-height:43px}
+.travel-group-empty{padding:15px 13px;background:var(--paper,#fff);
+ border-radius:13px;color:var(--muted);font-size:12px;line-height:1.6}
+.global-edit-actions{min-width:0;overflow-x:auto;scrollbar-width:none}
+.global-edit-actions::-webkit-scrollbar{display:none}
+.global-edit-actions button{flex:0 0 auto;white-space:nowrap}
+.global-edit-status{flex:0 0 auto}
+@media(max-width:460px){
+ .global-edit-toolbar{gap:6px;padding:7px 8px}
+ .global-edit-status strong{font-size:12px}
+ .global-edit-actions{gap:4px}
+ .global-edit-actions button{font-size:12px;padding:7px 7px}
+ .travel-group-checkbox>small{max-width:95px;font-size:9px}
+}

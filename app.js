@@ -22,7 +22,7 @@ let authorizedTrips=[];
 let activeRouteGroupId='all', routeGroupTripSlug='';
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.19';
+const APP_VERSION='1.5.20';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -489,7 +489,7 @@ function routeGroupById(id){
 }
 function routeGroupCode(id){
   const g=routeGroupById(id);
-  return g?String(g.code||'').toUpperCase()+' 組':'共同';
+  return g?String(g.shortLabel||String(g.code||'').toUpperCase()+'組'):'共同';
 }
 function groupForPerson(id){
   return routeGroups().find(g=>(g.personIds||[]).includes(id))||null;
@@ -503,8 +503,10 @@ function selectRouteGroupFromTrip(){
   let saved='';
   try{saved=localStorage.getItem(key)||''}catch(_){}
   const own=groupForPerson(TRIP?.currentPersonId);
-  const preferred=own||groups.find(g=>g.code==='b')||groups[0];
-  activeRouteGroupId=saved==='all'?'all':(routeGroupById(saved)?saved:String(preferred?.id||'all'));
+  // A member defaults to their claimed group; anyone without a claimed
+  // traveler identity sees the overview rather than an arbitrary A/B group.
+  activeRouteGroupId=saved==='all'?'all'
+    :(routeGroupById(saved)?saved:String(own?.id||'all'));
   routeGroupTripSlug=slug;
 }
 function groupActiveOnDay(groupId,day){
@@ -536,7 +538,7 @@ function renderRouteGroupSelectors(){
     wrap.hidden=!groups.length;
     if(!groups.length){wrap.innerHTML='';continue;}
     wrap.innerHTML='<span class="route-group-heading">同行路線</span>'+
-      [['all','全部'],...groups.map(g=>[String(g.id),String(g.code).toUpperCase()+' 組'])].map(([id,label])=>{
+      [['all','全部'],...groups.map(g=>[String(g.id),String(g.shortLabel||g.name||'分組')])].map(([id,label])=>{
         const g=routeGroupById(id);
         const caption=g?routeGroupCaption(g):'分組總覽，不跨組接線';
         return '<button type="button" class="route-group-chip '+(activeRouteGroupId===id?'active':'')+
@@ -544,90 +546,222 @@ function renderRouteGroupSelectors(){
           escapeHtml(label)+'</button>';
       }).join('')+
       '<small class="route-group-hint">'+escapeHtml(activeRouteGroupId==='all'
-        ?'兩組獨立路線；地面里程不合併計算'
+        ?groups.length+' 組路線獨立；地面里程不合併計算'
         :(routeGroupById(activeRouteGroupId)?.name||'')+' · '+
-          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>'+
-      (sel==='#mapRouteGroups'&&canEditTrip()
-        ?'<button type="button" class="route-group-manage" id="editRouteGroupPeopleBtn">✎ 組員設定</button>':'');
+          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>';
     wrap.querySelectorAll('[data-route-group]').forEach(btn=>{
       btn.onclick=()=>setRouteGroupSelection(btn.dataset.routeGroup);
     });
-    const editButton=wrap.querySelector('#editRouteGroupPeopleBtn');
-    if(editButton)editButton.onclick=openRouteGroupPeopleSheet;
   }
 }
 
-function openRouteGroupPeopleSheet(){
-  if(!canEditTrip()||!routeGroups().length)return;
-  let sheet=qs('#routeGroupPeopleSheet'),backdrop=qs('#routeGroupPeopleBackdrop');
-  if(!sheet){
-    backdrop=document.createElement('div');
-    backdrop.className='modal-backdrop';backdrop.id='routeGroupPeopleBackdrop';
-    sheet=document.createElement('aside');
-    sheet.className='edit-sheet route-group-people-sheet';sheet.id='routeGroupPeopleSheet';
-    sheet.setAttribute('aria-hidden','true');
-    sheet.innerHTML='<div class="sheet-handle"></div>'+
-      '<div class="sheet-title"><div><span class="section-kicker">TRAVEL GROUPS</span>'+
-      '<h2>設定同行小組</h2></div><button type="button" class="round-btn" id="closeRouteGroupPeopleSheet">×</button></div>'+
-      '<form class="edit-form" id="routeGroupPeopleForm">'+
-      '<label><span>選擇小組</span><select id="routeGroupPeopleGroup"></select></label>'+
-      '<div class="route-group-person-list" id="routeGroupPeopleList"></div>'+
-      '<p class="edit-help">這裡只設定旅伴與組別，不會修改機票訂單。若缺少旅伴姓名，先到「花費 → 分帳人員」新增。</p>'+
-      '<div class="edit-form-actions"><button type="submit" class="edit-save">儲存組員</button></div>'+
-      '<p class="edit-status" id="routeGroupPeopleStatus"></p></form>';
-    document.body.append(backdrop,sheet);
-    const close=()=>{
-      sheet.classList.remove('show');backdrop.classList.remove('show');
-      sheet.setAttribute('aria-hidden','true');
-    };
-    qs('#closeRouteGroupPeopleSheet').onclick=close;backdrop.onclick=close;
-    qs('#routeGroupPeopleGroup').onchange=renderGroupPeopleCheckboxes;
-    qs('#routeGroupPeopleForm').onsubmit=async e=>{
-      e.preventDefault();
-      const groupId=qs('#routeGroupPeopleGroup').value;
-      const checked=qsa('#routeGroupPeopleList input[type="checkbox"]:checked').map(x=>x.value);
-      const status=qs('#routeGroupPeopleStatus');
-      status.textContent='儲存中…';
-      try{
-        await travelEditor('assign_route_group_people',{routeGroupId:groupId,personIds:checked});
-        close();
-        await hydratePrivateCloudData();
-      }catch(err){
-        status.textContent=(err?.code==='person_already_in_another_group')
-          ?'旅伴已屬於另一組，請先在另一組取消勾選，再重新指定。'
-          :'儲存失敗：'+String(err?.code||err?.message||err);
-      }
-    };
-  }
-  qs('#routeGroupPeopleGroup').innerHTML=routeGroups().map(g=>
-    '<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
-  qs('#routeGroupPeopleGroup').value=activeRouteGroupId==='all'?routeGroups()[0].id:activeRouteGroupId;
-  qs('#routeGroupPeopleStatus').textContent='';
-  renderGroupPeopleCheckboxes();
-  sheet.classList.add('show');backdrop.classList.add('show');
-  sheet.setAttribute('aria-hidden','false');
+/* Group settings are managed from the edit-mode toolbar; no map-only controls. */
+
+
+let travelGroupsBusy=false;
+function travelGroupEventRows(){
+  return (TRIP?.days||[]).flatMap((day,index)=>(day.events||[])
+    .filter(e=>/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(String(e.id||'')))
+    .map(event=>({day,index,event})));
 }
-function renderGroupPeopleCheckboxes(){
-  const id=qs('#routeGroupPeopleGroup')?.value||'',g=routeGroupById(id);
-  const wrap=qs('#routeGroupPeopleList');
-  if(!wrap||!g)return;
-  const people=Array.isArray(TRIP?.people)?TRIP.people:[];
-  if(!people.length){wrap.textContent='尚未建立旅伴名單。';return;}
-  wrap.innerHTML=people.map(p=>{
-    const assigned=(g.personIds||[]).includes(p.id);
-    const other=routeGroups().find(x=>x.id!==g.id&&(x.personIds||[]).includes(p.id));
-    const disabled=Boolean(other);
-    return '<label class="route-group-person">'+
-      '<input type="checkbox" value="'+escapeHtml(p.id)+'"'+(assigned?' checked':'')+
-       (disabled?' disabled':'')+'><span>'+escapeHtml(p.displayName||'未命名旅伴')+'</span>'+
-      (disabled?'<small>已在 '+escapeHtml(other.name)+'</small>':'')+
+function renderTravelGroupList(){
+  const host=qs('#travelGroupList');if(!host)return;
+  const groups=routeGroups();
+  host.innerHTML=groups.length?groups.map(g=>{
+    const count=travelGroupEventRows().filter(x=>x.event.routeGroupId===g.id).length;
+    return '<button type="button" class="travel-group-choice" data-manage-group="'+escapeHtml(g.id)+'">'+
+      '<strong class="travel-group-choice-badge">'+escapeHtml(g.shortLabel||g.name)+'</strong>'+
+      '<span><strong>'+escapeHtml(g.description||'未填寫備註')+'</strong><small>'+
+      (g.personIds||[]).length+' 位旅伴 · '+count+' 筆專屬行程</small></span><span>›</span></button>';
+  }).join(''):'<p class="travel-group-empty">尚未設定分組。行程預設全部共同，也不會出現 A／B 組篩選。</p>';
+  host.querySelectorAll('[data-manage-group]').forEach(button=>{
+    button.onclick=()=>editTravelGroup(button.dataset.manageGroup);
+  });
+}
+function renderTravelGroupPeople(group){
+  const host=qs('#travelGroupPeople'),picked=new Set(group?.personIds||[]);
+  host.innerHTML=(TRIP?.people||[]).map(person=>{
+    const other=routeGroups().find(g=>g.id!==group?.id&&(g.personIds||[]).includes(person.id));
+    return '<label class="travel-group-checkbox"><input type="checkbox" value="'+escapeHtml(person.id)+'"'+
+      (picked.has(person.id)?' checked':'')+'><span>'+escapeHtml(person.displayName)+
+      (person.linkedUserId?'<small>已認領</small>':'')+'</span>'+
+      (other?'<small>目前在 '+escapeHtml(other.shortLabel||other.name)+'，勾選將轉組</small>':'')+
       '</label>';
-  }).join('');
-  const count=(g.personIds||[]).length,remaining=Math.max(0,Number(g.expectedPeopleCount||0)-count);
-  if(remaining){
-    wrap.insertAdjacentHTML('beforeend','<small class="route-group-remaining">此組預計 '+
-      String(g.expectedPeopleCount)+' 人，目前已指派 '+count+' 人，還差 '+remaining+' 人姓名待補。</small>');
+  }).join('')||'<p>尚無旅伴。請先到「花費 → 分帳人員」建立。</p>';
+}
+function renderTravelGroupItinerary(group){
+  const host=qs('#travelGroupItinerary'),blocks=new Map();
+  for(const item of travelGroupEventRows()){
+    const date=item.day.date;
+    if(!blocks.has(date))blocks.set(date,[]);
+    blocks.get(date).push(item.event);
   }
+  host.innerHTML=[...blocks].map(([date,events])=>
+    '<section class="travel-group-day" data-group-day><h4>'+escapeHtml(date)+'</h4>'+
+    events.map(e=>{
+      const owner=routeGroupById(e.routeGroupId),checked=Boolean(group?.id&&owner?.id===group.id);
+      return '<label class="travel-group-checkbox" data-group-search="'+escapeHtml(
+        (date+' '+(e.title||'')+' '+(e.subtitle||'')).toLowerCase())+'">'+
+        '<input type="checkbox" value="'+escapeHtml(e.id)+'"'+(checked?' checked':'')+'>'+
+        '<span><strong>'+escapeHtml(e.title||'未命名行程')+'</strong><small>'+escapeHtml(e.time||'')+'</small></span>'+
+        '<small>'+escapeHtml(owner?(owner.id===group?.id?'本組專屬':(owner.shortLabel||owner.name)+'（勾選可轉組）'):'共同')+
+        '</small></label>';
+    }).join('')+'</section>').join('')||'<p>此旅程尚未建立行程。</p>';
+}
+function filterTravelGroupItinerary(){
+  const query=String(qs('#travelGroupSearch')?.value||'').trim().toLowerCase();
+  qs('#travelGroupItinerary')?.querySelectorAll('[data-group-day]').forEach(day=>{
+    let visible=0;
+    day.querySelectorAll('[data-group-search]').forEach(row=>{
+      row.hidden=Boolean(query&&!row.dataset.groupSearch.includes(query));
+      if(!row.hidden)visible++;
+    });
+    day.hidden=visible===0;
+  });
+}
+function editTravelGroup(id=''){
+  const g=routeGroupById(id);
+  qs('#travelGroupDetail').hidden=false;
+  qs('#travelGroupId').value=g?.id||'';
+  qs('#travelGroupShort').value=g?.shortLabel||'';
+  qs('#travelGroupDesc').value=g?.description||'';
+  qs('#travelGroupExpected').value=g?.expectedPeopleCount||'';
+  qs('#travelGroupStart').value=g?.startDate||TRIP?.startDate||'';
+  qs('#travelGroupEnd').value=g?.endDate||TRIP?.endDate||'';
+  qs('#travelGroupHeading').textContent=g?'編輯 '+(g.shortLabel||g.name):'新增分組';
+  qs('#travelGroupRemove').hidden=!g;
+  qs('#travelGroupSearch').value='';
+  qs('#travelGroupFeedback').textContent='';
+  renderTravelGroupPeople(g);renderTravelGroupItinerary(g);
+  renderTravelGroupList();
+  qs('#travelGroupDetail').scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function closeTravelGroupsManager(){
+  qs('#travelGroupsSheet')?.classList.remove('show');
+  qs('#travelGroupsBackdrop')?.classList.remove('show');
+  qs('#travelGroupsSheet')?.setAttribute('aria-hidden','true');
+}
+function openTravelGroupsManager(){
+  if(!editMode||!canEditTrip())return;
+  let sheet=qs('#travelGroupsSheet');
+  if(!sheet){
+    const bg=document.createElement('div');bg.id='travelGroupsBackdrop';bg.className='modal-backdrop';
+    sheet=document.createElement('aside');sheet.id='travelGroupsSheet';
+    sheet.className='edit-sheet travel-groups-manager';sheet.setAttribute('aria-hidden','true');
+    sheet.innerHTML=[
+      '<div class="sheet-handle"></div>',
+      '<div class="sheet-title"><div><span class="section-kicker">TRAVEL GROUPS</span>',
+      '<h2>設定分組</h2><p>管理小組、旅伴及專屬行程；未分配的行程為共同。</p></div>',
+      '<button type="button" class="round-btn" id="travelGroupClose">×</button></div>',
+      '<div class="travel-group-head"><strong>同行小組</strong>',
+      '<button type="button" id="travelGroupAdd">＋ 新增分組</button></div>',
+      '<div class="travel-group-list" id="travelGroupList"></div>',
+      '<div class="travel-group-detail" id="travelGroupDetail" hidden>',
+      '<h3 id="travelGroupHeading">新增分組</h3>',
+      '<form id="travelGroupForm" class="edit-form"><input type="hidden" id="travelGroupId">',
+      '<div class="edit-form-grid">',
+      '<label><span>簡稱（最多 3 字）</span><input id="travelGroupShort" maxlength="3" required placeholder="A組、台北組"></label>',
+      '<label><span>預計人數（可留空）</span><input id="travelGroupExpected" type="number" min="1" max="100" placeholder="例如 8"></label>',
+      '</div>',
+      '<label><span>備註說明</span><input id="travelGroupDesc" maxlength="240" placeholder="例如：台北－福岡"></label>',
+      '<div class="edit-form-grid">',
+      '<label><span>開始日期</span><input id="travelGroupStart" type="date" required></label>',
+      '<label><span>結束日期</span><input id="travelGroupEnd" type="date" required></label>',
+      '</div>',
+      '<section class="travel-group-section"><h3>選擇組員</h3>',
+      '<p>從花費／清單共用的旅伴名單勾選。勾選別組成員會將其轉入本組。</p>',
+      '<div class="travel-group-check-list" id="travelGroupPeople"></div></section>',
+      '<section class="travel-group-section"><h3>選擇行程</h3>',
+      '<p>行程預設「共同」，勾選後才變成本組專屬；取消勾選會恢復共同。</p>',
+      '<input id="travelGroupSearch" type="search" placeholder="搜尋日期、景點、航班…">',
+      '<div class="travel-group-itinerary" id="travelGroupItinerary"></div></section>',
+      '<p class="travel-group-tip">預訂歸屬仍可在「預訂」頁選擇組別；此處管理的是行程與地圖。</p>',
+      '<div class="travel-group-actions"><button type="button" class="edit-delete" id="travelGroupRemove" hidden>刪除分組</button>',
+      '<button type="submit" class="edit-save" id="travelGroupSubmit">儲存分組</button></div>',
+      '<p class="edit-status" role="status" id="travelGroupFeedback"></p>',
+      '</form></div>'
+    ].join('');
+    document.body.append(bg,sheet);
+    qs('#travelGroupClose').onclick=closeTravelGroupsManager;
+    bg.onclick=closeTravelGroupsManager;
+    qs('#travelGroupAdd').onclick=()=>editTravelGroup('');
+    qs('#travelGroupSearch').oninput=filterTravelGroupItinerary;
+    qs('#travelGroupForm').onsubmit=saveTravelGroup;
+    qs('#travelGroupRemove').onclick=removeTravelGroup;
+  }
+  sheet.classList.add('show');qs('#travelGroupsBackdrop').classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  qs('#travelGroupDetail').hidden=true;
+  renderTravelGroupList();
+  if(routeGroups().length)editTravelGroup((routeGroupById(activeRouteGroupId)||routeGroups()[0]).id);
+}
+async function saveTravelGroup(e){
+  e.preventDefault();if(travelGroupsBusy||!canEditTrip())return;
+  const id=qs('#travelGroupId').value;
+  const shortLabel=qs('#travelGroupShort').value.trim();
+  const description=qs('#travelGroupDesc').value.trim();
+  const startDate=qs('#travelGroupStart').value,endDate=qs('#travelGroupEnd').value;
+  const rawCount=qs('#travelGroupExpected').value.trim();
+  const status=qs('#travelGroupFeedback'),button=qs('#travelGroupSubmit');
+  if(!shortLabel||Array.from(shortLabel).length>3){
+    status.textContent='分組簡稱請輸入 1～3 字。';return;
+  }
+  if(!startDate||!endDate||startDate>endDate){
+    status.textContent='請修正開始及結束日期。';return;
+  }
+  const personIds=qsa('#travelGroupPeople input:checked').map(x=>x.value);
+  const itemIds=qsa('#travelGroupItinerary input:checked').map(x=>x.value);
+  const selected=travelGroupEventRows().filter(x=>itemIds.includes(x.event.id));
+  if(selected.some(x=>x.day.date<startDate||x.day.date>endDate)){
+    status.textContent='部分勾選行程不在小組日期內，請調整小組起訖日。';return;
+  }
+  const movePeople=(TRIP?.people||[]).filter(p=>personIds.includes(p.id)&&
+    routeGroups().some(g=>g.id!==id&&(g.personIds||[]).includes(p.id)));
+  const moveEvents=selected.filter(x=>x.event.routeGroupId&&x.event.routeGroupId!==id);
+  if((movePeople.length||moveEvents.length)&&!confirm(
+    movePeople.length+' 位旅伴、'+moveEvents.length+' 筆行程目前屬其他組。確定改為「'+shortLabel+'」？'
+  ))return;
+  travelGroupsBusy=true;button.disabled=true;status.textContent='儲存中…';
+  let savedId=id,created=false;
+  try{
+    const result=await travelEditor('save_route_group',{group:{
+      id:id||null,shortLabel,description,startDate,endDate,
+      expectedPeopleCount:rawCount===''?null:Number(rawCount)
+    }});
+    savedId=String(result?.group?.id||id);
+    created=Boolean(result?.created);
+    if(!savedId)throw new Error('group_id_missing');
+    qs('#travelGroupId').value=savedId;
+    await travelEditor('assign_route_group_people',{routeGroupId:savedId,personIds});
+    await travelEditor('assign_route_group_items',{routeGroupId:savedId,itemIds});
+    await hydratePrivateCloudData();
+    editTravelGroup(savedId);
+    qs('#travelGroupFeedback').textContent='已儲存：'+personIds.length+' 位旅伴、'+itemIds.length+' 筆專屬行程；其餘保持共同。';
+  }catch(err){
+    status.textContent='儲存未完成：'+String(err?.code||err?.message||err)+
+      (created?'。新分組已建立，請重新選取確認。':'');
+    if(created){try{await hydratePrivateCloudData();renderTravelGroupList()}catch(_){}}
+  }finally{travelGroupsBusy=false;const btn=qs('#travelGroupSubmit');if(btn)btn.disabled=false;}
+}
+async function removeTravelGroup(){
+  if(travelGroupsBusy||!canEditTrip())return;
+  const id=qs('#travelGroupId').value,g=routeGroupById(id);
+  if(!g)return;
+  const eventCount=travelGroupEventRows().filter(x=>x.event.routeGroupId===id).length;
+  const bookingCount=(TRIP?.bookings||[]).filter(b=>b.routeGroupId===id).length;
+  if(!confirm('刪除「'+(g.shortLabel||g.name)+'」？\n'+eventCount+
+    ' 筆行程與 '+bookingCount+' 筆預訂會變回共同，但不會刪除任何行程或訂單。'))return;
+  travelGroupsBusy=true;qs('#travelGroupFeedback').textContent='刪除分組中…';
+  try{
+    await travelEditor('delete_route_group',{routeGroupId:id});
+    if(activeRouteGroupId===id)activeRouteGroupId='all';
+    try{localStorage.setItem('travelRouteGroup:'+TRIP.slug,'all')}catch(_){}
+    await hydratePrivateCloudData();
+    qs('#travelGroupDetail').hidden=true;renderTravelGroupList();
+    if(routeGroups().length)editTravelGroup(routeGroups()[0].id);
+    else closeTravelGroupsManager();
+  }catch(err){qs('#travelGroupFeedback').textContent='刪除失敗：'+String(err?.code||err?.message||err);}
+  finally{travelGroupsBusy=false;}
 }
 
 function setRouteGroupSelection(id){
@@ -1428,7 +1562,7 @@ function renderToday(){
     if(host){
       const tag=document.createElement('span');
       tag.className='route-group-event-label';
-      tag.textContent=String(g.code||'').toUpperCase()+' 組';
+      tag.textContent=String(g.shortLabel||String(g.code||'').toUpperCase()+'組');
       host.appendChild(tag);
     }
   });
@@ -1662,7 +1796,10 @@ function getRouteStops(d,groupId=activeRouteGroupId){
 
   // End: tonight's accommodation.
   const tonight=stayForNight(dayIndex);
-  if(tonight&&!tonight.uncertain&&validCoord(tonight)){
+  const branchEndsToday=routeGroups().length&&groupId!=='all'&&routeGroupById(groupId)?.endDate===d.date;
+  const finalStop=raw[raw.length-1];
+  const flightHomeToday=branchEndsToday&&finalStop?._airportStop&&finalStop?._airportRole==='arrival';
+  if(!flightHomeToday&&tonight&&!tonight.uncertain&&validCoord(tonight)){
     const last=raw[raw.length-1];
     if(!last||Math.abs(last.lat-tonight.lat)>1e-6||Math.abs(last.lng-tonight.lng)>1e-6){
       raw.push({...tonight,_routeReturnStay:true,_routeReturnDay:d.label});
@@ -2315,21 +2452,22 @@ async function renderRouteGroupsOverview(indices,token){
   clearMapTripLayers();
   const play=qs('#playRoute'),exportBtn=qs('#exportGoogleRoute');
   play.disabled=true;play.textContent='分組總覽';
-  play.title='請先選 A 或 B 組，才能播放該組道路路線';
-  exportBtn.disabled=true;exportBtn.title='請先選 A 或 B 組匯出道路導航';
+  play.title='請先選單一組別，才能播放該組道路路線';
+  exportBtn.disabled=true;exportBtn.title='請先選單一組別匯出道路導航';
   qs('#routePanel').classList.add('multi-mode','group-overview');
   qs('#routePanel').classList.remove('has-flight');
   qs('#routeSlider').disabled=true;
   qs('#routeDistance').textContent='—';
   qs('#routeDistanceSuffix').textContent=' km';
-  qs('#routeCurrent').textContent='兩組路線分開顯示';
-  qs('#routeMeta').textContent='不同組別不相互連接，飛機不列入開車里程';
+  qs('#routeCurrent').textContent=String(groups.length)+' 組路線分開顯示';
+  qs('#routeMeta').textContent='各組路線不相互連接，飛機不列入開車里程';
   qs('#mapRangeSummary').textContent=String(indices.length)+' 天 · '+String(groups.length)+' 組路線';
   qs('#mapRangeHint').textContent='各小組獨立，不跨組串接';
-  setRouteScaleMessage('分組總覽 · 請選 A 或 B 組查看該組道路距離及 Google 導航。');
+  setRouteScaleMessage('分組總覽 · 選擇單一組別，即可查看該組道路距離及 Google 導航。');
   routeGeometry=[];routeCumulative=[];routeStopFractions=[];routeSegmentDistancesKm=[];
   routeSegmentDurationsSec=[];routeTotalKm=0;routeTotalDurationSec=0;
   const bounds=L.latLngBounds([]),localBounds=L.latLngBounds([]);
+  const displayedStops=new Set(),displayedPaths=new Set();
   let count=0;
   const totalLabels=[];
   for(const g of groups){
@@ -2346,11 +2484,14 @@ async function renderRouteGroupsOverview(indices,token){
       for(let i=0;i<stops.length;i++){
         const item=stops[i];
         if(!shouldShowMapStop(stops,segments,i)||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
-        const label=String(g.code||'').toUpperCase()+String(++count);
+        const markerKey=[index,item.id||item._flightKey||'',item.lat.toFixed(5),item.lng.toFixed(5),item.title||''].join(':');
+        if(displayedStops.has(markerKey))continue;
+        displayedStops.add(markerKey);
+        const label=(item.routeGroupId?String(g.shortLabel||'組'):'共')+String(++count);
         const mark=L.marker([item.lat,item.lng],{
           icon:markerIcon(label),tripMarker:true
         }).addTo(map);
-        mark.bindPopup(escapeHtml(g.name)+' · '+escapeHtml(item.title||''));
+        mark.bindPopup(escapeHtml(item.routeGroupId?g.name:'共同')+' · '+escapeHtml(item.title||''));
         bounds.extend([item.lat,item.lng]);
         if(isKumamotoMapLocal(item))localBounds.extend([item.lat,item.lng]);
       }
@@ -2371,6 +2512,14 @@ async function renderRouteGroupsOverview(indices,token){
       for(const leg of legs){
         if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
         const flight=leg.mode==='flight';
+        const midpoint=leg.points[Math.floor(leg.points.length/2)];
+        const pathKey=[index,leg.mode,leg.points.length,
+          leg.points[0].join(','),midpoint.join(','),leg.points[leg.points.length-1].join(',')].join(':');
+        if(displayedPaths.has(pathKey)){
+          if(!flight)km+=Number(leg.distanceKm)||0;
+          continue;
+        }
+        displayedPaths.add(pathKey);
         const layer=L.polyline(leg.points,{
           color:flight?'#786D91':g.color||'#386981',
           weight:flight?3:5,opacity:flight?.85:.95,
@@ -2381,7 +2530,7 @@ async function renderRouteGroupsOverview(indices,token){
         if(!flight)km+=Number(leg.distanceKm)||0;
       }
     }
-    totalLabels.push(String(g.code).toUpperCase()+' 組'+(multi?'路線預覽':'約 '+km.toFixed(1)+' km'));
+    totalLabels.push(String(g.shortLabel||g.name||'組')+(multi?' 路線預覽':' 約 '+km.toFixed(1)+' km'));
   }
   qs('#routeMeta').textContent=totalLabels.join(' · ')+' · 各組不串接';
   if(token!==routeRenderToken)return;
@@ -4278,6 +4427,7 @@ const openTripSheet=()=>{
 qs('#tripMenuBtn').onclick=openTripSheet;
 qs('#heroMenuBtn').onclick=openTripSheet;
 qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
+if(qs('#globalManageGroups')) qs('#globalManageGroups').onclick=openTravelGroupsManager;
 if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
 if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
 if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
@@ -6134,7 +6284,7 @@ function ensureItemEditor(){
         <label><span>名稱</span><input id="editItemName" required></label>
       </div>
       <label class="route-group-edit-row" id="itemRouteGroupRow" hidden>
-        <span>參加組別</span><select id="editItemRouteGroup"><option value="">共同（A、B 兩組）</option></select>
+        <span>參加組別</span><select id="editItemRouteGroup"><option value="">共同（所有分組）</option></select>
         <small class="field-help">分組行程只出現在指定小組；共同景點只需建立一次。</small>
       </label>
       <label class="uncertain-row"><input id="editItemUncertain" type="checkbox"><span>不確定</span><small>可能不會去；不列入地圖、里程與駕車時間</small></label>
@@ -6169,9 +6319,6 @@ function ensureItemEditor(){
   qs('#editItemType').onchange=()=>{
     const row=qs('#stayReservationLinkRow');
     if(row) row.hidden=qs('#editItemType').value!=='stay';
-    const assigned=qs('#editItemRouteGroup');
-    if(qs('#editItemType').value==='flight'&&!assigned.value&&routeGroups().length&&activeRouteGroupId!=='all')
-      assigned.value=activeRouteGroupId;
   };
   return sheet;
 }
@@ -6207,10 +6354,11 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemType').value=event?.type||'spot';
   const groupRow=qs('#itemRouteGroupRow'),groupSelect=qs('#editItemRouteGroup');
   groupRow.hidden=!routeGroups().length;
-  groupSelect.innerHTML='<option value="">共同（A、B 兩組）</option>'+
+  groupSelect.innerHTML='<option value="">共同（所有分組）</option>'+
     routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
-  groupSelect.value=event?.routeGroupId||(event?.type==='flight'||(!event&&activeRouteGroupId!=='all'&&qs('#editItemType').value==='flight')
-    ?(activeRouteGroupId==='all'?'':activeRouteGroupId):'');
+  // Do not auto-assign newly created or previously shared events to the
+  // currently viewed route group. Every new itinerary item defaults to shared.
+  groupSelect.value=event?.routeGroupId||'';
   qs('#editItemName').value=event?.title||'';
   qs('#editItemUncertain').checked=Boolean(event?.uncertain);
   const reservationSelect=qs('#editItemReservation');
@@ -6380,9 +6528,6 @@ async function saveItemEditor(e){
     hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null,
     uncertain:qs('#editItemUncertain').checked
   };
-  if(routeGroups().length&&item.type==='flight'&&!item.routeGroupId){
-    qs('#itemEditStatus').textContent='分組旅程新增航班時，請選擇 A 組或 B 組。';return;
-  }
   qs('#itemEditStatus').textContent='儲存中…';
   try{
     await travelEditor('save_item',{item});
@@ -6993,7 +7138,12 @@ async function loadMembers(){
       const head=document.createElement('div');head.className='member-head';
       const who=document.createElement('div');
       const strong=document.createElement('strong');strong.textContent=m.email||m.user_id;
-      const small=document.createElement('small');small.textContent=m.role==='owner'?'Trip Owner':'已啟用';
+      const small=document.createElement('small');
+      const claimedPerson=(TRIP?.people||[]).find(p=>p.linkedUserId&&String(p.linkedUserId)===String(m.user_id));
+      const claimText=claimedPerson
+        ?'已認領：'+claimedPerson.displayName+(claimedPerson.shortCode?'（'+claimedPerson.shortCode+'）':'')
+        :'尚未認領旅伴身份';
+      small.textContent=(m.role==='owner'?'Trip Owner':'已啟用')+' · '+claimText;
       who.append(strong,small);head.append(who);
 
       const actions=document.createElement('div');actions.className='member-actions';
