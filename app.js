@@ -21,7 +21,7 @@ let editMode=false;
 let authorizedTrips=[];
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.16';
+const APP_VERSION='1.5.17';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -3189,7 +3189,7 @@ function travelNoteDayLabel(note){
 function renderTravelNotes(){
   const host=qs('#travelNotesList');if(!host)return;
   const unresolved=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
-    .filter(n=>isThreadsUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericThreadsNoteTitle(n.title)));
+    .filter(n=>isSupportedSocialUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericSocialNoteTitle(n.title,n.url)));
   const controls=qs('#travelNoteRecoveryBar'),button=qs('#travelNoteRecoverTitlesBtn');
   if(controls)controls.hidden=!canEditTrip()||!unresolved.length;
   if(button)button.textContent='補抓內文（'+unresolved.length+'）';
@@ -3214,7 +3214,7 @@ function renderTravelNotes(){
         </div>
         <h3>${escapeHtml(n.title||'未命名筆記')}</h3>
         ${sourceText?`<p class="travel-note-source-body">${escapeHtml(sourceText)}</p>`
-          :(isThreadsUrl(n.url)?'<p class="travel-note-unavailable">尚未擷取貼文內文</p>':'')}
+          :(isSupportedSocialUrl(n.url)?'<p class="travel-note-unavailable">尚未擷取貼文內文</p>':'')}
         ${longText?`<button type="button" class="travel-note-expand" data-expand-note="${escapeHtml(n.id)}" aria-expanded="false">展開全文</button>`:''}
         ${personalNote?`<p class="travel-note-personal">備註：${escapeHtml(personalNote)}</p>`:''}
       </div>
@@ -3256,7 +3256,7 @@ function ensureTravelNoteEditor(){
       <input type="hidden" id="travelNoteId"><input type="hidden" id="travelNoteVersion">
       <label><span>連結</span><input id="travelNoteUrl" type="url" inputmode="url" placeholder="貼上 Threads / 網頁 / Google Maps 連結"></label>
       <label><span>標題</span><input id="travelNoteTitle" maxlength="220" placeholder="例如：雷克雅維克必吃魚湯" required></label>
-      <button type="button" class="travel-note-fetch-title" id="travelNoteFetchTitle">取得 Threads 標題與內文</button>
+      <button type="button" class="travel-note-fetch-title" id="travelNoteFetchTitle">抓取貼文標題與內文</button>
       <label><span>原文內文（自動擷取，也可手動補充）</span><textarea id="travelNoteSourceText" rows="5" maxlength="8000" placeholder="原始貼文內容會顯示在筆記卡片的灰字區域。"></textarea></label>
       <div class="edit-form-grid">
         <label><span>分類</span><select id="travelNoteCategory">${NOTE_CATEGORIES.map(x=>`<option value="${x}">${x}</option>`).join('')}</select></label>
@@ -3277,17 +3277,28 @@ function ensureTravelNoteEditor(){
   qs('#deleteTravelNoteBtn').onclick=deleteTravelNote;
   qs('#travelNoteFetchTitle').onclick=async()=>{
     const btn=qs('#travelNoteFetchTitle'),status=qs('#travelNoteStatus'),url=qs('#travelNoteUrl').value.trim();
-    if(!isThreadsUrl(url)){status.textContent='請先貼上 Threads 文章網址。';return}
-    btn.disabled=true;status.textContent='正在從 Threads 取得標題…';
+    if(!isSupportedSocialUrl(url)){
+      status.textContent='目前支援 Threads 與 Facebook 公開貼文；其他網址可手動補充。';return;
+    }
+    btn.disabled=true;status.textContent='正在取得公開貼文資訊…';
     try{
-      const content=await lookupThreadsPostContent(url);
-      if(content.text){
-        const before=qs('#travelNoteTitle').value;
-        if(isGenericThreadsNoteTitle(before)&&content.title)qs('#travelNoteTitle').value=content.title;
-        qs('#travelNoteSourceText').value=content.text;
-        status.textContent='已取得貼文內文，確認後按儲存；原本手動命名的標題會保留。';
-      }else status.textContent='Threads 沒有提供公開貼文內容，可手動貼入原文內文。';
-    }catch(_){status.textContent='暫時無法取得 Threads 內容，可手動貼入原文。';}
+      const content=await lookupSocialPostContent(url);
+      const titleField=qs('#travelNoteTitle'),textField=qs('#travelNoteSourceText');
+      let titleAdded=false,bodyAdded=false;
+      if(content.title&&isGenericSocialNoteTitle(titleField.value,url)){
+        titleField.value=content.title;titleAdded=true;
+      }
+      if(content.text&&!textField.value.trim()){
+        textField.value=content.text;bodyAdded=true;
+      }
+      if(titleAdded||bodyAdded){
+        status.textContent=(bodyAdded?'已取得貼文內文':'已取得公開標題')+'；請確認後按儲存。原有標題與手動內文不會被覆蓋。';
+      }else if(content.text){
+        status.textContent='已有手動填寫的標題或內文，已保留原內容。';
+      }else{
+        status.textContent='無法讀取公開內文（可能需要 Facebook 登入）。可手動貼上原文，連結仍會保留。';
+      }
+    }catch(_){status.textContent='暫時無法取得公開貼文內容，可手動貼入原文。';}
     finally{btn.disabled=false;}
   };
   return sheet;
@@ -3297,6 +3308,7 @@ function inferNoteTitleFromUrl(url){
     const u=new URL(url);
     const host=u.hostname.replace(/^www\./,'');
     if(host.includes('threads.'))return 'Threads 貼文';
+    if(host.includes('facebook.')||host==='fb.watch')return 'Facebook 貼文';
     if(host.includes('instagram.'))return 'Instagram 貼文';
     if(host.includes('youtube.')||host==='youtu.be')return 'YouTube 影片';
     if(host.includes('google.')||host==='maps.app.goo.gl')return 'Google Maps 收藏';
@@ -3323,34 +3335,32 @@ function openTravelNoteEditor(note=null,preset={}){
   qs('#travelNoteBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
   setTimeout(()=>{(url?qs('#travelNoteTitle'):qs('#travelNoteUrl'))?.focus()},50);
 }
-let threadsRecovering=false;
-async function recoverMissingThreadsTitles(){
-  if(threadsRecovering||!canEditTrip())return;
+let socialNotesRecovering=false;
+async function recoverMissingSocialNotes(){
+  if(socialNotesRecovering||!canEditTrip())return;
   const target=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
-    .filter(n=>isThreadsUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericThreadsNoteTitle(n.title)))
+    .filter(n=>isSupportedSocialUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericSocialNoteTitle(n.title,n.url)))
     .slice(0,12);
   if(!target.length)return;
   const btn=qs('#travelNoteRecoverTitlesBtn'),status=qs('#travelNoteRecoveryStatus');
-  threadsRecovering=true;if(btn)btn.disabled=true;
+  socialNotesRecovering=true;if(btn)btn.disabled=true;
   let updated=0,unavailable=0,failed=0;
   try{
     for(const n of target){
-      if(status)status.textContent='正在取得原文 '+(updated+unavailable+failed+1)+' / '+target.length+' 篇…';
+      if(status)status.textContent='正在取得公開貼文 '+(updated+unavailable+failed+1)+' / '+target.length+' 篇…';
       try{
-        const content=await lookupThreadsPostContent(n.url);
-        if(!content.text){unavailable++;continue;}
+        const content=await lookupSocialPostContent(n.url);
+        if(!content.text&&!content.title){unavailable++;continue;}
         const upgraded=tripNoteUpdatePayload(n,content);
-        if(upgraded.title===n.title&&upgraded.sourceText===String(n.sourceText||'')){
-          unavailable++;continue;
-        }
+        if(upgraded.title===n.title&&upgraded.sourceText===String(n.sourceText||'')){unavailable++;continue;}
         await travelEditor('save_trip_note',{note:upgraded});
         updated++;
-      }catch(err){console.warn('Threads content recovery unavailable',String(err?.code||err?.message||err));failed++;}
+      }catch(err){console.warn('Public post recovery unavailable',String(err?.code||err?.message||err));failed++;}
     }
     if(updated)await hydratePrivateCloudData();
     renderTravelNotes();
-    if(status)status.textContent='已補入 '+updated+' 篇原文；'+(unavailable+failed)+' 篇無法自動取得，仍可手動編輯原文內文。';
-  }finally{threadsRecovering=false;if(btn)btn.disabled=false;}
+    if(status)status.textContent='已更新 '+updated+' 篇標題／原文；'+(unavailable+failed)+' 篇無法自動取得，可手動補充內文。';
+  }finally{socialNotesRecovering=false;if(btn)btn.disabled=false;}
 }
 
 async function saveTravelNote(e){
@@ -3879,7 +3889,7 @@ if(qs('#checklistScopeBtn'))qs('#checklistScopeBtn').onclick=()=>{
 };
 if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>checklistTab==='notes'?openTravelNoteEditor():openChecklistEditor();
 if(qs('#checklistImportBtn'))qs('#checklistImportBtn').onclick=openChecklistImportSheet;
-if(qs('#travelNoteRecoverTitlesBtn'))qs('#travelNoteRecoverTitlesBtn').onclick=recoverMissingThreadsTitles;
+if(qs('#travelNoteRecoverTitlesBtn'))qs('#travelNoteRecoverTitlesBtn').onclick=recoverMissingSocialNotes;
 if(qs('#travelNotesSearch'))qs('#travelNotesSearch').oninput=e=>{
   travelNotesQuery=e.target.value||'';
   if(checklistTab==='notes')renderTravelNotes();
@@ -4236,15 +4246,29 @@ function isGenericThreadsNoteTitle(title){
   const value=String(title||'').trim();
   return !value||/^(?:Threads|Threads 貼文|Threads 貼文[（(]待補標題[）)])$/i.test(value);
 }
-async function lookupThreadsPostContent(url){
-  if(!isThreadsUrl(url))return {title:'',text:''};
+function isFacebookUrl(url){
+  try{
+    const host=new URL(url).hostname.toLowerCase();
+    return ['facebook.com','www.facebook.com','m.facebook.com','mobile.facebook.com',
+      'mbasic.facebook.com','web.facebook.com','fb.watch','www.fb.watch'].includes(host);
+  }catch{return false}
+}
+function isSupportedSocialUrl(url){return isThreadsUrl(url)||isFacebookUrl(url)}
+function isGenericSocialNoteTitle(title,url){
+  const v=String(title||'').trim();
+  if(isThreadsUrl(url))return isGenericThreadsNoteTitle(v);
+  if(isFacebookUrl(url))return !v||/^(?:Facebook|Facebook 貼文(?:[（(]待補標題[）)])?|facebook\.com|www\.facebook\.com|臉書貼文|FB 貼文)$/i.test(v);
+  return false;
+}
+async function lookupSocialPostContent(url){
+  if(!isSupportedSocialUrl(url))return {title:'',text:''};
   const client=window.TravelAuth?.getClient?.();
   if(!client)return {title:'',text:''};
-  const {data,error}=await client.functions.invoke('travel-threads-preview',{body:{url}});
-  if(error||data?.error||data?.available!==true||!data?.text)return {title:'',text:''};
+  const {data,error}=await client.functions.invoke('travel-social-preview',{body:{url}});
+  if(error||data?.error||data?.available!==true)return {title:'',text:''};
   const text=String(data.text||'').trim().slice(0,8000);
-  const title=compactSharedSentence(text,32);
-  return {title:isGenericThreadsNoteTitle(title)?'':title,text};
+  const title=compactSharedSentence(data.title||text,32);
+  return {title:isGenericSocialNoteTitle(title,url)?'':title,text};
 }
 function tripNoteUpdatePayload(note,content={}){
   const resolvedTitle=String(content.title||'').trim();
@@ -4252,7 +4276,7 @@ function tripNoteUpdatePayload(note,content={}){
   const providedText=String(content.text||'').trim();
   return {
     id:note.id,baseVersion:Number(note.version||1),url:note.url,
-    title:isGenericThreadsNoteTitle(currentTitle)&&resolvedTitle?resolvedTitle:currentTitle,
+    title:isGenericSocialNoteTitle(currentTitle,note.url)&&resolvedTitle?resolvedTitle:currentTitle,
     category:note.category,dayId:note.dayId||null,
     note:note.note||'',sourceText:String(note.sourceText||'').trim()||providedText.slice(0,8000),
     isPinned:Boolean(note.isPinned)
@@ -4262,11 +4286,12 @@ function sharedNotePreset(payload){
   const url=String(payload?.url||'').trim();
   const text=String(payload?.text||'').trim();
   const sharedTitle=String(payload?.title||'').trim();
-  const threadsTitle=isThreadsUrl(url)?compactSharedSentence(text,32):'';
-  const safeSharedTitle=isThreadsUrl(url)&&isGenericThreadsNoteTitle(sharedTitle)?'':sharedTitle;
-  const title=threadsTitle||safeSharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
+  const platformText=isSupportedSocialUrl(url)&&/^(?:Facebook|Threads|分享貼文|Share)$/i.test(text)?'':text;
+  const socialTitle=isSupportedSocialUrl(url)?compactSharedSentence(platformText,32):'';
+  const safeSharedTitle=isSupportedSocialUrl(url)&&isGenericSocialNoteTitle(sharedTitle,url)?'':sharedTitle;
+  const title=socialTitle||safeSharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
   // Source post content and the traveler's own notes must remain independent.
-  return {url,title,sourceText:text.slice(0,8000),note:'',category:'攻略',isPinned:false};
+  return {url,title,sourceText:platformText.slice(0,8000),note:'',category:'攻略',isPinned:false};
 }
 async function maybeOpenIncomingShare(){
   const payload=incomingSharePayload();
@@ -4283,13 +4308,14 @@ async function maybeOpenIncomingShare(){
   try{
     const draft=sharedNotePreset(payload);
     const duplicate=draft.url&&(TRIP.travelNotes||[]).find(n=>String(n.url||'').trim()===draft.url);
-    // Android share targets sometimes provide only a short Threads URL.
-    // Retrieve the full public post description, not only the headline.
-    if(isThreadsUrl(draft.url)){
-      const content=await lookupThreadsPostContent(draft.url).catch(()=>({title:'',text:''}));
+    // Android may share only a short Facebook/Threads URL. Use public text
+    // when available, without replacing traveler edits or their own notes.
+    if(isSupportedSocialUrl(draft.url)){
+      const content=await lookupSocialPostContent(draft.url).catch(()=>({title:'',text:''}));
       if(content.text&&content.text.length>draft.sourceText.length)draft.sourceText=content.text;
-      if(isGenericThreadsNoteTitle(draft.title))
-        draft.title=content.title||compactSharedSentence(draft.sourceText,32)||'Threads 貼文（待補標題）';
+      if(isGenericSocialNoteTitle(draft.title,draft.url))
+        draft.title=content.title||compactSharedSentence(draft.sourceText,32)||
+          (isFacebookUrl(draft.url)?'Facebook 貼文（待補標題）':'Threads 貼文（待補標題）');
     }
     if(!duplicate){
       await travelEditor('save_trip_note',{note:draft});
@@ -4498,6 +4524,63 @@ async function travelTripsApi(action,payload={}){
   return data||{};
 }
 
+let chooserPastTripsExpanded=false;
+function chooserTodayIso(){
+  const local=new Date();
+  return new Date(local.getTime()-local.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+function chooserTripCard(t){
+  const start=t.start_date||t.startDate||'';
+  const end=t.end_date||t.endDate||'';
+  return `<button type="button" class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}">
+    <div><h2>${escapeHtml(t.title||t.slug||'旅程')}</h2>
+    <p>${escapeHtml(start)} ${end?'→ '+escapeHtml(end):''}</p></div>
+    <span class="trip-role">${escapeHtml(t.role||'viewer')}</span>
+  </button>`;
+}
+function showChooserTrips(host,rows){
+  if(!host)return;
+  const trips=(Array.isArray(rows)?rows:[]).filter(t=>t?.slug);
+  if(!trips.length){
+    host.innerHTML='<div class="booking-empty">目前沒有可使用的旅程。</div>';
+    return;
+  }
+  const today=chooserTodayIso();
+  const isPast=t=>{
+    const end=String(t.end_date||t.endDate||'');
+    return /^\d{4}-\d{2}-\d{2}$/.test(end)&&end<today;
+  };
+  const current=trips.filter(t=>!isPast(t))
+    .sort((a,b)=>String(a.start_date||a.startDate||'9999-12-31')
+      .localeCompare(String(b.start_date||b.startDate||'9999-12-31')));
+  const past=trips.filter(isPast)
+    .sort((a,b)=>String(b.end_date||b.endDate||'')
+      .localeCompare(String(a.end_date||a.endDate||'')));
+  host.innerHTML=current.map(chooserTripCard).join('')+
+    (past.length?`<section class="trip-archive-section">
+      <button type="button" class="trip-archive-toggle" data-chooser-past-toggle
+        aria-expanded="${chooserPastTripsExpanded?'true':'false'}" aria-controls="chooserPastTripList">
+        <span>過去行程 <small>${past.length} 趟</small></span>
+        <span class="trip-archive-toggle-action">${chooserPastTripsExpanded?'收合':'展開'} <span aria-hidden="true">${chooserPastTripsExpanded?'▴':'▾'}</span></span>
+      </button>
+      <div class="trip-archive-content" id="chooserPastTripList" ${chooserPastTripsExpanded?'':'hidden'}>
+        ${past.map(chooserTripCard).join('')}
+      </div>
+    </section>`:'');
+  host.querySelectorAll('[data-trip-slug]').forEach(btn=>{
+    btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)};
+  });
+  const toggle=host.querySelector('[data-chooser-past-toggle]');
+  if(toggle)toggle.onclick=()=>{
+    chooserPastTripsExpanded=!chooserPastTripsExpanded;
+    const body=host.querySelector('#chooserPastTripList');
+    if(body)body.hidden=!chooserPastTripsExpanded;
+    toggle.setAttribute('aria-expanded',String(chooserPastTripsExpanded));
+    const label=toggle.querySelector('.trip-archive-toggle-action');
+    if(label)label.innerHTML=chooserPastTripsExpanded?'收合 <span aria-hidden="true">▴</span>':'展開 <span aria-hidden="true">▾</span>';
+  };
+}
+
 async function renderTripChooser(){
   const chooser=qs('#tripChooser'),shell=qs('.app-shell');
   if(!chooser)return;
@@ -4537,8 +4620,7 @@ async function renderTripChooser(){
   }
   if(cached.length&&!navigator.onLine){
     authorizedTrips=cached;
-    list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
-    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+    showChooserTrips(list,cached);
     const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=navigator.onLine?'正在更新旅程清單…':'離線模式 · 顯示此裝置已下載的旅程';
@@ -4550,8 +4632,7 @@ async function renderTripChooser(){
 
   try{
     const trips=shareEditableTrips(await fetchAuthorizedTrips());
-    list.innerHTML=trips.length?trips.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join(''):`<div class="booking-empty">目前沒有可使用的旅程。</div>`;
-    list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+    showChooserTrips(list,trips);
     const canCreate=!sharePayload&&!missingShare&&trips.some(t=>t.role==='owner');
     const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
     status.textContent=sharePayload?'選擇旅程後會立即將文章儲存到「筆記」。':'';
@@ -4560,8 +4641,7 @@ async function renderTripChooser(){
     const cached=shareEditableTrips(await window.TravelStore?.listTrips?.().catch(()=>[]));
     if(cached?.length){
       authorizedTrips=cached;
-      list.innerHTML=cached.map(t=>`<button class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}"><div><h2>${escapeHtml(t.title)}</h2><p>${escapeHtml(t.start_date||'')} ${t.end_date?'→ '+escapeHtml(t.end_date):''}</p></div><span class="trip-role">${escapeHtml(t.role||'viewer')}</span></button>`).join('');
-      list.querySelectorAll('[data-trip-slug]').forEach(btn=>btn.onclick=()=>{location.href=sharedTripHref(btn.dataset.tripSlug)});
+      showChooserTrips(list,cached);
       const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
       const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
       status.textContent='離線模式 · 顯示此裝置已下載的旅程';
