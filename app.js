@@ -19,9 +19,10 @@ let cloudSyncState='cache';
 let cloudLastError='';
 let editMode=false;
 let authorizedTrips=[];
+let activeRouteGroupId='all', routeGroupTripSlug='';
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.18';
+const APP_VERSION='1.5.19';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -479,6 +480,170 @@ function showView(name){
   if(name==='more') renderMoreView();
 }
 
+
+function routeGroups(){
+  return Array.isArray(TRIP?.travelGroups)?TRIP.travelGroups:[];
+}
+function routeGroupById(id){
+  return routeGroups().find(g=>String(g.id)===String(id||''))||null;
+}
+function routeGroupCode(id){
+  const g=routeGroupById(id);
+  return g?String(g.code||'').toUpperCase()+' 組':'共同';
+}
+function groupForPerson(id){
+  return routeGroups().find(g=>(g.personIds||[]).includes(id))||null;
+}
+function selectRouteGroupFromTrip(){
+  const groups=routeGroups();
+  const slug=String(TRIP?.slug||'');
+  if(!groups.length){activeRouteGroupId='all';routeGroupTripSlug=slug;return;}
+  if(routeGroupTripSlug===slug&&(activeRouteGroupId==='all'||routeGroupById(activeRouteGroupId)))return;
+  const key='travelRouteGroup:'+slug;
+  let saved='';
+  try{saved=localStorage.getItem(key)||''}catch(_){}
+  const own=groupForPerson(TRIP?.currentPersonId);
+  const preferred=own||groups.find(g=>g.code==='b')||groups[0];
+  activeRouteGroupId=saved==='all'?'all':(routeGroupById(saved)?saved:String(preferred?.id||'all'));
+  routeGroupTripSlug=slug;
+}
+function groupActiveOnDay(groupId,day){
+  if(groupId==='all'||!routeGroups().length)return true;
+  const g=routeGroupById(groupId),date=String(day?.date||'');
+  if(!g)return false;
+  return Boolean(date&&(!g.startDate||date>=g.startDate)&&(!g.endDate||date<=g.endDate));
+}
+function eventVisibleForGroup(event,day,groupId=activeRouteGroupId){
+  if(!routeGroups().length||groupId==='all')return true;
+  if(!groupActiveOnDay(groupId,day))return false;
+  return !event?.routeGroupId||String(event.routeGroupId)===String(groupId);
+}
+function groupEvents(day,groupId=activeRouteGroupId){
+  if(!groupActiveOnDay(groupId,day))return [];
+  return (day?.events||[]).filter(e=>eventVisibleForGroup(e,day,groupId));
+}
+function routeGroupCaption(g){
+  const people=(TRIP?.people||[]).filter(p=>(g.personIds||[]).includes(p.id)).map(p=>p.displayName);
+  const expected=Number(g.expectedPeopleCount)||people.length;
+  return people.join('、')+(expected>people.length?' · 其他 '+(expected-people.length)+' 人待補':'');
+}
+function renderRouteGroupSelectors(){
+  const groups=routeGroups();
+  const containers=['#todayRouteGroups','#mapRouteGroups','#bookingRouteGroups'];
+  for(const sel of containers){
+    const wrap=qs(sel);
+    if(!wrap)continue;
+    wrap.hidden=!groups.length;
+    if(!groups.length){wrap.innerHTML='';continue;}
+    wrap.innerHTML='<span class="route-group-heading">同行路線</span>'+
+      [['all','全部'],...groups.map(g=>[String(g.id),String(g.code).toUpperCase()+' 組'])].map(([id,label])=>{
+        const g=routeGroupById(id);
+        const caption=g?routeGroupCaption(g):'分組總覽，不跨組接線';
+        return '<button type="button" class="route-group-chip '+(activeRouteGroupId===id?'active':'')+
+          '" data-route-group="'+escapeHtml(id)+'" title="'+escapeHtml((g?.name||'全部路線')+' · '+caption)+'">'+
+          escapeHtml(label)+'</button>';
+      }).join('')+
+      '<small class="route-group-hint">'+escapeHtml(activeRouteGroupId==='all'
+        ?'兩組獨立路線；地面里程不合併計算'
+        :(routeGroupById(activeRouteGroupId)?.name||'')+' · '+
+          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>'+
+      (sel==='#mapRouteGroups'&&canEditTrip()
+        ?'<button type="button" class="route-group-manage" id="editRouteGroupPeopleBtn">✎ 組員設定</button>':'');
+    wrap.querySelectorAll('[data-route-group]').forEach(btn=>{
+      btn.onclick=()=>setRouteGroupSelection(btn.dataset.routeGroup);
+    });
+    const editButton=wrap.querySelector('#editRouteGroupPeopleBtn');
+    if(editButton)editButton.onclick=openRouteGroupPeopleSheet;
+  }
+}
+
+function openRouteGroupPeopleSheet(){
+  if(!canEditTrip()||!routeGroups().length)return;
+  let sheet=qs('#routeGroupPeopleSheet'),backdrop=qs('#routeGroupPeopleBackdrop');
+  if(!sheet){
+    backdrop=document.createElement('div');
+    backdrop.className='modal-backdrop';backdrop.id='routeGroupPeopleBackdrop';
+    sheet=document.createElement('aside');
+    sheet.className='edit-sheet route-group-people-sheet';sheet.id='routeGroupPeopleSheet';
+    sheet.setAttribute('aria-hidden','true');
+    sheet.innerHTML='<div class="sheet-handle"></div>'+
+      '<div class="sheet-title"><div><span class="section-kicker">TRAVEL GROUPS</span>'+
+      '<h2>設定同行小組</h2></div><button type="button" class="round-btn" id="closeRouteGroupPeopleSheet">×</button></div>'+
+      '<form class="edit-form" id="routeGroupPeopleForm">'+
+      '<label><span>選擇小組</span><select id="routeGroupPeopleGroup"></select></label>'+
+      '<div class="route-group-person-list" id="routeGroupPeopleList"></div>'+
+      '<p class="edit-help">這裡只設定旅伴與組別，不會修改機票訂單。若缺少旅伴姓名，先到「花費 → 分帳人員」新增。</p>'+
+      '<div class="edit-form-actions"><button type="submit" class="edit-save">儲存組員</button></div>'+
+      '<p class="edit-status" id="routeGroupPeopleStatus"></p></form>';
+    document.body.append(backdrop,sheet);
+    const close=()=>{
+      sheet.classList.remove('show');backdrop.classList.remove('show');
+      sheet.setAttribute('aria-hidden','true');
+    };
+    qs('#closeRouteGroupPeopleSheet').onclick=close;backdrop.onclick=close;
+    qs('#routeGroupPeopleGroup').onchange=renderGroupPeopleCheckboxes;
+    qs('#routeGroupPeopleForm').onsubmit=async e=>{
+      e.preventDefault();
+      const groupId=qs('#routeGroupPeopleGroup').value;
+      const checked=qsa('#routeGroupPeopleList input[type="checkbox"]:checked').map(x=>x.value);
+      const status=qs('#routeGroupPeopleStatus');
+      status.textContent='儲存中…';
+      try{
+        await travelEditor('assign_route_group_people',{routeGroupId:groupId,personIds:checked});
+        close();
+        await hydratePrivateCloudData();
+      }catch(err){
+        status.textContent=(err?.code==='person_already_in_another_group')
+          ?'旅伴已屬於另一組，請先在另一組取消勾選，再重新指定。'
+          :'儲存失敗：'+String(err?.code||err?.message||err);
+      }
+    };
+  }
+  qs('#routeGroupPeopleGroup').innerHTML=routeGroups().map(g=>
+    '<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
+  qs('#routeGroupPeopleGroup').value=activeRouteGroupId==='all'?routeGroups()[0].id:activeRouteGroupId;
+  qs('#routeGroupPeopleStatus').textContent='';
+  renderGroupPeopleCheckboxes();
+  sheet.classList.add('show');backdrop.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+}
+function renderGroupPeopleCheckboxes(){
+  const id=qs('#routeGroupPeopleGroup')?.value||'',g=routeGroupById(id);
+  const wrap=qs('#routeGroupPeopleList');
+  if(!wrap||!g)return;
+  const people=Array.isArray(TRIP?.people)?TRIP.people:[];
+  if(!people.length){wrap.textContent='尚未建立旅伴名單。';return;}
+  wrap.innerHTML=people.map(p=>{
+    const assigned=(g.personIds||[]).includes(p.id);
+    const other=routeGroups().find(x=>x.id!==g.id&&(x.personIds||[]).includes(p.id));
+    const disabled=Boolean(other);
+    return '<label class="route-group-person">'+
+      '<input type="checkbox" value="'+escapeHtml(p.id)+'"'+(assigned?' checked':'')+
+       (disabled?' disabled':'')+'><span>'+escapeHtml(p.displayName||'未命名旅伴')+'</span>'+
+      (disabled?'<small>已在 '+escapeHtml(other.name)+'</small>':'')+
+      '</label>';
+  }).join('');
+  const count=(g.personIds||[]).length,remaining=Math.max(0,Number(g.expectedPeopleCount||0)-count);
+  if(remaining){
+    wrap.insertAdjacentHTML('beforeend','<small class="route-group-remaining">此組預計 '+
+      String(g.expectedPeopleCount)+' 人，目前已指派 '+count+' 人，還差 '+remaining+' 人姓名待補。</small>');
+  }
+}
+
+function setRouteGroupSelection(id){
+  if(id!=='all'&&!routeGroupById(id))return;
+  activeRouteGroupId=id;
+  try{localStorage.setItem('travelRouteGroup:'+String(TRIP?.slug||''),id)}catch(_){}
+  routeRenderToken++;
+  todayRouteToken++;
+  routeGeometry=[]; routeCumulative=[];routeTotalKm=0;
+  clearRouteTimer();
+  renderDayStrip();
+  renderToday();
+  renderBookings();
+  if(map&&qs('#mapView')?.classList.contains('active'))renderMapDay();
+}
+
 function renderDayStrip(){
   const dateLabel=d=>String(d.date||'').slice(5).replace('-','/');
   const html=TRIP.days.map((d,i)=>{
@@ -505,6 +670,7 @@ function renderDayStrip(){
     multiBtn.textContent='複選';
     multiBtn.classList.toggle('active',mapMultiSelectMode);
   }
+  renderRouteGroupSelectors();
   const flightsBtn=qs('#mapFlightsToggle');
   if(flightsBtn){
     flightsBtn.classList.toggle('active',mapShowFlights);
@@ -1229,8 +1395,9 @@ function renderToday(){
   hero.dataset.heroSource=d.heroImageUrl?'manual':'fallback';
   hero.dataset.heroSubject='';
   refreshHeroPhoto(dayIndex);
-  qs('#todayKm').textContent=`${d.km} km`;
-  qs('#todayDrive').textContent=driveText(d);
+  const groupEstimateHidden=routeGroups().length&&activeRouteGroupId!=='all';
+  qs('#todayKm').textContent=groupEstimateHidden?'— km':`${d.km} km`;
+  qs('#todayDrive').textContent=groupEstimateHidden?'依本組路線計算':driveText(d);
   const sun=sunTimesForDay(dayIndex);
   qs('#todaySunrise').textContent=sun.sunrise;
   qs('#todaySunset').textContent=sun.sunset;
@@ -1239,14 +1406,33 @@ function renderToday(){
   renderDayNote(d);
   const weatherIcon=qs('#weatherIconWrap');
   if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
-  const prevStay=dayIndex>0?stayForNight(dayIndex-1):null;
-  const firstEvent=d.events[0]||null;
+  const groupPresent=groupActiveOnDay(activeRouteGroupId,d);
+  const prevStay=groupPresent&&dayIndex>0?stayForNight(dayIndex-1):null;
+  const firstEvent=groupEvents(d)[0]||null;
   const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
   const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
     ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
     : '';
-  qs('#timeline').innerHTML=overnightDeparture+d.events.map((e,eventIndex)=>renderTimelineEvent(e,eventIndex,d,selectedDay)).join('');
-  const stay=stayForNight(dayIndex);
+  const visible=groupEvents(d);
+  const groupOutside=routeGroups().length&&activeRouteGroupId!=='all'&&!groupActiveOnDay(activeRouteGroupId,d);
+  const noEventsHint=(!visible.length&&routeGroups().length)
+    ?'<div class="route-group-empty">'+(groupOutside?'這一組此日已不在旅程中。':'此組當日尚未安排活動或路線。')+'</div>':'';
+  qs('#timeline').innerHTML=groupOutside?'':overnightDeparture;
+  qs('#timeline').innerHTML+=d.events.map((e,eventIndex)=>
+    eventVisibleForGroup(e,d)?renderTimelineEvent(e,eventIndex,d,selectedDay):'').join('')+noEventsHint;
+  qsa('#timeline .timeline-item[data-event-index]').forEach(el=>{
+    const item=d.events[Number(el.dataset.eventIndex)];
+    const g=routeGroupById(item?.routeGroupId);
+    if(!g)return;
+    const host=el.querySelector('.timeline-top');
+    if(host){
+      const tag=document.createElement('span');
+      tag.className='route-group-event-label';
+      tag.textContent=String(g.code||'').toUpperCase()+' 組';
+      host.appendChild(tag);
+    }
+  });
+  const stay=groupPresent?stayForNight(dayIndex):null;
   qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div>${stay.note?`<p style="margin-top:10px">${escapeHtml(stay.note)}</p>`:''}${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
   decorateTimelineEditor();
   refreshTodayRouteStats(dayIndex);
@@ -1356,10 +1542,10 @@ function flightRouteInfo(event,day){
   return {dep,arr,flightNo,eventId:event.id||'',event};
 }
 
-function dayFlightInfos(day){
-  return (day?.events||[]).map(e=>flightRouteInfo(e,day)).filter(Boolean);
+function dayFlightInfos(day,groupId=activeRouteGroupId){
+  return groupEvents(day,groupId).map(e=>flightRouteInfo(e,day)).filter(Boolean);
 }
-function dayHasFlightRoute(day){return dayFlightInfos(day).length>0}
+function dayHasFlightRoute(day,groupId=activeRouteGroupId){return dayFlightInfos(day,groupId).length>0}
 
 function cachedAirportPoint(iata){
   const code=String(iata||'').toUpperCase();
@@ -1399,8 +1585,8 @@ async function ensureAirportRoutePoint(iata){
   return null;
 }
 
-async function ensureFlightAirportsForDay(day){
-  const codes=[...new Set(dayFlightInfos(day).flatMap(x=>[x.dep,x.arr]))];
+async function ensureFlightAirportsForDay(day,groupId=activeRouteGroupId){
+  const codes=[...new Set(dayFlightInfos(day,groupId).flatMap(x=>[x.dep,x.arr]))];
   await Promise.all(codes.map(ensureAirportRoutePoint));
 }
 
@@ -1426,12 +1612,13 @@ function flightAirportStop(info,role){
   };
 }
 
-function getRouteStops(d){
+function getRouteStops(d,groupId=activeRouteGroupId){
+  if(!groupActiveOnDay(groupId,d))return [];
   const dayIndex=TRIP.days.indexOf(d);
   const raw=[];
   let previousFlightInfo=null;
 
-  for(const event of d.events||[]){
+  for(const event of groupEvents(d,groupId)){
     if(event?.type==='flight'){
       const info=flightRouteInfo(event,d);
       if(info){
@@ -1593,10 +1780,11 @@ function routeCacheKey(dayIndex,stops){
   return `${dayIndex}:${modes}:`+stops.map(e=>`${e.lat.toFixed(5)},${e.lng.toFixed(5)}`).join('|');
 }
 
-async function getRoadRouteForDay(dayIndex){
+async function getRoadRouteForDay(dayIndex,groupId=activeRouteGroupId){
   const d=TRIP.days[dayIndex];
-  await ensureFlightAirportsForDay(d);
-  const stops=getRouteStops(d);
+  if(!groupActiveOnDay(groupId,d))return null;
+  await ensureFlightAirportsForDay(d,groupId);
+  const stops=getRouteStops(d,groupId);
   if(stops.length<2) return null;
 
   const key=routeCacheKey(dayIndex,stops);
@@ -1714,7 +1902,15 @@ async function refreshTodayRouteStats(dayIndex){
   try{
     await ensureFlightAirportsForDay(TRIP.days[dayIndex]);
     const road=await getRoadRouteForDay(dayIndex);
-    if(token!==todayRouteToken||selectedDay!==dayIndex||!road) return;
+    if(token!==todayRouteToken||selectedDay!==dayIndex)return;
+    if(!road){
+      if(routeGroups().length&&activeRouteGroupId!=='all'){
+        qs('#todayKm').textContent='0 km';
+        qs('#todayDrive').textContent=groupActiveOnDay(activeRouteGroupId,TRIP.days[dayIndex])
+          ?'目前沒有可計算的地面路線':'本組當日沒有行程';
+      }
+      return;
+    }
     qs('#todayKm').textContent=`${road.distanceKm.toFixed(1)} km`;
     qs('#todayDrive').textContent=formatDriveTime(road.durationSec);
   }catch(err){
@@ -2077,6 +2273,12 @@ function shouldShowMapStop(stops,segments,index){
 function selectionFallbackTotals(indices){
   return indices.reduce((acc,i)=>{
     const d=TRIP.days[i];
+    if(!groupActiveOnDay(activeRouteGroupId,d))return acc;
+    if(routeGroups().length&&activeRouteGroupId!=='all'){
+      const stops=getRouteStops(d);
+      const driveLegs=routeSegmentMeta(stops).filter(x=>x.mode==='drive');
+      if(!driveLegs.length)return acc;
+    }
     acc.km+=Number(d.km)||0;
     acc.sec+=Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive);
     return acc;
@@ -2095,6 +2297,98 @@ function updateMapRangeText(indices,km,sec){
   if(summary) summary.textContent=`${indices.length} 天 · ${km.toFixed(1)} km · ${formatDriveTime(sec)}`;
 }
 
+
+function isKumamotoMapLocal(stop){
+  return TRIP?.slug==='kumamoto-2027'&&stop&&
+    Number(stop.lat)>=30&&Number(stop.lat)<=40&&
+    Number(stop.lng)>=128&&Number(stop.lng)<=140;
+}
+function preferredRouteMapBounds(local,bounds){
+  return local?.isValid?.()?local:bounds;
+}
+async function renderRouteGroupsOverview(indices,token){
+  const groups=routeGroups();
+  const multi=indices.length>1;
+  const day=TRIP.days[indices[0]];
+  qs('#mapDayLabel').textContent=multi?indices.length+'天':day.label;
+  qs('#mapDayName').textContent=multi?'分組總覽':derivedDayTitle(day,indices[0]);
+  clearMapTripLayers();
+  const play=qs('#playRoute'),exportBtn=qs('#exportGoogleRoute');
+  play.disabled=true;play.textContent='分組總覽';
+  play.title='請先選 A 或 B 組，才能播放該組道路路線';
+  exportBtn.disabled=true;exportBtn.title='請先選 A 或 B 組匯出道路導航';
+  qs('#routePanel').classList.add('multi-mode','group-overview');
+  qs('#routePanel').classList.remove('has-flight');
+  qs('#routeSlider').disabled=true;
+  qs('#routeDistance').textContent='—';
+  qs('#routeDistanceSuffix').textContent=' km';
+  qs('#routeCurrent').textContent='兩組路線分開顯示';
+  qs('#routeMeta').textContent='不同組別不相互連接，飛機不列入開車里程';
+  qs('#mapRangeSummary').textContent=String(indices.length)+' 天 · '+String(groups.length)+' 組路線';
+  qs('#mapRangeHint').textContent='各小組獨立，不跨組串接';
+  setRouteScaleMessage('分組總覽 · 請選 A 或 B 組查看該組道路距離及 Google 導航。');
+  routeGeometry=[];routeCumulative=[];routeStopFractions=[];routeSegmentDistancesKm=[];
+  routeSegmentDurationsSec=[];routeTotalKm=0;routeTotalDurationSec=0;
+  const bounds=L.latLngBounds([]),localBounds=L.latLngBounds([]);
+  let count=0;
+  const totalLabels=[];
+  for(const g of groups){
+    let km=0;
+    for(const index of indices){
+      if(token!==routeRenderToken)return;
+      const d=TRIP.days[index];
+      if(!groupActiveOnDay(g.id,d))continue;
+      await ensureFlightAirportsForDay(d,g.id);
+      if(token!==routeRenderToken)return;
+      const stops=getRouteStops(d,g.id);
+      if(!stops.length)continue;
+      const segments=routeSegmentMeta(stops);
+      for(let i=0;i<stops.length;i++){
+        const item=stops[i];
+        if(!shouldShowMapStop(stops,segments,i)||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+        const label=String(g.code||'').toUpperCase()+String(++count);
+        const mark=L.marker([item.lat,item.lng],{
+          icon:markerIcon(label),tripMarker:true
+        }).addTo(map);
+        mark.bindPopup(escapeHtml(g.name)+' · '+escapeHtml(item.title||''));
+        bounds.extend([item.lat,item.lng]);
+        if(isKumamotoMapLocal(item))localBounds.extend([item.lat,item.lng]);
+      }
+      let road=null;
+      // Multi-day overview uses lightweight separate paths; do not request 16
+      // simultaneous full road routes. In single-day mode, use real roads.
+      if(!multi&&stops.length>1){
+        try{road=await getRoadRouteForDay(index,g.id)}
+        catch(err){console.warn('Grouped route fallback',g.code,err)}
+      }
+      if(token!==routeRenderToken)return;
+      const legs=road?.legs?.length?road.legs:segments.map((segment,i)=>({
+        mode:segment.mode,
+        points:[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]],
+        distanceKm:segment.mode==='drive'
+          ?haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]):0
+      }));
+      for(const leg of legs){
+        if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
+        const flight=leg.mode==='flight';
+        const layer=L.polyline(leg.points,{
+          color:flight?'#786D91':g.color||'#386981',
+          weight:flight?3:5,opacity:flight?.85:.95,
+          dashArray:flight?'12,10':multi?'8,7':null,
+          lineCap:'round',lineJoin:'round'
+        }).addTo(map);
+        mapRouteLayers.push(layer);
+        if(!flight)km+=Number(leg.distanceKm)||0;
+      }
+    }
+    totalLabels.push(String(g.code).toUpperCase()+' 組'+(multi?'路線預覽':'約 '+km.toFixed(1)+' km'));
+  }
+  qs('#routeMeta').textContent=totalLabels.join(' · ')+' · 各組不串接';
+  if(token!==routeRenderToken)return;
+  const preferred=preferredRouteMapBounds(localBounds,bounds);
+  if(preferred.isValid())map.fitBounds(preferred,{padding:[30,30],maxZoom:13});
+}
+
 async function renderMapDay(){
   if(!map) return;
   if(!TRIP.days?.length){
@@ -2105,6 +2399,8 @@ async function renderMapDay(){
   }
   const token=++routeRenderToken;
   const indices=sortedMapDays().length?sortedMapDays():[selectedDay];
+  if(routeGroups().length&&activeRouteGroupId==='all')
+    return renderRouteGroupsOverview(indices,token);
   const isMulti=indices.length>1;
   const singleIndex=indices[0];
   const singleDay=TRIP.days[singleIndex];
@@ -2128,6 +2424,7 @@ async function renderMapDay(){
     googleRouteBtn.title=isMulti?'請先切回單日模式':singleHasFlight?'含航班的日期會自動分段，請直接點各地點導航':'用今天所有地圖點建立 Google Maps 路線';
   }
   qs('#routePanel').classList.toggle('multi-mode',isMulti);
+  qs('#routePanel').classList.remove('group-overview');
   qs('#routePanel').classList.toggle('has-flight',singleHasFlight);
   qs('#routeSlider').disabled=isMulti||singleHasFlight;
   qs('#routeSlider').value=0;
@@ -2137,6 +2434,7 @@ async function renderMapDay(){
   routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeSegmentDurationsSec=[]; routeTotalKm=0; routeTotalDurationSec=0; routeScaleState=null;
 
   const bounds=L.latLngBounds([]);
+  const localBounds=L.latLngBounds([]);
   const visibleMapStops=[];
   const fallbackLayers=new Map();
 
@@ -2161,6 +2459,7 @@ async function renderMapDay(){
       m.bindPopup(`<b>${metaText} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
       visibleMapStops.push([e.lat,e.lng]);
       bounds.extend([e.lat,e.lng]);
+      if(isKumamotoMapLocal(e))localBounds.extend([e.lat,e.lng]);
     });
 
     const layers=[];
@@ -2199,8 +2498,9 @@ async function renderMapDay(){
   });
 
   if(bounds.isValid()){
+    const preferred=preferredRouteMapBounds(localBounds,bounds);
     if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
-    else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+    else map.fitBounds(preferred,{padding:[28,28],maxZoom:14});
   }
 
   if(isMulti){
@@ -2273,8 +2573,9 @@ async function renderMapDay(){
 
   if(token!==routeRenderToken) return;
   if(bounds.isValid()){
+    const preferred=preferredRouteMapBounds(localBounds,bounds);
     if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
-    else map.fitBounds(bounds,{padding:[28,28],maxZoom:14});
+    else map.fitBounds(preferred,{padding:[28,28],maxZoom:14});
   }
 
   if(isMulti){
@@ -2335,15 +2636,37 @@ function renderBookings(){
   const filters=[['all','全部'],['stay','住宿'],['flight','航班'],['car','租車'],['tour','Tour']];
   qs('#bookingFilters').innerHTML=filters.map(([k,n])=>`<button class="filter-btn ${currentFilter===k?'active':''}" data-filter="${k}">${n}</button>`).join('');
   qsa('[data-filter]').forEach(b=>b.onclick=()=>{currentFilter=b.dataset.filter;renderBookings()});
-  const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>currentFilter==='all'||b.type===currentFilter);
-  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${b.provider}</div><h3>${b.title}</h3><div class="booking-dates">${b.dates}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${b.meta}</div><div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
+  const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>
+    (currentFilter==='all'||b.type===currentFilter)&&
+    (!routeGroups().length||activeRouteGroupId==='all'||!b.routeGroupId||String(b.routeGroupId)===String(activeRouteGroupId)));
+  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${escapeHtml(b.provider||"")}${b.routeGroupId?'<span class="booking-group-badge">'+escapeHtml(routeGroupCode(b.routeGroupId))+'</span>':""}</div><h3>${escapeHtml(b.title||"")}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${escapeHtml(b.meta||'')}</div>${(canEditTrip()&&routeGroups().length)?'<label class="booking-group-assignment"><span>預訂組別</span><select class="booking-group-select" data-booking-id="'+escapeHtml(b.id||'')+'" data-original-group="'+escapeHtml(b.routeGroupId||'')+'"><option value="">共同</option>'+routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'"'+(g.id===b.routeGroupId?' selected':'')+'>'+escapeHtml(g.name)+'</option>').join('')+'</select></label>':''}<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
   renderBookingIcons();
   decorateBookingEditor(list);
+  qs('#bookingList').querySelectorAll('.booking-group-select').forEach(el=>{
+    el.onclick=e=>e.stopPropagation();
+    el.onchange=async()=>{
+      const id=String(el.dataset.bookingId||''),previous=String(el.dataset.originalGroup||'');
+      const current=String(el.value||'');
+      if(current===previous)return;
+      const name=current?routeGroupById(current)?.name||'指定組':'共同（全部組）';
+      if(!window.confirm('確定將這張預訂設定為「'+name+'」？\n訂位代碼和所有原始信件不會被修改。')){
+        el.value=previous;return;
+      }
+      el.disabled=true;
+      try{
+        await travelEditor('assign_reservation_route_group',{reservationId:id,routeGroupId:current||null});
+        await hydratePrivateCloudData();
+      }catch(err){
+        el.value=previous;
+        alert('更新預訂組別失敗：'+String(err?.code||err?.message||err));
+      }finally{el.disabled=false}
+    };
+  });
   qsa('.expandable-booking').forEach((card,visualIndex)=>{
     const item=list[visualIndex];
     if(!item?.b?.details)return;
     card.addEventListener('click',e=>{
-      if(e.target.closest('button'))return;
+      if(e.target.closest('button,select,label.booking-group-assignment'))return;
       toggleBookingDetails(item.idx);
     });
   });
@@ -2369,6 +2692,7 @@ const AIRPORT_COORDS={
   KEF:{name:'Keflavík International Airport',lat:63.9850,lng:-22.6056},
   LHR:{name:'Heathrow Airport',lat:51.4700,lng:-0.4543},
   KMJ:{name:'熊本機場',lat:32.8373,lng:130.8551},
+  FUK:{name:'福岡機場',lat:33.5859,lng:130.4507},
   AKL:{name:'Auckland Airport',lat:-37.0082,lng:174.7850},
   CHC:{name:'Christchurch Airport',lat:-43.4894,lng:172.5322},
   ZQN:{name:'Queenstown Airport',lat:-45.0211,lng:168.7392}
@@ -4109,6 +4433,7 @@ function normalizeReservation(row){
     code:row?.confirmation_code||d.code||'',
     secret:row?.pin_code||d.secret||'',
     status:d.status||row?.status||'confirmed',
+    routeGroupId:row?.route_group_id||null,
     alert:d.alert||'',
     notice:d.notice||row?.private_notes||'',
     details:{
@@ -4144,6 +4469,7 @@ function cloudTripToUi(data){
     days,
     bookings:(data.reservations||[]).map(normalizeReservation),
     people:Array.isArray(data.people)?data.people:[],
+    travelGroups:Array.isArray(data.travelGroups)?data.travelGroups:[],
     currentPersonId:data.currentPersonId||null,
     expenses:Array.isArray(data.expenses)?data.expenses:[],
     checklistItems:Array.isArray(data.checklistItems)?data.checklistItems:[],
@@ -4362,6 +4688,7 @@ async function hydratePrivateCloudData(){
     const normalized=cloudTripToUi(data);
     currentTripRole=normalized.role||'viewer';
     TRIP=normalized;
+    selectRouteGroupFromTrip();
     cloudLoaded=true;
     cloudSyncState='synced';
     cloudLastError='';
@@ -5806,6 +6133,10 @@ function ensureItemEditor(){
         <label><span>類型</span><select id="editItemType"><option value="spot">景點</option><option value="drive">移動</option><option value="stay">住宿</option><option value="food">餐食</option><option value="tour">Tour</option><option value="flight">航班</option><option value="car">租車</option><option value="shop">補給</option><option value="plan">備案</option><option value="other">其他</option></select></label>
         <label><span>名稱</span><input id="editItemName" required></label>
       </div>
+      <label class="route-group-edit-row" id="itemRouteGroupRow" hidden>
+        <span>參加組別</span><select id="editItemRouteGroup"><option value="">共同（A、B 兩組）</option></select>
+        <small class="field-help">分組行程只出現在指定小組；共同景點只需建立一次。</small>
+      </label>
       <label class="uncertain-row"><input id="editItemUncertain" type="checkbox"><span>不確定</span><small>可能不會去；不列入地圖、里程與駕車時間</small></label>
       <label id="stayReservationLinkRow"><span>住宿預訂連動</span><select id="editItemReservation"><option value="">不連動預訂</option></select><small class="field-help">連動後，名稱以每日行程為準；地址、GPS、Google Maps 由住宿預訂共用。</small></label>
       <label><span>副標題</span><input id="editItemSubtitle"></label>
@@ -5838,6 +6169,9 @@ function ensureItemEditor(){
   qs('#editItemType').onchange=()=>{
     const row=qs('#stayReservationLinkRow');
     if(row) row.hidden=qs('#editItemType').value!=='stay';
+    const assigned=qs('#editItemRouteGroup');
+    if(qs('#editItemType').value==='flight'&&!assigned.value&&routeGroups().length&&activeRouteGroupId!=='all')
+      assigned.value=activeRouteGroupId;
   };
   return sheet;
 }
@@ -5871,6 +6205,12 @@ function openItemEditor(dayIndex,eventIndex){
   qs('#editItemVersion').value=event?.version||'';
   qs('#editItemTime').value=event?.time||'';
   qs('#editItemType').value=event?.type||'spot';
+  const groupRow=qs('#itemRouteGroupRow'),groupSelect=qs('#editItemRouteGroup');
+  groupRow.hidden=!routeGroups().length;
+  groupSelect.innerHTML='<option value="">共同（A、B 兩組）</option>'+
+    routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
+  groupSelect.value=event?.routeGroupId||(event?.type==='flight'||(!event&&activeRouteGroupId!=='all'&&qs('#editItemType').value==='flight')
+    ?(activeRouteGroupId==='all'?'':activeRouteGroupId):'');
   qs('#editItemName').value=event?.title||'';
   qs('#editItemUncertain').checked=Boolean(event?.uncertain);
   const reservationSelect=qs('#editItemReservation');
@@ -6019,6 +6359,7 @@ async function saveItemEditor(e){
     id:qs('#editItemId').value||null,baseVersion:Number(qs('#editItemVersion').value)||0,
     date:selectedDate,dayId:existingDayIndex>=0?TRIP.days[existingDayIndex].id:null,
     time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
+    ...(routeGroups().length?{routeGroupId:qs('#editItemRouteGroup').value||null}:{}),
     subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
     tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
     reservationId:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?qs('#editItemReservation').value:null,
@@ -6039,6 +6380,9 @@ async function saveItemEditor(e){
     hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null,
     uncertain:qs('#editItemUncertain').checked
   };
+  if(routeGroups().length&&item.type==='flight'&&!item.routeGroupId){
+    qs('#itemEditStatus').textContent='分組旅程新增航班時，請選擇 A 組或 B 組。';return;
+  }
   qs('#itemEditStatus').textContent='儲存中…';
   try{
     await travelEditor('save_item',{item});
