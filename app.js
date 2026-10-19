@@ -6319,9 +6319,6 @@ function ensureItemEditor(){
   qs('#editItemType').onchange=()=>{
     const row=qs('#stayReservationLinkRow');
     if(row) row.hidden=qs('#editItemType').value!=='stay';
-    const assigned=qs('#editItemRouteGroup');
-    if(qs('#editItemType').value==='flight'&&!assigned.value&&routeGroups().length&&activeRouteGroupId!=='all')
-      assigned.value=activeRouteGroupId;
   };
   return sheet;
 }
@@ -6359,8 +6356,9 @@ function openItemEditor(dayIndex,eventIndex){
   groupRow.hidden=!routeGroups().length;
   groupSelect.innerHTML='<option value="">共同（所有分組）</option>'+
     routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
-  groupSelect.value=event?.routeGroupId||(event?.type==='flight'||(!event&&activeRouteGroupId!=='all'&&qs('#editItemType').value==='flight')
-    ?(activeRouteGroupId==='all'?'':activeRouteGroupId):'');
+  // Do not auto-assign newly created or previously shared events to the
+  // currently viewed route group. Every new itinerary item defaults to shared.
+  groupSelect.value=event?.routeGroupId||'';
   qs('#editItemName').value=event?.title||'';
   qs('#editItemUncertain').checked=Boolean(event?.uncertain);
   const reservationSelect=qs('#editItemReservation');
