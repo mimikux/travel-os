@@ -101,7 +101,7 @@ function importTravelMail(){
         attachments:attachments.map(a=>({
           name:a.getName(),mimeType:a.getContentType(),size:a.getSize()
         }))
-      });}))};
+      });})};
       const response=UrlFetchApp.fetch(CONFIG.ENDPOINT,{
         method:'post',
         contentType:'application/json',
