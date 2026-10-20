@@ -1,5 +1,5 @@
-const CACHE='travel-os-20261019-groups-manager-v8';
-const ASSETS=['./','./index.html','./app.css?v=20261019-groups-manager-v8','./app.js?v=20261019-groups-manager-v8','./data.js?v=20261019-groups-manager-v8','./config.js?v=20261019-groups-manager-v8','./auth.js?v=20261019-groups-manager-v8','./local-db.js?v=20261019-groups-manager-v8','./sync-engine.js?v=20261019-groups-manager-v8','./manifest.json','./manifest.json?v=20261019-groups-manager-v8','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
+const CACHE='travel-os-20261020-mail-preview-v9';
+const ASSETS=['./','./index.html','./app.css?v=20261020-mail-preview-v9','./app.js?v=20261020-mail-preview-v9','./data.js?v=20261020-mail-preview-v9','./config.js?v=20261020-mail-preview-v9','./auth.js?v=20261020-mail-preview-v9','./local-db.js?v=20261020-mail-preview-v9','./sync-engine.js?v=20261020-mail-preview-v9','./manifest.json','./manifest.json?v=20261020-mail-preview-v9','./icon.svg','./icon-192.png','./icon-512.png','./share.html','./404.html'];
 const CDN_HOSTS=new Set(['unpkg.com','cdn.jsdelivr.net']);
 
 self.addEventListener('install',event=>{
