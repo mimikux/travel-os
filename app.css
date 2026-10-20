@@ -3451,3 +3451,74 @@ html.item-editor-open .global-edit-toolbar{
  .global-edit-actions button{font-size:12px;padding:7px 7px}
  .travel-group-checkbox>small{max-width:95px;font-size:9px}
 }
+
+/* V1.5.21 — Global Mail Inbox: useful preview, attachment metadata and safe full text. */
+.global-mail-top>div{min-width:0;overflow-wrap:anywhere}
+.global-mail-meta{
+  display:grid;gap:5px;margin-top:12px;padding:10px 12px;
+  border-radius:11px;background:var(--theme-surface,var(--cream,#f6f4ef));
+  border:1px solid var(--theme-accent-border,rgba(40,40,40,.10))
+}
+.global-mail-meta>div{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.global-mail-meta strong{
+  flex:0 0 46px;color:var(--muted);font-size:11px;font-weight:850;line-height:1.55
+}
+.global-mail-meta span{min-width:0;color:var(--ink);font-size:12px;line-height:1.55;
+  overflow-wrap:anywhere;word-break:break-word}
+.global-mail-preview{
+  margin:12px 2px 7px!important;color:var(--ink);font-size:12px!important;
+  line-height:1.65!important;white-space:pre-line;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;
+  line-clamp:4;overflow:hidden
+}
+.global-mail-attachments{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
+.global-mail-attachment{
+  display:inline-flex;align-items:center;max-width:100%;border:1px solid var(--theme-accent-border,rgba(40,40,40,.12));
+  background:var(--theme-accent-soft,rgba(40,40,40,.06));
+  border-radius:10px;padding:5px 8px;color:var(--green);
+  font-size:11px;font-weight:800;overflow-wrap:anywhere;word-break:break-word
+}
+.global-mail-attachments>small{
+  flex-basis:100%;font-size:10px;color:var(--muted);line-height:1.5;
+  overflow-wrap:anywhere
+}
+.global-mail-detail{
+  margin-top:11px;border:1px solid var(--theme-accent-border,rgba(40,40,40,.12));
+  background:var(--theme-surface,var(--paper,#fff));
+  border-radius:11px;overflow:hidden
+}
+.global-mail-detail>summary{
+  list-style:none;display:flex;align-items:center;justify-content:space-between;
+  cursor:pointer;gap:10px;padding:10px 12px;color:var(--green);
+  font-size:12px;font-weight:900;min-height:40px;user-select:none
+}
+.global-mail-detail>summary::-webkit-details-marker{display:none}
+.global-mail-detail>summary:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+.global-mail-detail[open]>.global-mail-full{
+  border-top:1px solid var(--theme-accent-border,rgba(40,40,40,.10))
+}
+.global-mail-chevron{display:inline-block;transition:transform .2s ease;font-size:16px}
+.global-mail-detail[open] .global-mail-chevron{transform:rotate(180deg)}
+.global-mail-full{padding:11px 12px 12px}
+.global-mail-full-note{
+  margin:0 0 8px!important;font-size:11px!important;line-height:1.5!important;
+  color:var(--muted)!important
+}
+.global-mail-body{
+  margin:0;padding:10px 12px;border-radius:9px;
+  background:var(--paper,#fff);color:var(--ink);
+  font:inherit;font-size:12px;font-weight:450;line-height:1.65;
+  max-height:min(60dvh,580px);overflow:auto;
+  white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;
+  tab-size:4;overscroll-behavior:contain
+}
+.global-mail-full-status{
+  margin:7px 1px 0!important;color:var(--muted)!important;
+  font-size:11px!important;line-height:1.5!important
+}
+@media(max-width:520px){
+  .global-mail-meta{padding:9px}
+  .global-mail-attachment{font-size:10px}
+  .global-mail-full{padding:8px}
+  .global-mail-body{padding:9px;font-size:11.5px}
+}
