@@ -22,7 +22,7 @@ let authorizedTrips=[];
 let activeRouteGroupId='all', routeGroupTripSlug='';
 
 const APP_NAME="Matt's Travel OS";
-const APP_VERSION='1.5.20';
+const APP_VERSION='1.5.21';
 
 const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
 const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
@@ -5210,6 +5210,32 @@ function globalMailDate(mail){
   const d=mail?.parsed_data||{};
   return d.startDate||d.date||d.routingEventDate||'日期未辨識';
 }
+function globalMailReceivedAt(value){
+  if(!value)return '收信時間不明';
+  const date=new Date(value);
+  if(!Number.isFinite(date.getTime()))return '收信時間不明';
+  return '收到 '+date.toLocaleString('zh-TW',{
+    year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',hour12:false
+  });
+}
+function globalMailAttachmentBadge(attachment){
+  const name=String(attachment?.name||'未命名附件').slice(0,180);
+  const type=String(attachment?.mimeType||'').toLowerCase();
+  return (type.includes('pdf')?'PDF':'附件')+' · '+name;
+}
+function globalMailAttachmentTags(mail){
+  const files=Array.isArray(mail?.attachments)?mail.attachments:[];
+  const count=Number(mail?.attachmentCount??files.length)||0;
+  if(!count)return '';
+  return '<div class="global-mail-attachments" aria-label="信件附件">'+
+    files.slice(0,3).map(file=>
+      '<span class="global-mail-attachment">'+escapeHtml(globalMailAttachmentBadge(file))+'</span>'
+    ).join('')+
+    (count>3?'<span class="global-mail-attachment">其他 '+(count-3)+' 個附件</span>':'')+
+    '<small>目前只保留附件資訊，PDF 內容請到原始 Gmail 信件查看。</small>'+
+    '</div>';
+}
 function renderGlobalMailInbox(data){
   const host=qs('#moreMailInbox'),countEl=qs('#moreMailCount'),badge=qs('#globalMailBadge');
   if(!host)return;
@@ -5225,27 +5251,71 @@ function renderGlobalMailInbox(data){
     return;
   }
   host.innerHTML=mails.map(mail=>{
-    const d=mail.parsed_data||{};
     const candidates=Array.isArray(mail.route_candidates)?mail.route_candidates:[];
     const options=trips.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.title)} · ${escapeHtml(t.start_date||'')} → ${escapeHtml(t.end_date||'')}</option>`).join('');
     const hint=mail.routing_status==='ambiguous'&&candidates.length
-      ? '可能屬於：'+candidates.slice(0,2).map(c=>c.title+' '+Math.round(Number(c.score||0)*100)+'%').join(' / ')
-      : '找不到符合日期的旅程';
+      ?'可能屬於：'+candidates.slice(0,2).map(c=>c.title+' '+Math.round(Number(c.score||0)*100)+'%').join(' / ')
+      :'尚未找到可確定的旅程';
+    const original=String(mail.originalSender||'').trim();
+    const forwarded=String(mail.envelope_from||'').trim();
+    const sender=original||forwarded||'未記錄寄件者';
+    const showForwarder=original&&forwarded&&original.toLowerCase()!==forwarded.toLowerCase();
+    const excerpt=String(mail.preview||'').trim();
     return `
       <article class="global-mail-card" data-global-mail="${escapeHtml(mail.id)}">
         <div class="global-mail-top">
-          <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
+          <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')}${mail.reservation_type?' · '+escapeHtml(String(mail.reservation_type).toUpperCase()):''}</small>
           <h3>${escapeHtml(globalMailTitle(mail))}</h3>
           <p>${escapeHtml(globalMailDate(mail))} · ${escapeHtml(hint)}</p></div>
           <span>${mail.routing_status==='ambiguous'?'待選擇':'未分類'}</span>
         </div>
+        <div class="global-mail-meta">
+          <div><strong>寄件者</strong><span>${escapeHtml(sender)}</span></div>
+          ${showForwarder?`<div><strong>轉寄自</strong><span>${escapeHtml(forwarded)}</span></div>`:''}
+          <div><strong>時間</strong><span>${escapeHtml(globalMailReceivedAt(mail.received_at))}</span></div>
+        </div>
+        <p class="global-mail-preview">${excerpt?escapeHtml(excerpt):'這封信沒有可顯示的純文字內文，請檢查附件或原始郵件。'}</p>
+        ${globalMailAttachmentTags(mail)}
+        <details class="global-mail-detail" data-global-mail-detail="${escapeHtml(mail.id)}">
+          <summary><span>查看完整內文</span><span class="global-mail-chevron" aria-hidden="true">⌄</span></summary>
+          <div class="global-mail-full">
+            <p class="global-mail-full-note">原始信件純文字內容（不包含 PDF 附件）。</p>
+            <pre class="global-mail-body" data-global-mail-body>展開後載入完整信件…</pre>
+            <p class="global-mail-full-status" data-global-mail-body-status role="status"></p>
+          </div>
+        </details>
         <div class="global-mail-actions">
-          <select data-global-mail-trip="${escapeHtml(mail.id)}"><option value="">選擇旅程…</option>${options}</select>
+          <select aria-label="將信件加入旅程" data-global-mail-trip="${escapeHtml(mail.id)}"><option value="">選擇旅程…</option>${options}</select>
           <button type="button" data-global-mail-assign="${escapeHtml(mail.id)}">加入旅程</button>
           <button type="button" class="secondary" data-global-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
         </div>
       </article>`;
   }).join('');
+  host.querySelectorAll('details[data-global-mail-detail]').forEach(details=>{
+    details.addEventListener('toggle',async()=>{
+      if(!details.open||details.dataset.loaded==='true'||details.dataset.loading==='true')return;
+      const id=details.dataset.globalMailDetail;
+      const body=details.querySelector('[data-global-mail-body]');
+      const status=details.querySelector('[data-global-mail-body-status]');
+      details.dataset.loading='true';
+      body.textContent='讀取完整內文中…';
+      status.textContent='';
+      try{
+        const response=await globalMailApi('detail',{mailId:id});
+        if(!details.isConnected)return;
+        const mail=response?.mail||{};
+        body.textContent=String(mail.bodyText||'').trim()||'這封信沒有可顯示的純文字內文。';
+        status.textContent=mail.bodyTruncated?'信件內容過長，僅顯示前 100,000 字。':'';
+        details.dataset.loaded='true';
+      }catch(err){
+        if(!details.isConnected)return;
+        body.textContent='無法載入完整內文。';
+        status.textContent='請收合後再展開重試（'+String(err?.code||err?.message||'network_error')+'）。';
+      }finally{
+        details.dataset.loading='false';
+      }
+    });
+  });
   host.querySelectorAll('[data-global-mail-assign]').forEach(btn=>btn.onclick=async()=>{
     const id=btn.dataset.globalMailAssign;
     const select=host.querySelector('[data-global-mail-trip="'+CSS.escape(id)+'"]');
