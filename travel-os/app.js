@@ -1,0 +1,7753 @@
+let selectedDay=0, currentFilter='all', map, routeLine, routeCar, routeTimer=null;
+let initialTripDaySelectionPending=true;
+let mapSelectedDays=new Set([selectedDay]), mapPrimaryDay=selectedDay, mapRouteLayers=[];
+let mapMultiSelectMode=false;
+// Map display preference is ON by default, independent from map day selection.
+let mapShowFlights=true;
+let demoMode=(()=>{try{return localStorage.getItem('icelandDemoMode')==='1'}catch(_){return false}})();
+let routeGeometry=[], routeCumulative=[], routeTotalKm=0, routeTotalDurationSec=0, routeStopFractions=[], routeSegmentDistancesKm=[], routeSegmentDurationsSec=[];
+let routeScaleState=null;
+let routeMetricMode=(()=>{try{return localStorage.getItem('travelRouteMetric')==='time'?'time':'distance'}catch(_){return 'distance'}})();
+let routeRenderToken=0;
+const roadRouteCache=new Map();
+const airportRouteCache=new Map();
+let todayRouteToken=0;
+let lastObservedIcelandDate=null;
+let currentTripRole='viewer';
+let cloudLoaded=false;
+let cloudSyncState='cache';
+let cloudLastError='';
+let editMode=false;
+let authorizedTrips=[];
+let activeRouteGroupId='all', routeGroupTripSlug='';
+
+const APP_NAME="Matt's Travel OS";
+const APP_VERSION='1.5.27';
+
+const titles={today:'行程',map:'旅程地圖',booking:'預訂',expense:'花費',checklist:'清單',more:'更多'};
+const typeLabel={flight:'航班',car:'租車',spot:'景點',shop:'補給',stay:'住宿',drive:'移動',food:'餐食',tour:'TOUR',plan:'備案'};
+
+const DAY_UI={
+  D0:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Blue%20Lagoon%2C%20Iceland%20%2820256742624%29.jpg?width=1600')", sunrise:'10:02', sunset:'15:57'},
+  D1:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Gullfoss%20Waterfall%20in%20Winter.jpg?width=1600')", sunrise:'10:00', sunset:'15:52'},
+  D2:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Reynisfjara%2C%20Iceland%2C%2020240720%200844%202840.jpg?width=1600')", sunrise:'09:59', sunset:'15:49'},
+  D3:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Islanda%20-%20lago%20J%C3%B6kuls%C3%A1rl%C3%B3n.jpg?width=1600')", sunrise:'10:01', sunset:'15:46'},
+  D4:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Skaftafell%2C%20Iceland.jpg?width=1600')", sunrise:'10:03', sunset:'15:44'},
+  D5:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/IcelandicHorsesInWinter.jpg?width=1600')", sunrise:'10:05', sunset:'15:42'},
+  D6:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Kirkjufell%20in%20Iceland.jpg?width=1600')", sunrise:'10:07', sunset:'15:40'},
+  D7:{photo:"url('https://commons.wikimedia.org/wiki/Special:FilePath/Keflav%C3%ADk%20International%20Airport%20seen%20from%20runway.jpg?width=1600')", sunrise:'10:09', sunset:'15:39'}
+};
+
+const WEATHER_LOCATIONS={
+  D0:{name:'Blue Lagoon / KEF',lat:63.8804,lng:-22.4495},
+  D1:{name:'Gullfoss / 黃金圈',lat:64.3271,lng:-20.1199},
+  D2:{name:'Reynisfjara / 南岸',lat:63.404,lng:-19.044},
+  D3:{name:'Jökulsárlón / 冰河湖',lat:64.0484,lng:-16.179},
+  D4:{name:'Skaftafell',lat:64.017,lng:-16.966},
+  D5:{name:'Kerið / 西返路段',lat:64.0413,lng:-20.8851},
+  D6:{name:'Kirkjufell / 斯奈山',lat:64.941,lng:-23.306},
+  D7:{name:'KEF Airport',lat:63.985,lng:-22.606}
+};
+
+const weatherCache=new Map();
+
+const DEMO_REFERENCE_DATE='2026-11-23';
+const DEMO_WEATHER_BASE=[3,1,-2,-4,-1,2,0,4];
+const DEMO_WEATHER_CODE=[3,3,71,71,1,3,3,3];
+function demoWeatherForDay(dayIndex){
+  const d=TRIP.days[dayIndex];
+  const firstCoord=(d.events||[]).find(validCoord);
+  const loc=WEATHER_LOCATIONS[d.label]||(firstCoord?{name:d.name||d.label,lat:firstCoord.lat,lng:firstCoord.lng}:null);
+  const ui=dayUi(d);
+  const base=DEMO_WEATHER_BASE[dayIndex]??0;
+  const code=DEMO_WEATHER_CODE[dayIndex]??3;
+  const times=['08:00','10:00','12:00','14:00','16:00','18:00','20:00'];
+  const offsets=[-2,-1,0,1,0,-2,-3];
+  const rainBase=[12,18,24,20,16,12,10];
+  const windBase=[4.2,4.8,5.5,6.1,5.7,4.9,4.3];
+  const hours=times.map((time,i)=>({
+    time,
+    temp:base+offsets[i],
+    feels:base+offsets[i]-3,
+    rain:Math.max(0,rainBase[i]+(dayIndex%3)*5),
+    code:i===3&&code===3?1:code,
+    wind:windBase[i]+(dayIndex%2)*0.7
+  }));
+  const noon=hours.find(h=>h.time==='12:00')||hours[0];
+  return {
+    available:true,
+    demo:true,
+    location:loc,
+    date:d.date,
+    hours,
+    noon,
+    sunrise:`${d.date}T${ui.sunrise}`,
+    sunset:`${d.date}T${ui.sunset}`,
+    max:Math.max(...hours.map(h=>h.temp)),
+    min:Math.min(...hours.map(h=>h.temp)),
+    rainMax:Math.max(...hours.map(h=>h.rain)),
+    maxWind:Math.max(...hours.map(h=>h.wind))
+  };
+}
+
+function forecastAvailableFrom(dateString){
+  const d=new Date(`${dateString}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate()-15);
+  return d.toISOString().slice(0,10);
+}
+
+function zhDate(dateString){
+  const [y,m,d]=dateString.split('-');
+  return `${y}/${m}/${d}`;
+}
+
+function hhmm(iso){
+  if(!iso) return '--:--';
+  const m=String(iso).match(/T(\d{2}:\d{2})/);
+  return m?m[1]:'--:--';
+}
+
+function wmoType(code){
+  if(code===0) return 'sun';
+  if([71,73,75,77,85,86].includes(code)) return 'snow';
+  if([51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code)) return 'rain';
+  return 'cloud';
+}
+
+function wmoLabel(code){
+  if(code===0) return '晴朗';
+  if(code===1) return '大致晴朗';
+  if(code===2) return '局部多雲';
+  if(code===3) return '陰天';
+  if([45,48].includes(code)) return '霧';
+  if([51,53,55,56,57].includes(code)) return '毛毛雨';
+  if([61,63,65,66,67].includes(code)) return '降雨';
+  if([71,73,75,77].includes(code)) return '降雪';
+  if([80,81,82].includes(code)) return '陣雨';
+  if([85,86].includes(code)) return '陣雪';
+  if([95,96,99].includes(code)) return '雷雨';
+  return '天氣';
+}
+
+async function fetchWeatherForDay(dayIndex){
+  const d=TRIP.days[dayIndex];
+  const loc=weatherLocationForDay(dayIndex);
+  if(!loc) throw new Error('Missing weather location');
+  const cacheKey=`${d.date}:${loc.lat},${loc.lng}`;
+  if(weatherCache.has(cacheKey)) return weatherCache.get(cacheKey);
+  const url=new URL('https://api.open-meteo.com/v1/forecast');
+  url.searchParams.set('latitude',loc.lat);
+  url.searchParams.set('longitude',loc.lng);
+  url.searchParams.set('hourly','temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m');
+  url.searchParams.set('daily','sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max');
+  url.searchParams.set('timezone',TRIP.timezone||'UTC');
+  url.searchParams.set('wind_speed_unit','ms');
+  url.searchParams.set('forecast_days','16');
+  const pending=fetch(url.toString(),{mode:'cors'}).then(async res=>{
+    if(!res.ok) throw new Error(`weather ${res.status}`);
+    const json=await res.json();
+    const dayIndexInApi=(json.daily?.time||[]).indexOf(d.date);
+    if(dayIndexInApi<0){
+      return {available:false,location:loc,availableFrom:forecastAvailableFrom(d.date),date:d.date};
+    }
+    const hours=[];
+    const times=json.hourly?.time||[];
+    for(let i=0;i<times.length;i++){
+      if(!String(times[i]).startsWith(d.date)) continue;
+      hours.push({
+        time:String(times[i]).slice(11,16),
+        temp:json.hourly.temperature_2m?.[i],
+        feels:json.hourly.apparent_temperature?.[i],
+        rain:json.hourly.precipitation_probability?.[i]??0,
+        code:json.hourly.weather_code?.[i]??3,
+        wind:json.hourly.wind_speed_10m?.[i]??0
+      });
+    }
+    const daylight=hours.filter(h=>h.time>='06:00'&&h.time<='22:00');
+    const displayHours=daylight.length?daylight:hours;
+    const noon=hours.reduce((best,h)=>Math.abs(+h.time.slice(0,2)-12)<Math.abs(+best.time.slice(0,2)-12)?h:best,hours[0]);
+    const maxWind=Math.max(...hours.map(h=>Number(h.wind)||0));
+    return {
+      available:true,
+      location:loc,
+      date:d.date,
+      hours:displayHours,
+      noon,
+      sunrise:json.daily.sunrise?.[dayIndexInApi],
+      sunset:json.daily.sunset?.[dayIndexInApi],
+      max:json.daily.temperature_2m_max?.[dayIndexInApi],
+      min:json.daily.temperature_2m_min?.[dayIndexInApi],
+      rainMax:json.daily.precipitation_probability_max?.[dayIndexInApi]??0,
+      maxWind
+    };
+  }).catch(err=>{weatherCache.delete(cacheKey);throw err});
+  weatherCache.set(cacheKey,pending);
+  return pending;
+}
+
+function icelandTodayISO(){
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:TRIP.timezone||'Atlantic/Reykjavik',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const get=t=>parts.find(p=>p.type===t)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+function isoDayNumber(dateString){
+  const [y,m,d]=String(dateString).split('-').map(Number);
+  return Math.floor(Date.UTC(y,m-1,d)/86400000);
+}
+function referenceTodayISO(){return demoMode?DEMO_REFERENCE_DATE:icelandTodayISO()}
+function dayContext(dateString){
+  const today=referenceTodayISO();
+  const first=TRIP.days[0]?.date, last=TRIP.days.at(-1)?.date;
+  const diff=isoDayNumber(dateString)-isoDayNumber(today);
+  const tripStarted=today>=first;
+  const tripEnded=today>last;
+
+  let label,timelineLabel;
+  if(demoMode){
+    if(diff===-2) label='前天';
+    else if(diff===-1) label='昨天';
+    else if(diff===0) label='今天';
+    else if(diff===1) label='明天';
+    else if(diff===2) label='後天';
+    else if(diff<0) label=`${Math.abs(diff)}天前`;
+    else label=`${diff}天後`;
+    timelineLabel=label;
+  }else{
+    // Live mode uses an explicit relative label so past trips are equally
+    // intuitive to revisit: "46天後" before the day, "46天前" after it.
+    if(diff===0){
+      label='今天';
+      timelineLabel='今天';
+    }else{
+      label=diff<0?`${Math.abs(diff)}天前`:`${diff}天後`;
+      timelineLabel=label;
+    }
+  }
+
+  return {label,timelineLabel,diff,isPast:diff<0,isToday:diff===0,isFuture:diff>0,tripStarted,tripEnded,today};
+}
+function syncToReferenceTripDay(forceDemo=false,fallbackToFirst=false){
+  const today=(demoMode||forceDemo)?DEMO_REFERENCE_DATE:icelandTodayISO();
+  const idx=TRIP.days.findIndex(d=>d.date===today);
+  if(idx>=0){
+    selectedDay=idx;
+    mapPrimaryDay=idx;
+    mapSelectedDays=new Set([idx]);
+    return true;
+  }
+  if(fallbackToFirst&&TRIP.days.length){
+    selectedDay=0;
+    mapPrimaryDay=0;
+    mapSelectedDays=new Set([0]);
+  }
+  return false;
+}
+
+function qs(s){return document.querySelector(s)}
+function qsa(s){return [...document.querySelectorAll(s)]}
+function currentDay(){
+  return TRIP.days?.[selectedDay]||{
+    id:null,label:'D0',date:TRIP.startDate||new Date().toISOString().slice(0,10),
+    name:'尚未建立行程',short:'',km:0,drive:'0m',driveMinutes:0,events:[]
+  };
+}
+function validCoord(e){return Number.isFinite(e.lat)&&Number.isFinite(e.lng)}
+
+function iconSVG(name,cls=''){
+  const icons={
+    road:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M9 3h6l3 18h-4l-2-12-2 12H6z"></path><path d="M12 6v2.5"></path><path d="M12 11v2.5"></path><path d="M12 16v2"></path></svg>`,
+    dayNote:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M6 4h9l3 3v13H6z"></path><path d="M15 4v4h4"></path><path d="M9 12h6"></path><path d="M9 16h5"></path></svg>`,
+    clock:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5l3 2"></path></svg>`,
+    sunrise:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 18h16"></path><path d="M7 18a5 5 0 0 1 10 0"></path><path d="M12 6v3"></path><path d="M8 9.5 6.5 8"></path><path d="M16 9.5 17.5 8"></path><path d="M12 15l-2.2-2.2"></path><path d="M12 15l2.2-2.2"></path><path d="M5 21h14"></path></svg>`,
+    sunset:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 18h16"></path><path d="M7 15a5 5 0 0 0 10 0"></path><path d="M12 6v3"></path><path d="M8 9.5 6.5 8"></path><path d="M16 9.5 17.5 8"></path><path d="M7 21h10"></path><path d="M5 20h2"></path><path d="M17 20h2"></path></svg>`,
+    today:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M12 21s6-5.2 6-11a6 6 0 1 0-12 0c0 5.8 6 11 6 11z"></path><circle cx="12" cy="10" r="2.2"></circle></svg>`,
+    map:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 6.5 9 4l6 2.5 5-2v13L15 20l-6-2.5-5 2z"></path><path d="M9 4v13.5"></path><path d="M15 6.5V20"></path></svg>`,
+    booking:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 7h14a2 2 0 0 1 2 2v2a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2v0a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 2-2 2 2 0 0 0-2-2V9a2 2 0 0 1 2-2z"></path><path d="M8 10h8"></path><path d="M8 14h5"></path></svg>`,
+    expense:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4z"></path><path d="M16 12h.01"></path><path d="M7 10h5"></path><path d="M7 14h3"></path></svg>`,
+    checklist:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="m8 12 2.4 2.4L16 9"></path></svg>`,
+    more:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 7h14"></path><path d="M8 12h11"></path><path d="M11 17h8"></path><circle cx="6" cy="7" r="1"></circle><circle cx="6" cy="12" r="1"></circle><circle cx="6" cy="17" r="1"></circle></svg>`,
+    house:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5"></path><path d="M6 10.5V20h12v-9.5"></path></svg>`,
+    car:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 15h14l-1.5-5h-11z"></path><path d="M7 15v2"></path><path d="M17 15v2"></path><circle cx="8" cy="17" r="1.6"></circle><circle cx="16" cy="17" r="1.6"></circle></svg>`,
+    flight:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5C13 2.7 12.3 2 11.5 2S10 2.7 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z"></path></svg>`,
+    plane:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5C13 2.7 12.3 2 11.5 2S10 2.7 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z"></path></svg>`,
+    tour:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M5 7h14a2 2 0 0 1 2 2v2a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2v0a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 2-2 2 2 0 0 0-2-2V9a2 2 0 0 1 2-2z"></path><path d="M8 10h8"></path><path d="M8 14h5"></path></svg>`,
+    weatherUnknown:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M6.5 17h9.2a3.8 3.8 0 0 0 .5-7.6A5.3 5.3 0 0 0 6 10.4 3.3 3.3 0 0 0 6.5 17z"></path><path d="M18.2 5.5c0-1.2.8-2 2-2 1.1 0 1.9.7 1.9 1.7 0 .8-.4 1.2-1.2 1.7-.6.4-.8.7-.8 1.2"></path><path d="M20.1 10.5h.01"></path></svg>`,
+    snow:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M12 3v18"></path><path d="M6 6l12 12"></path><path d="M18 6 6 18"></path><path d="M3 12h18"></path></svg>`,
+    cloud:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M7 18h9a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.5 1A3.5 3.5 0 0 0 7 18z"></path></svg>`,
+    sun:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M4.9 4.9 6.3 6.3"></path><path d="M17.7 17.7 19.1 19.1"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="M4.9 19.1 6.3 17.7"></path><path d="M17.7 6.3 19.1 4.9"></path></svg>`,
+    rain:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M7 15h9a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.5 1A3.5 3.5 0 0 0 7 15z"></path><path d="M9 17l-1 3"></path><path d="M13 17l-1 3"></path><path d="M17 17l-1 3"></path></svg>`,
+    drop:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M12 4c2.5 3.4 4.5 6 4.5 8.2A4.5 4.5 0 1 1 7.5 12.2C7.5 10 9.5 7.4 12 4z"></path></svg>`,
+    wind:`<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="M4 9h10a2.5 2.5 0 1 0-2.5-2.5"></path><path d="M4 14h14a2.5 2.5 0 1 1-2.5 2.5"></path></svg>`
+  };
+  return icons[name]||'';
+}
+
+const heroPhotoCache=new Map();
+let heroPhotoRenderToken=0;
+function heroPrimaryEvent(d){
+  const events=Array.isArray(d?.events)?d.events:[];
+  const usable=events.filter(e=>e&&!e.uncertain);
+  // A destination/activity beats transport, food and accommodation.
+  return usable.find(e=>e.type==='spot'||e.type==='tour')
+    ||usable.find(e=>e.type==='stay')
+    ||null;
+}
+function heroFallbackQuery(d){
+  const primary=heroPrimaryEvent(d);
+  if(primary) return {itemId:primary.id||'',placeId:primary.placeId||'',query:[primary.title,primary.address].filter(Boolean).join(', '),source:primary.type};
+  const dayName=String(d?.name||'').trim();
+  if(dayName&&!['未命名行程','尚未建立行程','第一天'].includes(dayName)) return {itemId:'',placeId:'',query:dayName,source:'day'};
+  return {itemId:'',placeId:'',query:currentTripTitle(),source:'trip'};
+}
+function staticHeroFallback(d){
+  // Preserve the established Iceland artwork only as a last-resort visual.
+  // Other trips get a neutral background instead of inheriting Iceland imagery.
+  if(TRIP?.slug==='iceland-2026') return (DAY_UI[d?.label]||DAY_UI.D0).photo;
+  return 'linear-gradient(135deg,#23423e 0%,#4f7169 48%,#b08a55 100%)';
+}
+function dayUi(d){
+  const fallback=DAY_UI[d?.label]||DAY_UI.D0;
+  const cached=heroPhotoCache.get(String(d?.id||d?.date||d?.label||''));
+  const autoPhoto=cached?.photoUrl?`url("${String(cached.photoUrl).replace(/"/g,'%22')}")`:null;
+  return {
+    ...fallback,
+    photo:d?.heroImageUrl?`url('${d.heroImageUrl}')`:(autoPhoto||staticHeroFallback(d)),
+    sunrise:d?.sunrise||fallback.sunrise||'--:--',
+    sunset:d?.sunset||fallback.sunset||'--:--'
+  };
+}
+async function refreshHeroPhoto(dayIndex){
+  const d=TRIP?.days?.[dayIndex];
+  if(!d||d.heroImageUrl)return;
+  const key=String(d.id||d.date||d.label||dayIndex);
+  const hero=qs('#heroCard');
+  const apply=result=>{
+    if(selectedDay!==dayIndex||!result?.photoUrl)return;
+    const photo=`url("${String(result.photoUrl).replace(/"/g,'%22')}")`;
+    hero.style.setProperty('--hero-photo',photo);
+    hero.style.backgroundImage=photo;
+    hero.dataset.heroSource=result.source||'google_places';
+    hero.dataset.heroSubject=result.subject||'';
+  };
+  if(heroPhotoCache.has(key)){apply(heroPhotoCache.get(key));return;}
+  const token=++heroPhotoRenderToken;
+  const primary=heroFallbackQuery(d);
+  try{
+    const result=await travelEditor('hero_photo',{
+      itemId:primary.itemId||undefined,
+      placeId:primary.placeId||undefined,
+      query:primary.query,
+      fallbackQuery:currentTripTitle()
+    });
+    if(token!==heroPhotoRenderToken||selectedDay!==dayIndex)return;
+    if(result?.photoUrl){
+      const cached={...result,subject:primary.query,selectionSource:primary.source};
+      heroPhotoCache.set(key,cached);
+      apply(cached);
+    }else{
+      heroPhotoCache.set(key,{status:result?.status||'not_found'});
+    }
+  }catch(err){
+    console.warn('Hero photo lookup failed',err?.code||err?.message||err);
+  }
+}
+function driveText(day){
+  if(day?.drive) return day.drive;
+  const mins=Number(day?.driveMinutes)||0;
+  const h=Math.floor(mins/60),m=mins%60;
+  return h?`${h}h ${String(m).padStart(2,'0')}m`:`${m}m`;
+}
+const TRIP_THEMES={
+  ice:{name:'Ice',desc:'冰藍 × 深海軍藍'},
+  earth:{name:'Earth',desc:'淡土黃 × 深褐色'},
+  forest:{name:'Forest',desc:'鼠尾草綠 × 深森林綠'},
+  sakura:{name:'Sakura',desc:'淡粉米 × 酒紅'},
+  lavender:{name:'Lavender',desc:'淡灰紫 × 深紫灰'},
+  slate:{name:'Slate',desc:'冷灰 × 深藍灰'}
+};
+function suggestTripTheme(title=''){
+  const s=String(title).toLowerCase();
+  if(/iceland|冰島|snow|雪|nordic|北歐/.test(s))return 'ice';
+  if(/forest|森林|山林|hike|健行/.test(s))return 'forest';
+  if(/sakura|櫻|spring|春/.test(s))return 'sakura';
+  if(/city|urban|東京|大阪|首爾|london|paris/.test(s))return 'slate';
+  if(/lavender|薰衣草|purple/.test(s))return 'lavender';
+  return 'earth';
+}
+function currentTripTheme(){
+  const saved=TRIP?.settings?.theme;
+  return TRIP_THEMES[saved]?saved:suggestTripTheme(TRIP?.title||'');
+}
+function applyTripTheme(theme){
+  const key=TRIP_THEMES[theme]?theme:'earth';
+  document.documentElement.dataset.tripTheme=key;
+  const meta=document.querySelector('meta[name="theme-color"]');
+  const color={ice:'#173b5d',earth:'#5b4630',forest:'#204b3a',sakura:'#70404a',lavender:'#51445f',slate:'#33485a'}[key];
+  if(meta&&color)meta.setAttribute('content',color);
+}
+function currentTripTitle(){return TRIP?.title||'Travel OS'}
+function isPlaceholderDayName(name){
+  const value=String(name||'').trim();
+  return !value||['未命名行程','尚未建立行程','第一天','行程'].includes(value);
+}
+function compactDayTitle(title){
+  return String(title||'').trim()
+    .replace(/\s*[·|｜]\s*/g,' · ')
+    .replace(/\s+/g,' ')
+    .replace(/^(?:移動|前往|住宿)\s*[·:：-]?\s*/,'')
+    .trim();
+}
+function derivedDayTitle(day,dayIndex){
+  if(!day)return '行程待安排';
+  if(!isPlaceholderDayName(day.name))return day.name;
+  const events=(day.events||[]).filter(e=>e&&!e.uncertain);
+  const sightseeing=events.filter(e=>['spot','tour'].includes(e.type));
+  const secondary=events.filter(e=>['food','shop'].includes(e.type));
+  const stays=events.filter(e=>e.type==='stay');
+  const flights=events.filter(e=>e.type==='flight');
+  const pool=sightseeing.length?sightseeing:(secondary.length?secondary:(stays.length?stays:flights));
+  const names=[];
+  for(const e of pool){
+    const name=compactDayTitle(e.title);
+    if(name&&!names.includes(name))names.push(name);
+    if(names.length>=2)break;
+  }
+  if(names.length>=2)return names.join(' · ');
+  if(names.length===1)return names[0];
+  // A multi-night stay may not have a duplicate itinerary item on night 2.
+  // Use the active accommodation only when there is no real itinerary title.
+  const overnight=typeof stayForNight==='function'?stayForNight(dayIndex):null;
+  if(overnight?.title)return compactDayTitle(overnight.title);
+  return '行程待安排';
+}
+function syncTripLabels(){
+  const title=currentTripTitle();
+  applyTripTheme(currentTripTheme());
+  qsa('[data-trip-title]').forEach(el=>el.textContent=title);
+  const authTitle=qs('#authTripTitle'); if(authTitle) authTitle.textContent=`${APP_NAME} V${APP_VERSION}`;
+  const moreVersion=qs('#moreAppVersion'); if(moreVersion) moreVersion.textContent=`V${APP_VERSION}`;
+  const dateSummary=qs('#tripDateSummary');
+  if(dateSummary) dateSummary.textContent=[TRIP?.startDate||TRIP?.days?.[0]?.date,TRIP?.endDate||TRIP?.days?.at(-1)?.date].filter(Boolean).join(' → ')||'—';
+  const dateEdit=qs('#editTripDatesBtn'); if(dateEdit){dateEdit.hidden=currentTripRole!=='owner';const em=dateEdit.querySelector('em');if(em)em.textContent='編輯旅程';}
+  const roleSummary=qs('#tripRoleSummary'); if(roleSummary) roleSummary.textContent=String(currentTripRole||TRIP?.role||'viewer').toUpperCase();
+  const syncSummary=qs('#tripSyncSummary');
+  if(syncSummary){
+    const labels={synced:'Cloud synced',syncing:'正在同步…',auth:'需要重新登入',error:'同步失敗',cache:'Offline cache'};
+    syncSummary.textContent=labels[cloudSyncState]||'Offline cache';
+    syncSummary.title=cloudLastError||'';
+  }
+  document.title=window.TRAVEL_CONFIG?.tripSlug?`${title} · Travel OS`:'Travel OS';
+  updateMailBadges();
+  syncMoreStatus();
+}
+
+function renderBottomNavIcons(){
+  qsa('.nav-icon[data-icon]').forEach(el=>{el.innerHTML=iconSVG(el.dataset.icon)})
+}
+
+function renderBookingIcons(){
+  const typeToIcon={stay:'house',car:'car',flight:'flight',tour:'booking'};
+  qsa('.booking-icon[data-booking-type]').forEach(el=>{el.innerHTML=iconSVG(typeToIcon[el.dataset.bookingType]||'booking')})
+}
+
+function renderStaticIcons(){}
+
+let lastNonMoreView='today';
+function returnFromMore(){
+  showView(lastNonMoreView==='more'?'today':lastNonMoreView);
+}
+function showView(name){
+  if(name!=='more'&&titles[name])lastNonMoreView=name;
+  qs('.app-shell')?.classList.toggle('today-mode',name==='today');
+  qsa('.view').forEach(v=>v.classList.remove('active'));
+  qs('#'+name+'View')?.classList.add('active');
+  qsa('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.target===name));
+  if(qs('#pageTitle')) qs('#pageTitle').textContent=titles[name]||'Travel OS';
+  if(name==='map') setTimeout(()=>{initMap();map.invalidateSize();renderMapDay()},60);
+  if(name==='today') requestAnimationFrame(updateHeroCollapse);
+  if(name==='expense'){
+    renderExpenses();
+    if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId){
+      setTimeout(()=>{if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet('expense')},120);
+    }
+  }
+  if(name==='checklist'){
+    renderChecklist();
+    if(checklistTab!=='notes'&&cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId){
+      setTimeout(()=>{if(checklistTab!=='notes'&&cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet('checklist')},120);
+    }
+  }
+  if(name==='more') renderMoreView();
+}
+
+
+function routeGroups(){
+  return Array.isArray(TRIP?.travelGroups)?TRIP.travelGroups:[];
+}
+function routeGroupById(id){
+  return routeGroups().find(g=>String(g.id)===String(id||''))||null;
+}
+function routeGroupCode(id){
+  const g=routeGroupById(id);
+  return g?String(g.shortLabel||String(g.code||'').toUpperCase()+'組'):'共同';
+}
+function groupForPerson(id){
+  return routeGroups().find(g=>(g.personIds||[]).includes(id))||null;
+}
+function selectRouteGroupFromTrip(){
+  const groups=routeGroups();
+  const slug=String(TRIP?.slug||'');
+  if(!groups.length){activeRouteGroupId='all';routeGroupTripSlug=slug;return;}
+  if(routeGroupTripSlug===slug&&(activeRouteGroupId==='all'||routeGroupById(activeRouteGroupId)))return;
+  const key='travelRouteGroup:'+slug;
+  let saved='';
+  try{saved=localStorage.getItem(key)||''}catch(_){}
+  const own=groupForPerson(TRIP?.currentPersonId);
+  // A member defaults to their claimed group; anyone without a claimed
+  // traveler identity sees the overview rather than an arbitrary A/B group.
+  activeRouteGroupId=saved==='all'?'all'
+    :(routeGroupById(saved)?saved:String(own?.id||'all'));
+  routeGroupTripSlug=slug;
+}
+function groupActiveOnDay(groupId,day){
+  if(groupId==='all'||!routeGroups().length)return true;
+  const g=routeGroupById(groupId),date=String(day?.date||'');
+  if(!g)return false;
+  return Boolean(date&&(!g.startDate||date>=g.startDate)&&(!g.endDate||date<=g.endDate));
+}
+function eventVisibleForGroup(event,day,groupId=activeRouteGroupId){
+  if(!routeGroups().length||groupId==='all')return true;
+  if(!groupActiveOnDay(groupId,day))return false;
+  return !event?.routeGroupId||String(event.routeGroupId)===String(groupId);
+}
+function groupEvents(day,groupId=activeRouteGroupId){
+  if(!groupActiveOnDay(groupId,day))return [];
+  return (day?.events||[]).filter(e=>eventVisibleForGroup(e,day,groupId));
+}
+function routeGroupCaption(g){
+  const people=(TRIP?.people||[]).filter(p=>(g.personIds||[]).includes(p.id)).map(p=>p.displayName);
+  const expected=Number(g.expectedPeopleCount)||people.length;
+  return people.join('、')+(expected>people.length?' · 其他 '+(expected-people.length)+' 人待補':'');
+}
+function renderRouteGroupSelectors(){
+  const groups=routeGroups();
+  const containers=['#todayRouteGroups','#mapRouteGroups','#bookingRouteGroups'];
+  for(const sel of containers){
+    const wrap=qs(sel);
+    if(!wrap)continue;
+    wrap.hidden=!groups.length;
+    if(!groups.length){wrap.innerHTML='';continue;}
+    wrap.innerHTML='<span class="route-group-heading">同行路線</span>'+
+      [['all','全部'],...groups.map(g=>[String(g.id),String(g.shortLabel||g.name||'分組')])].map(([id,label])=>{
+        const g=routeGroupById(id);
+        const caption=g?routeGroupCaption(g):'分組總覽，不跨組接線';
+        return '<button type="button" class="route-group-chip '+(activeRouteGroupId===id?'active':'')+
+          '" data-route-group="'+escapeHtml(id)+'" title="'+escapeHtml((g?.name||'全部路線')+' · '+caption)+'">'+
+          escapeHtml(label)+'</button>';
+      }).join('')+
+      '<small class="route-group-hint">'+escapeHtml(activeRouteGroupId==='all'
+        ?groups.length+' 組路線獨立；地面里程不合併計算'
+        :(routeGroupById(activeRouteGroupId)?.name||'')+' · '+
+          (routeGroupById(activeRouteGroupId)?routeGroupCaption(routeGroupById(activeRouteGroupId)):'') )+'</small>';
+    wrap.querySelectorAll('[data-route-group]').forEach(btn=>{
+      btn.onclick=()=>setRouteGroupSelection(btn.dataset.routeGroup);
+    });
+  }
+}
+
+/* Group settings are managed from the edit-mode toolbar; no map-only controls. */
+
+
+let travelGroupsBusy=false;
+function travelGroupEventRows(){
+  return (TRIP?.days||[]).flatMap((day,index)=>(day.events||[])
+    .filter(e=>/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(String(e.id||'')))
+    .map(event=>({day,index,event})));
+}
+function renderTravelGroupList(){
+  const host=qs('#travelGroupList');if(!host)return;
+  const groups=routeGroups();
+  host.innerHTML=groups.length?groups.map(g=>{
+    const count=travelGroupEventRows().filter(x=>x.event.routeGroupId===g.id).length;
+    return '<button type="button" class="travel-group-choice" data-manage-group="'+escapeHtml(g.id)+'">'+
+      '<strong class="travel-group-choice-badge">'+escapeHtml(g.shortLabel||g.name)+'</strong>'+
+      '<span><strong>'+escapeHtml(g.description||'未填寫備註')+'</strong><small>'+
+      (g.personIds||[]).length+' 位旅伴 · '+count+' 筆專屬行程</small></span><span>›</span></button>';
+  }).join(''):'<p class="travel-group-empty">尚未設定分組。行程預設全部共同，也不會出現 A／B 組篩選。</p>';
+  host.querySelectorAll('[data-manage-group]').forEach(button=>{
+    button.onclick=()=>editTravelGroup(button.dataset.manageGroup);
+  });
+}
+function renderTravelGroupPeople(group){
+  const host=qs('#travelGroupPeople'),picked=new Set(group?.personIds||[]);
+  host.innerHTML=(TRIP?.people||[]).map(person=>{
+    const other=routeGroups().find(g=>g.id!==group?.id&&(g.personIds||[]).includes(person.id));
+    return '<label class="travel-group-checkbox"><input type="checkbox" value="'+escapeHtml(person.id)+'"'+
+      (picked.has(person.id)?' checked':'')+'><span>'+escapeHtml(person.displayName)+
+      (person.linkedUserId?'<small>已認領</small>':'')+'</span>'+
+      (other?'<small>目前在 '+escapeHtml(other.shortLabel||other.name)+'，勾選將轉組</small>':'')+
+      '</label>';
+  }).join('')||'<p>尚無旅伴。請先到「花費 → 分帳人員」建立。</p>';
+}
+function renderTravelGroupItinerary(group){
+  const host=qs('#travelGroupItinerary'),blocks=new Map();
+  for(const item of travelGroupEventRows()){
+    const date=item.day.date;
+    if(!blocks.has(date))blocks.set(date,[]);
+    blocks.get(date).push(item.event);
+  }
+  host.innerHTML=[...blocks].map(([date,events])=>
+    '<section class="travel-group-day" data-group-day><h4>'+escapeHtml(date)+'</h4>'+
+    events.map(e=>{
+      const owner=routeGroupById(e.routeGroupId),checked=Boolean(group?.id&&owner?.id===group.id);
+      return '<label class="travel-group-checkbox" data-group-search="'+escapeHtml(
+        (date+' '+(e.title||'')+' '+(e.subtitle||'')).toLowerCase())+'">'+
+        '<input type="checkbox" value="'+escapeHtml(e.id)+'"'+(checked?' checked':'')+'>'+
+        '<span><strong>'+escapeHtml(e.title||'未命名行程')+'</strong><small>'+escapeHtml(e.time||'')+'</small></span>'+
+        '<small>'+escapeHtml(owner?(owner.id===group?.id?'本組專屬':(owner.shortLabel||owner.name)+'（勾選可轉組）'):'共同')+
+        '</small></label>';
+    }).join('')+'</section>').join('')||'<p>此旅程尚未建立行程。</p>';
+}
+function filterTravelGroupItinerary(){
+  const query=String(qs('#travelGroupSearch')?.value||'').trim().toLowerCase();
+  qs('#travelGroupItinerary')?.querySelectorAll('[data-group-day]').forEach(day=>{
+    let visible=0;
+    day.querySelectorAll('[data-group-search]').forEach(row=>{
+      row.hidden=Boolean(query&&!row.dataset.groupSearch.includes(query));
+      if(!row.hidden)visible++;
+    });
+    day.hidden=visible===0;
+  });
+}
+function editTravelGroup(id=''){
+  const g=routeGroupById(id);
+  qs('#travelGroupDetail').hidden=false;
+  qs('#travelGroupId').value=g?.id||'';
+  qs('#travelGroupShort').value=g?.shortLabel||'';
+  qs('#travelGroupDesc').value=g?.description||'';
+  qs('#travelGroupExpected').value=g?.expectedPeopleCount||'';
+  qs('#travelGroupStart').value=g?.startDate||TRIP?.startDate||'';
+  qs('#travelGroupEnd').value=g?.endDate||TRIP?.endDate||'';
+  qs('#travelGroupHeading').textContent=g?'編輯 '+(g.shortLabel||g.name):'新增分組';
+  qs('#travelGroupRemove').hidden=!g;
+  qs('#travelGroupSearch').value='';
+  qs('#travelGroupFeedback').textContent='';
+  renderTravelGroupPeople(g);renderTravelGroupItinerary(g);
+  renderTravelGroupList();
+  qs('#travelGroupDetail').scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function closeTravelGroupsManager(){
+  qs('#travelGroupsSheet')?.classList.remove('show');
+  qs('#travelGroupsBackdrop')?.classList.remove('show');
+  qs('#travelGroupsSheet')?.setAttribute('aria-hidden','true');
+}
+function openTravelGroupsManager(){
+  if(!editMode||!canEditTrip())return;
+  let sheet=qs('#travelGroupsSheet');
+  if(!sheet){
+    const bg=document.createElement('div');bg.id='travelGroupsBackdrop';bg.className='modal-backdrop';
+    sheet=document.createElement('aside');sheet.id='travelGroupsSheet';
+    sheet.className='edit-sheet travel-groups-manager';sheet.setAttribute('aria-hidden','true');
+    sheet.innerHTML=[
+      '<div class="sheet-handle"></div>',
+      '<div class="sheet-title"><div><span class="section-kicker">TRAVEL GROUPS</span>',
+      '<h2>設定分組</h2><p>管理小組、旅伴及專屬行程；未分配的行程為共同。</p></div>',
+      '<button type="button" class="round-btn" id="travelGroupClose">×</button></div>',
+      '<div class="travel-group-head"><strong>同行小組</strong>',
+      '<button type="button" id="travelGroupAdd">＋ 新增分組</button></div>',
+      '<div class="travel-group-list" id="travelGroupList"></div>',
+      '<div class="travel-group-detail" id="travelGroupDetail" hidden>',
+      '<h3 id="travelGroupHeading">新增分組</h3>',
+      '<form id="travelGroupForm" class="edit-form"><input type="hidden" id="travelGroupId">',
+      '<div class="edit-form-grid">',
+      '<label><span>簡稱（最多 3 字）</span><input id="travelGroupShort" maxlength="3" required placeholder="A組、台北組"></label>',
+      '<label><span>預計人數（可留空）</span><input id="travelGroupExpected" type="number" min="1" max="100" placeholder="例如 8"></label>',
+      '</div>',
+      '<label><span>備註說明</span><input id="travelGroupDesc" maxlength="240" placeholder="例如：台北－福岡"></label>',
+      '<div class="edit-form-grid">',
+      '<label><span>開始日期</span><input id="travelGroupStart" type="date" required></label>',
+      '<label><span>結束日期</span><input id="travelGroupEnd" type="date" required></label>',
+      '</div>',
+      '<section class="travel-group-section"><h3>選擇組員</h3>',
+      '<p>從花費／清單共用的旅伴名單勾選。勾選別組成員會將其轉入本組。</p>',
+      '<div class="travel-group-check-list" id="travelGroupPeople"></div></section>',
+      '<section class="travel-group-section"><h3>選擇行程</h3>',
+      '<p>行程預設「共同」，勾選後才變成本組專屬；取消勾選會恢復共同。</p>',
+      '<input id="travelGroupSearch" type="search" placeholder="搜尋日期、景點、航班…">',
+      '<div class="travel-group-itinerary" id="travelGroupItinerary"></div></section>',
+      '<p class="travel-group-tip">預訂歸屬仍可在「預訂」頁選擇組別；此處管理的是行程與地圖。</p>',
+      '<div class="travel-group-actions"><button type="button" class="edit-delete" id="travelGroupRemove" hidden>刪除分組</button>',
+      '<button type="submit" class="edit-save" id="travelGroupSubmit">儲存分組</button></div>',
+      '<p class="edit-status" role="status" id="travelGroupFeedback"></p>',
+      '</form></div>'
+    ].join('');
+    document.body.append(bg,sheet);
+    qs('#travelGroupClose').onclick=closeTravelGroupsManager;
+    bg.onclick=closeTravelGroupsManager;
+    qs('#travelGroupAdd').onclick=()=>editTravelGroup('');
+    qs('#travelGroupSearch').oninput=filterTravelGroupItinerary;
+    qs('#travelGroupForm').onsubmit=saveTravelGroup;
+    qs('#travelGroupRemove').onclick=removeTravelGroup;
+  }
+  sheet.classList.add('show');qs('#travelGroupsBackdrop').classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  qs('#travelGroupDetail').hidden=true;
+  renderTravelGroupList();
+  if(routeGroups().length)editTravelGroup((routeGroupById(activeRouteGroupId)||routeGroups()[0]).id);
+}
+async function saveTravelGroup(e){
+  e.preventDefault();if(travelGroupsBusy||!canEditTrip())return;
+  const id=qs('#travelGroupId').value;
+  const shortLabel=qs('#travelGroupShort').value.trim();
+  const description=qs('#travelGroupDesc').value.trim();
+  const startDate=qs('#travelGroupStart').value,endDate=qs('#travelGroupEnd').value;
+  const rawCount=qs('#travelGroupExpected').value.trim();
+  const status=qs('#travelGroupFeedback'),button=qs('#travelGroupSubmit');
+  if(!shortLabel||Array.from(shortLabel).length>3){
+    status.textContent='分組簡稱請輸入 1～3 字。';return;
+  }
+  if(!startDate||!endDate||startDate>endDate){
+    status.textContent='請修正開始及結束日期。';return;
+  }
+  const personIds=qsa('#travelGroupPeople input:checked').map(x=>x.value);
+  const itemIds=qsa('#travelGroupItinerary input:checked').map(x=>x.value);
+  const selected=travelGroupEventRows().filter(x=>itemIds.includes(x.event.id));
+  if(selected.some(x=>x.day.date<startDate||x.day.date>endDate)){
+    status.textContent='部分勾選行程不在小組日期內，請調整小組起訖日。';return;
+  }
+  const movePeople=(TRIP?.people||[]).filter(p=>personIds.includes(p.id)&&
+    routeGroups().some(g=>g.id!==id&&(g.personIds||[]).includes(p.id)));
+  const moveEvents=selected.filter(x=>x.event.routeGroupId&&x.event.routeGroupId!==id);
+  if((movePeople.length||moveEvents.length)&&!confirm(
+    movePeople.length+' 位旅伴、'+moveEvents.length+' 筆行程目前屬其他組。確定改為「'+shortLabel+'」？'
+  ))return;
+  travelGroupsBusy=true;button.disabled=true;status.textContent='儲存中…';
+  let savedId=id,created=false;
+  try{
+    const result=await travelEditor('save_route_group',{group:{
+      id:id||null,shortLabel,description,startDate,endDate,
+      expectedPeopleCount:rawCount===''?null:Number(rawCount)
+    }});
+    savedId=String(result?.group?.id||id);
+    created=Boolean(result?.created);
+    if(!savedId)throw new Error('group_id_missing');
+    qs('#travelGroupId').value=savedId;
+    await travelEditor('assign_route_group_people',{routeGroupId:savedId,personIds});
+    await travelEditor('assign_route_group_items',{routeGroupId:savedId,itemIds});
+    await hydratePrivateCloudData();
+    editTravelGroup(savedId);
+    qs('#travelGroupFeedback').textContent='已儲存：'+personIds.length+' 位旅伴、'+itemIds.length+' 筆專屬行程；其餘保持共同。';
+  }catch(err){
+    status.textContent='儲存未完成：'+String(err?.code||err?.message||err)+
+      (created?'。新分組已建立，請重新選取確認。':'');
+    if(created){try{await hydratePrivateCloudData();renderTravelGroupList()}catch(_){}}
+  }finally{travelGroupsBusy=false;const btn=qs('#travelGroupSubmit');if(btn)btn.disabled=false;}
+}
+async function removeTravelGroup(){
+  if(travelGroupsBusy||!canEditTrip())return;
+  const id=qs('#travelGroupId').value,g=routeGroupById(id);
+  if(!g)return;
+  const eventCount=travelGroupEventRows().filter(x=>x.event.routeGroupId===id).length;
+  const bookingCount=(TRIP?.bookings||[]).filter(b=>b.routeGroupId===id).length;
+  if(!confirm('刪除「'+(g.shortLabel||g.name)+'」？\n'+eventCount+
+    ' 筆行程與 '+bookingCount+' 筆預訂會變回共同，但不會刪除任何行程或訂單。'))return;
+  travelGroupsBusy=true;qs('#travelGroupFeedback').textContent='刪除分組中…';
+  try{
+    await travelEditor('delete_route_group',{routeGroupId:id});
+    if(activeRouteGroupId===id)activeRouteGroupId='all';
+    try{localStorage.setItem('travelRouteGroup:'+TRIP.slug,'all')}catch(_){}
+    await hydratePrivateCloudData();
+    qs('#travelGroupDetail').hidden=true;renderTravelGroupList();
+    if(routeGroups().length)editTravelGroup(routeGroups()[0].id);
+    else closeTravelGroupsManager();
+  }catch(err){qs('#travelGroupFeedback').textContent='刪除失敗：'+String(err?.code||err?.message||err);}
+  finally{travelGroupsBusy=false;}
+}
+
+function setRouteGroupSelection(id){
+  if(id!=='all'&&!routeGroupById(id))return;
+  activeRouteGroupId=id;
+  try{localStorage.setItem('travelRouteGroup:'+String(TRIP?.slug||''),id)}catch(_){}
+  routeRenderToken++;
+  todayRouteToken++;
+  routeGeometry=[]; routeCumulative=[];routeTotalKm=0;
+  clearRouteTimer();
+  renderDayStrip();
+  renderToday();
+  renderBookings();
+  if(map&&qs('#mapView')?.classList.contains('active'))renderMapDay();
+}
+
+function renderDayStrip(){
+  const dateLabel=d=>String(d.date||'').slice(5).replace('-','/');
+  const html=TRIP.days.map((d,i)=>{
+    const ctx=dayContext(d.date);
+    return `<button class="day-btn ${i===selectedDay?'active':''} ${ctx.isPast?'completed':''}" data-day="${i}"><strong>${d.label}</strong><small>${dateLabel(d)}</small></button>`;
+  }).join('');
+  qs('#dayStrip').innerHTML=html;
+  qs('#dayStrip').querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{
+    selectedDay=+b.dataset.day;
+    mapSelectedDays=new Set([selectedDay]);
+    mapPrimaryDay=selectedDay;
+    renderAll();
+  });
+
+  const allSelected=mapSelectedDays.size===TRIP.days.length;
+  const dayButtons=TRIP.days.map((d,i)=>`<button class="map-day-btn ${mapSelectedDays.has(i)?'active':''}" data-map-day="${i}"><strong>${d.label}</strong><small>${dateLabel(d)}</small></button>`).join('');
+  const allButton=mapMultiSelectMode?`<button class="map-day-btn map-all-chip ${allSelected?'active':''}" data-map-all="1"><strong>全部</strong><small>${TRIP.days.length} 天</small></button>`:'';
+  qs('#mapDayStrip').innerHTML=allButton+dayButtons;
+  qs('#mapDayStrip').querySelectorAll('[data-map-day]').forEach(b=>b.onclick=()=>handleMapDayClick(+b.dataset.mapDay));
+  const allBtn=qs('#mapDayStrip [data-map-all]');
+  if(allBtn) allBtn.onclick=toggleMapAllDays;
+  const multiBtn=qs('#mapMultiToggle');
+  if(multiBtn){
+    multiBtn.textContent='複選';
+    multiBtn.classList.toggle('active',mapMultiSelectMode);
+  }
+  renderRouteGroupSelectors();
+  const flightsBtn=qs('#mapFlightsToggle');
+  if(flightsBtn){
+    flightsBtn.classList.toggle('active',mapShowFlights);
+    flightsBtn.setAttribute('aria-pressed',String(mapShowFlights));
+  }
+}
+
+function sortedMapDays(){
+  return [...mapSelectedDays].sort((a,b)=>a-b);
+}
+
+function handleMapDayClick(dayIndex){
+  if(!mapMultiSelectMode){
+    selectedDay=dayIndex;
+    mapPrimaryDay=dayIndex;
+    mapSelectedDays=new Set([dayIndex]);
+    renderDayStrip();
+    renderToday();
+    if(map) renderMapDay();
+    return;
+  }
+  mapPrimaryDay=dayIndex;
+  if(mapSelectedDays.has(dayIndex)){
+    if(mapSelectedDays.size===1) return;
+    mapSelectedDays.delete(dayIndex);
+  }else{
+    mapSelectedDays.add(dayIndex);
+  }
+  renderDayStrip();
+  if(map) renderMapDay();
+}
+
+function toggleMapFlights(){
+  mapShowFlights=!mapShowFlights;
+  const btn=qs('#mapFlightsToggle');
+  if(btn){
+    btn.classList.toggle('active',mapShowFlights);
+    btn.setAttribute('aria-pressed',String(mapShowFlights));
+  }
+  if(map)renderMapDay();
+}
+
+function toggleMapMultiMode(){
+  if(mapMultiSelectMode){
+    const first=sortedMapDays()[0] ?? mapPrimaryDay ?? selectedDay;
+    mapMultiSelectMode=false;
+    selectedDay=first;
+    mapPrimaryDay=first;
+    mapSelectedDays=new Set([first]);
+  }else{
+    mapMultiSelectMode=true;
+    if(mapSelectedDays.size===0) mapSelectedDays=new Set([mapPrimaryDay]);
+  }
+  renderDayStrip();
+  const indices=sortedMapDays();
+  const totals=selectionFallbackTotals(indices);
+  updateMapRangeText(indices,totals.km,totals.sec);
+  if(map) renderMapDay();
+}
+function toggleMapAllDays(){
+  if(!mapMultiSelectMode) return;
+  if(mapSelectedDays.size===TRIP.days.length){
+    mapSelectedDays=new Set([mapPrimaryDay]);
+  }else{
+    mapSelectedDays=new Set(TRIP.days.map((_,i)=>i));
+  }
+  renderDayStrip();
+  if(map) renderMapDay();
+}
+
+function escapeHtml(value){
+  return String(value??'').replace(/[&<>"']/g,ch=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+}
+
+function eventBookings(event){
+  const ids=Array.isArray(event?.reservationIds)&&event.reservationIds.length
+    ?event.reservationIds
+    :(event?.reservationId?[event.reservationId]:[]);
+  const set=new Set(ids.map(String));
+  return (TRIP.bookings||[]).map((b,idx)=>({b,idx})).filter(x=>set.has(String(x.b.id)));
+}
+function bookingPeopleCount(b){
+  const p=b?.imported||{};
+  return Number(p.guestCount||p.passengerCount||0)||0;
+}
+function bookingRoomCount(b){
+  const p=b?.imported||{};
+  return Number(p.roomCount||0)||0;
+}
+function flightSegmentForDay(b,dateString){
+  const p=b?.imported||{};
+  const segments=Array.isArray(p.segments)?p.segments:[];
+  let seg=segments.find(s=>String(s?.date||'').slice(0,10)===String(dateString||'').slice(0,10));
+  if(!seg&&segments.length===1)seg=segments[0];
+  if(!seg&&segments.length){
+    const start=String(b?._raw?.starts_at||'').slice(0,10);
+    const end=String(b?._raw?.ends_at||'').slice(0,10);
+    if(start===dateString)seg=segments[0];
+    else if(end===dateString)seg=segments[segments.length-1];
+  }
+  return seg||null;
+}
+function detailRowValue(b,labelPattern){
+  const rows=Array.isArray(b?.details?.rows)?b.details.rows:[];
+  const row=rows.find(x=>Array.isArray(x)&&labelPattern.test(String(x[0]||'')));
+  return row?String(row[1]||'').trim():'';
+}
+function dateDiffDays(start,end){
+  const a=Date.parse(String(start||'').slice(0,10)+'T00:00:00Z');
+  const b=Date.parse(String(end||'').slice(0,10)+'T00:00:00Z');
+  return Number.isFinite(a)&&Number.isFinite(b)&&b>a?Math.round((b-a)/86400000):0;
+}
+function shortDateRange(start,end){
+  const fmt=v=>String(v||'').slice(5,10).replace('-','/');
+  const a=fmt(start),b=fmt(end);
+  return a&&b?a+'–'+b:(a||b);
+}
+function briefText(value,max=150){
+  const s=String(value||'').replace(/\s+/g,' ').trim();
+  return s.length>max?s.slice(0,max-1)+'…':s;
+}
+function flightAirlineName(b){
+  const p=b?.imported||{};
+  if(p.airlineName)return String(p.airlineName);
+  const row=detailRowValue(b,/航空公司|airline/i);
+  if(row)return row;
+  const provider=String(b?.provider||'');
+  if(provider.includes('/'))return provider.split('/').slice(1).join('/').trim();
+  if(provider&&!/trip\.com/i.test(provider))return provider;
+  return '';
+}
+function flightBaggageSummaryForBooking(b){
+  const p=b?.imported||{};
+  if(p.baggageSummary)return String(p.baggageSummary);
+  const detail=detailRowValue(b,/^行李$|行李限額|baggage/i);
+  if(detail)return detail;
+  const parts=[];
+  if(p.carryOnKg)parts.push('隨身 '+p.carryOnKg+'kg');
+  if(p.checkedBaggageIncluded===false)parts.push('無託運');
+  else if(p.checkedBaggageKg)parts.push('託運 '+p.checkedBaggageKg+'kg');
+  if(parts.length)return parts.join(' · ');
+  const weights=[];
+  (Array.isArray(p.passengerDetails)?p.passengerDetails:[]).forEach(line=>{
+    const m=String(line).match(/(\d+)\s*公斤/);
+    if(m)weights.push(Number(m[1]));
+  });
+  const unique=[...new Set(weights.filter(Number.isFinite))];
+  if(unique.length===1)return '託運 '+unique[0]+'kg';
+  if(unique.length>1)return '行李詳預訂資訊';
+  return '';
+}
+function flightPresentation(event,dateString){
+  const linked=eventBookings(event);
+  const booking=linked[0]?.b||null;
+  const imported=booking?.imported||{};
+  const seg=booking?flightSegmentForDay(booking,dateString):null;
+  const titleText=String(event?.title||'');
+  const subtitleText=String(event?.subtitle||'');
+  const importedRoute=(imported?.departureAirport&&imported?.arrivalAirport)
+    ?[imported.departureAirport,imported.arrivalAirport]
+    :null;
+  const routeMatch=(seg?.departureAirport&&seg?.arrivalAirport)
+    ?[seg.departureAirport,seg.arrivalAirport]
+    :(importedRoute||(titleText.match(/\b([A-Z]{3})\s*(?:→|->|↔|–|-)\s*([A-Z]{3})\b/i)||[]).slice(1,3));
+  const dep=routeMatch?.[0]||'';
+  const arr=routeMatch?.[1]||'';
+  const timeMatch=subtitleText.match(/(\d{1,2}:\d{2})\s*(?:→|–|-)\s*(\d{1,2}:\d{2})/);
+  const depTime=seg?.departureTime||imported?.departureTime||event?.time||timeMatch?.[1]||'';
+  const arrTime=seg?.arrivalTime||imported?.arrivalTime||timeMatch?.[2]||'';
+  const flightNo=seg?.flightNo||imported?.flightNo||
+    (titleText.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||subtitleText.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||[])[1]||'';
+  const airlineNames=[...new Set(linked.map(({b})=>flightAirlineName(b)).filter(Boolean))];
+  const baggage=[...new Set(linked.map(({b})=>flightBaggageSummaryForBooking(b)).filter(Boolean))];
+  const baggageText=baggage.length>1?'行李詳預訂資訊':(baggage[0]||'');
+  const note=[airlineNames.length===1?airlineNames[0]:(airlineNames.length>1?'航空公司詳預訂資訊':''),baggageText].filter(Boolean).join(' · ');
+  return {
+    title:[flightNo?flightNo.replace(/\s+/g,''):'',depTime&&arrTime?depTime+'–'+arrTime:''].filter(Boolean).join(' · ')||titleText,
+    subtitle:dep&&arr?dep+' → '+arr:subtitleText,
+    note,
+    // Keep the scheduled departure visible in the timeline's right-hand time
+    // column; the full departure-arrival range remains in the flight title.
+    time:event?.time||depTime||'',
+    linked,
+    flightNo:flightNo?flightNo.replace(/\s+/g,''):'',
+    segment:seg
+  };
+}
+function stayMealSummary(b){
+  const p=b?.imported||{};
+  const explicit=String(p.mealPlan||'').trim();
+  if(explicit)return explicit;
+  const text=String(p.amenities||'')+' '+detailRowValue(b,/方案|餐食|meal/i);
+  if(/不包括餐|不含餐|no meals?/i.test(text))return '不含餐';
+  const breakfast=/早餐|breakfast/i.test(text);
+  const dinner=/晚餐|dinner/i.test(text);
+  if(breakfast&&dinner)return '含早餐、晚餐';
+  if(breakfast)return '含早餐';
+  if(dinner)return '含晚餐';
+  return '';
+}
+function stayPresentation(event){
+  const linked=eventBookings(event);
+  if(!linked.length)return {title:event.title||'',subtitle:event.subtitle||'',note:event.note||'',time:event.time||''};
+  const bookings=linked.map(x=>x.b);
+  const nightCounts=bookings.map(b=>Number(b.imported?.nightCount)||dateDiffDays(b.imported?.startDate||b._raw?.starts_at,b.imported?.endDate||b._raw?.ends_at)).filter(Boolean);
+  const nights=nightCounts.length?Math.max(...nightCounts):0;
+  let rooms=bookings.reduce((n,b)=>n+(bookingRoomCount(b)||0),0);
+  if(!rooms&&bookings.length)rooms=bookings.length;
+  const people=bookings.reduce((n,b)=>{
+    const p=bookingPeopleCount(b);
+    if(p)return n+p;
+    const m=String(b.imported?.guests||'').match(/(\d+)/);
+    return n+(m?Number(m[1]):0);
+  },0);
+  const plans=[...new Set(bookings.map(stayMealSummary).filter(Boolean))];
+  const note=plans.length>1?'方案詳預訂資訊':(plans[0]||event.note||'');
+  return {
+    title:event.title||bookings[0]?.title||'住宿',
+    subtitle:[nights?nights+' 晚':'',rooms?rooms+' 房':'',people?people+' 人':''].filter(Boolean).join(' · ')||event.subtitle||'',
+    note,
+    // First-night check-in stays visible; subsequent nightly stay rows with no
+    // itinerary time remain untimed by design.
+    time:event?.time||''
+  };
+}
+function carPresentation(event){
+  const linked=eventBookings(event),b=linked[0]?.b||null,p=b?.imported||{};
+  if(!b)return {title:event.title||'',subtitle:event.subtitle||'',note:event.note||'',time:event.time||''};
+  const start=p.startDate||String(b._raw?.starts_at||'').slice(0,10);
+  const end=p.endDate||String(b._raw?.ends_at||'').slice(0,10);
+  const days=Number(p.rentalDays)||dateDiffDays(start,end);
+  const transmission=/automatic|自排/i.test(String(p.transmission||''))?'自排':(/manual|手排/i.test(String(p.transmission||''))?'手排':String(p.transmission||''));
+  const note=[p.plan||'',transmission,p.extras||'',p.insurances||''].filter(Boolean).map(x=>briefText(x,90)).join(' · ');
+  return {
+    title:p.rentalCompany||b.provider||event.title||'租車',
+    subtitle:[p.vehicleModel||p.title||b.title||'',days?days+' 天':'',shortDateRange(start,end)?'('+shortDateRange(start,end)+')':''].filter(Boolean).join(' · '),
+    note:note||event.note||'',
+    // Preserve the itinerary pickup/drop-off time even when reservation data
+    // is linked to the card.
+    time:event?.time||''
+  };
+}
+function tourPresentation(event){
+  const linked=eventBookings(event),b=linked[0]?.b||null,p=b?.imported||{};
+  if(!b)return {title:event.title||'',subtitle:event.subtitle||'',note:event.note||'',time:event.time||''};
+  const meetingPoint=p.meetingPoint||p.address||b._raw?.address||'';
+  const meetingTime=p.meetingTime||p.time||event.time||'';
+  const note=[meetingPoint?('集合 '+meetingPoint):'',meetingTime?('集合時間 '+meetingTime):'',p.activityNote||p.providerNote||event.note||''].filter(Boolean).map(x=>briefText(x,120)).join(' · ');
+  return {
+    title:p.title||b.title||event.title||'Tour',
+    subtitle:p.activityProvider||p.operator||event.subtitle||b.provider||'',
+    note,
+    // Timeline time is the scheduled itinerary time. Keep the booking's
+    // meeting time in the note so both values can be shown when they differ.
+    time:event.time||''
+  };
+}
+function eventPresentation(event,dateString){
+  if(event?.type==='flight')return flightPresentation(event,dateString);
+  if(event?.type==='stay')return stayPresentation(event);
+  if(event?.type==='car')return carPresentation(event);
+  if(event?.type==='tour')return tourPresentation(event);
+  return {title:event?.title||'',subtitle:event?.subtitle||'',note:event?.note||'',time:event?.time||''};
+}
+function flightStatusUrl(event,dateString){
+  const p=flightPresentation(event,dateString);
+  const compact=String(p.flightNo||'').replace(/\s+/g,'').toUpperCase();
+  const m=compact.match(/^([A-Z0-9]{2})(\d{1,4})$/);
+  const date=String(p.segment?.date||dateString||'').slice(0,10);
+  const dm=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m||!dm)return '';
+  const carrier=({IT:'TTW'})[m[1]]||m[1];
+  return 'https://www.flightstats.com/v2/flight-tracker/'+encodeURIComponent(carrier)+'/'+encodeURIComponent(m[2])+
+    '?year='+Number(dm[1])+'&month='+Number(dm[2])+'&date='+Number(dm[3]);
+}
+function openFlightStatus(dayIndex,eventIndex){
+  const day=TRIP.days?.[dayIndex],event=day?.events?.[eventIndex];
+  if(!day||!event)return;
+  const url=flightStatusUrl(event,day.date);
+  if(url)window.open(url,'_blank','noopener');
+}
+function toggleInlineBookingCode(button,idx){
+  const b=(TRIP.bookings||[])[idx],strong=button?.closest('.booking-code')?.querySelector('strong');
+  if(!b?.code||!strong)return;
+  const masked=maskCode(b.code,b.secret);
+  strong.textContent=strong.textContent===masked?(b.secret?b.code+' · PIN '+b.secret:b.code):masked;
+}
+function renderTimelineBookingCard(b,idx,n){
+  const d=b.details||{};
+  const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}</div></div>`:'';
+  const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`:'';
+  const source=d.source?`<div class="booking-detail-source">資料來源：${escapeHtml(d.source)}</div>`:'';
+  const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong>${escapeHtml(maskCode(b.code,b.secret))}</strong></div><button class="reveal-btn" type="button" onclick="event.stopPropagation();toggleInlineBookingCode(this,${idx})">顯示</button></div>`:'';
+  return `<article class="timeline-booking-card">
+    <div class="booking-top">
+      <div class="booking-icon">${iconSVG(b.type==='stay'?'house':(b.type||'booking'))}</div>
+      <div><div class="booking-provider">BOOKING ${n+1} · ${escapeHtml(b.provider||'')}</div><h3>${escapeHtml(b.title||'預訂')}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div>
+      <div class="code-pill">${escapeHtml(String(b.status||'confirmed').toUpperCase())}</div>
+    </div>
+    ${b.meta?`<div class="booking-meta">${escapeHtml(b.meta)}</div>`:''}
+    ${code}
+    ${b.alert?`<div class="alert-box">⚠️ ${escapeHtml(b.alert)}</div>`:''}
+    ${b.notice?`<div class="notice">${escapeHtml(b.notice)}</div>`:''}
+    <div class="booking-detail-panel timeline-booking-detail"><div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>
+  </article>`;
+}
+function renderLinkedBookings(event,dayIndex,eventIndex,dateString=''){
+  const linked=eventBookings(event);
+  if(!linked.length)return '';
+  const id='eventBookings-'+dayIndex+'-'+eventIndex;
+  const cards=linked.map(({b,idx},n)=>renderTimelineBookingCard(b,idx,n)).join('');
+  return `<div class="event-booking-group unified-booking-group">
+    <button class="booking-detail-toggle unified-booking-toggle" type="button"
+      onclick="event.stopPropagation();const p=document.getElementById('${id}');const open=p.hidden;p.hidden=!open;this.classList.toggle('open',open);this.querySelector('span:first-child').textContent=open?'收起預訂資訊':'預訂資訊 · ${linked.length} 筆'">
+      <span>預訂資訊 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span>
+    </button>
+    <div class="event-booking-list unified-booking-list" id="${id}" hidden>${cards}</div>
+  </div>`;
+}
+
+function renderEventDetails(e,dayIndex,eventIndex){
+  const detail=e.details||{intro:'',tips:[]};
+  const tipList=Array.isArray(detail.tips)?[...detail.tips]:[];
+  if(Array.isArray(e.openingHours)&&e.openingHours.length){
+    const hoursText='營業時間：'+e.openingHours.map(x=>`${x.day} ${x.hours}`).join('；');
+    if(!tipList.some(x=>String(x).startsWith('營業時間：')))tipList.push(hoursText);
+  }
+  if(!detail.intro&&!tipList.length)return '';
+  const tips=tipList.map(t=>`<li>${escapeHtml(t)}</li>`).join('');
+  return `<div class="event-detail-wrap">
+    <button class="detail-toggle" type="button" aria-expanded="false" onclick="event.stopPropagation();toggleEventDetails(${dayIndex},${eventIndex},this)">
+      <span>景點介紹與注意事項</span><span class="detail-chevron">⌄</span>
+    </button>
+    <div class="event-details" id="eventDetails-${dayIndex}-${eventIndex}" hidden>
+      ${detail.intro?`<div class="detail-section"><div class="detail-label">景點介紹</div><p>${escapeHtml(detail.intro)}</p></div>`:''}
+      ${tips?`<div class="detail-section"><div class="detail-label warn">注意事項</div><ul>${tips}</ul></div>`:''}
+      <div class="detail-source">來源：原行程表備註 / Google Places · 後續可在系統內編輯</div>
+    </div>
+  </div>`;
+}
+
+function toggleEventDetails(dayIndex,eventIndex,button){
+  const panel=qs(`#eventDetails-${dayIndex}-${eventIndex}`);
+  if(!panel) return;
+  const opening=panel.hidden;
+  panel.hidden=!opening;
+  button.setAttribute('aria-expanded',String(opening));
+  button.classList.toggle('open',opening);
+  const label=button.querySelector('span:first-child');
+  if(label) label.textContent=opening?'收起詳細資訊':'景點介紹與注意事項';
+}
+
+function placeWeekdayKey(day){
+  const names=['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+  const text=String(day||'').toLowerCase().trim().replace(/\s+|\./g,'');
+  const english=names.find(name=>name===text||name.slice(0,3)===text);
+  if(english)return english;
+  const chinese=text.match(/^(?:\u661f\u671f|\u9031|\u5468|\u79ae\u62dc|\u793c\u62dc)([\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929])$/);
+  if(chinese){
+    const ideograms='\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5';
+    const index=ideograms.indexOf(chinese[1]==='\u5929'?'\u65e5':chinese[1]);
+    return names[index]||'';
+  }
+  return '';
+}
+function placeHoursSignature(value){
+  const hours=parseBusinessWindow(value);
+  if(hours?.open24)return 'open24';
+  if(hours?.closed)return 'closed';
+  if(hours&&Number.isFinite(hours.open)&&Number.isFinite(hours.close))return `time:${hours.open}-${hours.close}`;
+  return String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+function placeScheduleMap(hours,closedDays){
+  const result=new Map();
+  for(const entry of (Array.isArray(hours)?hours:[])){
+    const day=placeWeekdayKey(entry?.day);
+    if(day)result.set(day,entry?.closed?'closed':String(entry?.hours||''));
+  }
+  for(const value of (Array.isArray(closedDays)?closedDays:[])){
+    const day=placeWeekdayKey(value);
+    if(day)result.set(day,'closed');
+  }
+  return result;
+}
+function placeHoursScheduleSignature(hours,closedDays){
+  const map=placeScheduleMap(hours,closedDays);
+  return ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+    .map(day=>day+':'+(map.has(day)?placeHoursSignature(map.get(day)):'unknown')).join('|');
+}
+function eventClosedWarning(event,dateString){
+  if(!event||!dateString||!Array.isArray(event.closedWeekdays)||!event.closedWeekdays.length)return '';
+  const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'));
+  return event.closedWeekdays.some(day=>placeWeekdayKey(day)===weekday.toLowerCase())?`⚠️ ${dateString}（${weekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
+}
+function timeToMinutes(value,meridiem=''){
+  const m=String(value||'').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if(!m)return null;
+  let h=Number(m[1]),min=Number(m[2]);
+  const ap=String(m[3]||meridiem||'').toUpperCase();
+  if(ap==='AM'&&h===12)h=0;
+  if(ap==='PM'&&h!==12)h+=12;
+  return h*60+min;
+}
+function parseBusinessWindow(text){
+  const raw=String(text||'').replace(/\u202f/g,' ').trim();
+  if(!raw||/(?:closed|\u516c\u4f11|\u4f11\u606f|\u4e0d\u71df\u696d|\u4e0d\u8425\u4e1a)/i.test(raw))return {closed:true};
+  if(/open 24 hours|24\s*(?:\u5c0f\u6642|\u5c0f\u65f6)\s*(?:\u71df\u696d|\u8425\u4e1a)?/i.test(raw))return {open24:true,open:0,close:1440};
+  const parts=raw.split(/\s*[–—-]\s*/);
+  if(parts.length<2)return null;
+  const endPart=parts.at(-1).trim();
+  const endMer=(endPart.match(/\b(AM|PM)\b/i)||[])[1]||'';
+  let startPart=parts[0].trim();
+  let startMer=(startPart.match(/\b(AM|PM)\b/i)||[])[1]||'';
+  if(!startMer&&endMer){
+    const sh=Number((startPart.match(/^(\d{1,2})/)||[])[1]);
+    const eh=Number((endPart.match(/^(\d{1,2})/)||[])[1]);
+    if(endMer.toUpperCase()==='PM'){
+      if(sh===12) startMer='PM';
+      else startMer=(Number.isFinite(sh)&&Number.isFinite(eh)&&sh<eh)?'PM':'AM';
+    }else startMer='AM';
+  }
+  const open=timeToMinutes(startPart,startMer),close=timeToMinutes(endPart,endMer);
+  if(open===null||close===null)return null;
+  return {open,close:close<=open?close+1440:close};
+}
+function hoursForVisitDay(event,dateString){
+  const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'));
+  return (event?.openingHours||[]).find(x=>placeWeekdayKey(x?.day)===weekday.toLowerCase())||null;
+}
+function eventHoursConflictWarning(event,dateString){
+  if(!event||!dateString||!event.time)return '';
+  const row=hoursForVisitDay(event,dateString);
+  if(!row)return '';
+  const w=parseBusinessWindow(row.hours);
+  if(!w)return '';
+  if(w.closed)return '';
+  if(w.open24)return '';
+  const visit=timeToMinutes(String(event.time).slice(0,5));
+  if(visit===null)return '';
+  const fmt=m=>String(Math.floor((m%1440)/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  if(visit<w.open)return `⚠️ 營業時間衝突 · 預計 ${String(event.time).slice(0,5)} 抵達，但 ${fmt(w.open)} 才開門。`;
+  if(visit>=w.close)return `⚠️ 營業時間衝突 · 預計 ${String(event.time).slice(0,5)} 抵達，但 ${fmt(w.close)} 已關門。`;
+  return '';
+}
+function demoHoursConflict(event,dateString){
+  if(!demoMode||window.TRAVEL_CONFIG?.tripSlug!=='iceland-2026'||dateString!=='2026-11-23')return '';
+  if(/diamond beach|鑽石沙灘/i.test(String(event?.title||''))) return '⚠️ 營業時間有變動 · DEMO：原本 24 小時，最新改為 17:00 關閉；示範通知與球標。';
+  return '';
+}
+function hoursChangeWarning(event){
+  if(!event?.hoursChangePending)return '';
+  const changed=event.hoursChangedAt?new Date(event.hoursChangedAt).toLocaleString():'最近';
+  return `🔄 Google 營業時間有變動 · ${changed} 更新，請確認行程是否仍適用。`;
+}
+function tripPlaceAlerts(){
+  const alerts=[];
+  (TRIP?.days||[]).forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
+    const seen=new Set();
+    for(const [kind,message] of [
+      ['closed',eventClosedWarning(event,day.date)],
+      ['conflict',eventHoursConflictWarning(event,day.date)],
+      ['changed',hoursChangeWarning(event)],
+      ['demo',demoHoursConflict(event,day.date)]
+    ]){
+      if(message&&!seen.has(message)){
+        seen.add(message);
+        alerts.push({kind,dayIndex,eventIndex,itemId:event.id,title:event.title,message});
+      }
+    }
+  }));
+  return alerts;
+}
+
+function renderTimelineEvent(e,eventIndex,d,dayIndex){
+  const p=eventPresentation(e,d.date);
+  const title=p.title||e.title||'';
+  const subtitle=p.subtitle||e.subtitle||'';
+  const note=p.note||'';
+  const time=p.time??(e.time||'');
+  let actionButton='';
+  if(e.type==='flight'){
+    const statusUrl=flightStatusUrl(e,d.date);
+    if(statusUrl)actionButton='<button class="mini-btn flight-status-btn" type="button" onclick="event.stopPropagation();openFlightStatus('+dayIndex+','+eventIndex+')">航班動態 ↗</button>';
+  }else if(hasNavigationTarget(e)){
+    actionButton='<button class="mini-btn" onclick="event.stopPropagation();openMapsEvent('+dayIndex+','+eventIndex+')">導航</button>';
+  }
+  return `<div class="timeline-item" data-event-index="${eventIndex}">
+    <div class="timeline-dot" aria-hidden="true"></div>
+    <article class="timeline-card ${e.details?'expandable':''} ${e.uncertain?'uncertain-item':''} ${e.type==='flight'?'flight-event-card':''}" onclick="handleTimelineCardClick(event,${dayIndex},${eventIndex})">
+      <div class="timeline-top"><div><div class="type">${typeLabel[e.type]||e.type}</div><h3>${escapeHtml(title)}</h3></div><div class="time">${escapeHtml(time)}</div></div>
+      ${subtitle?`<div class="sub">${escapeHtml(subtitle)}</div>`:''}
+      ${note?`<div class="note">${escapeHtml(note)}</div>`:''}
+      ${eventClosedWarning(e,d.date)?`<div class="place-hours-warning">${eventClosedWarning(e,d.date)}</div>`:''}
+      ${eventHoursConflictWarning(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${eventHoursConflictWarning(e,d.date)}</div>`:''}
+      ${hoursChangeWarning(e)?`<div class="place-hours-warning hours-change-warning">${hoursChangeWarning(e)}</div>`:''}
+      ${demoHoursConflict(e,d.date)?`<div class="place-hours-warning hours-conflict-warning">${demoHoursConflict(e,d.date)}</div>`:''}
+      ${renderLinkedBookings(e,dayIndex,eventIndex,d.date)}
+      ${renderEventDetails(e,dayIndex,eventIndex)}
+      ${actionButton?`<div class="card-actions">${actionButton}</div>`:''}
+    </article>
+  </div>`;
+}
+
+function handleTimelineCardClick(ev,dayIndex,eventIndex){
+  if(ev.target.closest('button,a,input')) return;
+  const button=ev.currentTarget.querySelector('.detail-toggle');
+  if(button) toggleEventDetails(dayIndex,eventIndex,button);
+}
+
+function hasNavigationTarget(e){
+  if(!e) return false;
+  return Boolean(
+    String(e.navQuery||'').trim() ||
+    String(e.address||'').trim() ||
+    String(e.googleMapsResolvedUrl||'').trim() ||
+    String(e.googleMapsUrl||'').trim() ||
+    validCoord(e)
+  );
+}
+
+function normalizedStayName(value){
+  return String(value||'').normalize('NFKD').toLowerCase()
+    .replace(/冰島|iceland|住宿|cottage(s)?|cabin|guesthouse|hotel|airbnb|booking\.com/g,'')
+    .replace(/[·•,，.。/\\()（）\-_]/g,'').replace(/\s+/g,'').trim();
+}
+
+function findStayBooking(stay){
+  if(!stay) return null;
+  if(stay.reservationId){
+    const idx=(TRIP.bookings||[]).findIndex(b=>b?.type==='stay'&&String(b.id||'')===String(stay.reservationId));
+    if(idx>=0) return {b:TRIP.bookings[idx],idx};
+  }
+  const stayRaw=String(stay.title||'').normalize('NFKD').toLowerCase();
+  const stayKey=normalizedStayName(stay.title);
+  let best=null,bestScore=-1;
+  (TRIP.bookings||[]).forEach((b,idx)=>{
+    if(b?.type!=='stay') return;
+    const raw=String(b.title||'').normalize('NFKD').toLowerCase();
+    const key=normalizedStayName(b.title);
+    let score=0;
+    if(raw&&stayRaw&&(stayRaw.includes(raw)||raw.includes(stayRaw))) score+=100;
+    if(key&&stayKey&&(stayKey.includes(key)||key.includes(stayKey))) score+=80;
+    (key.match(/[a-z0-9à-ž]+/g)||[]).forEach(t=>{if(t.length>=3&&stayKey.includes(t))score+=8});
+    if(score>bestScore){bestScore=score;best={b,idx}}
+  });
+  return bestScore>=16?best:null;
+}
+
+function bookingCoversNight(b,dateString){
+  if(!b||b.type!=='stay'||!dateString)return false;
+  const raw=b._raw||{};
+  const start=String(raw.starts_at||b.imported?.startDate||'').slice(0,10);
+  const end=String(raw.ends_at||b.imported?.endDate||'').slice(0,10);
+  return Boolean(start&&end&&dateString>=start&&dateString<end);
+}
+function stayForNight(dayIndex){
+  const day=TRIP.days?.[dayIndex];
+  if(!day)return null;
+  const explicit=[...(day.events||[])].reverse().find(e=>e.type==='stay');
+  if(explicit)return explicit;
+
+  const dateString=day.date;
+  for(let i=dayIndex-1;i>=0;i--){
+    const stays=[...(TRIP.days?.[i]?.events||[])].reverse().filter(e=>e.type==='stay');
+    for(const stay of stays){
+      const linked=eventBookings(stay);
+      if(linked.some(({b})=>bookingCoversNight(b,dateString)))return stay;
+      const fallback=findStayBooking(stay);
+      if(fallback&&bookingCoversNight(fallback.b,dateString))return stay;
+    }
+  }
+
+  const active=(TRIP.bookings||[]).map((b,idx)=>({b,idx})).filter(x=>bookingCoversNight(x.b,dateString));
+  if(!active.length)return null;
+  const first=active[0].b;
+  return {
+    type:'stay',
+    title:first.title||'住宿',
+    subtitle:'續住',
+    note:'',
+    reservationId:first.id||null,
+    reservationIds:active.map(x=>x.b.id).filter(Boolean),
+    lat:first._raw?.latitude??null,
+    lng:first._raw?.longitude??null,
+    address:first._raw?.address||'',
+    navQuery:first._raw?.nav_query||'',
+    googleMapsUrl:first._raw?.google_maps_url||'',
+    googleMapsResolvedUrl:first._raw?.google_maps_resolved_url||''
+  };
+}
+function tonightBookings(stay){
+  const linked=eventBookings(stay);
+  if(linked.length)return linked;
+  const match=findStayBooking(stay);
+  return match?[match]:[];
+}
+function renderTonightBookingPanel(b,idx,n){
+  const d=b.details||{};
+  const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}</div></div>`:'';
+  const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>`:'';
+  const source=d.source?`<div class="booking-detail-source">資料來源：${escapeHtml(d.source)}</div>`:'';
+  const alertHtml=b.alert?`<div class="alert-box">⚠️ ${escapeHtml(b.alert)}</div>`:'';
+  const notice=b.notice?`<div class="notice">${escapeHtml(b.notice)}</div>`:'';
+  const code=b.code?`<div class="booking-code"><div><small>CONFIRMATION</small><strong id="today-code-${idx}">${escapeHtml(maskCode(b.code,b.secret))}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleTodayCode(${idx})">顯示</button></div>`:'';
+  return `<div class="booking-detail-panel stay-booking-panel"><div class="stay-booking-summary"><strong>BOOKING ${n} · ${escapeHtml(b.provider||'')}</strong><span>${escapeHtml(b.dates||'')}</span><span>${escapeHtml(b.meta||'')}</span></div>${code}${alertHtml}${notice}<div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>`;
+}
+function renderTonightBooking(stay){
+  const linked=tonightBookings(stay);
+  if(!linked.length)return '';
+  const panels=linked.map(({b,idx},n)=>renderTonightBookingPanel(b,idx,n+1)).join('');
+  return `<div class="stay-booking-inline"><button class="booking-detail-toggle stay-booking-toggle" id="today-booking-toggle" type="button" onclick="event.stopPropagation();toggleTodayBookingDetails()"><span>預訂資訊 · ${linked.length} 筆</span><span class="detail-chevron">⌄</span></button><div class="stay-booking-list" id="today-booking-detail" hidden>${panels}</div></div>`;
+}
+
+function toggleTodayBookingDetails(){
+  const panel=qs('#today-booking-detail'),btn=qs('#today-booking-toggle');
+  if(!panel||!btn)return;
+  const open=panel.hidden;panel.hidden=!open;btn.classList.toggle('open',open);
+  const count=panel.querySelectorAll('.stay-booking-panel').length;
+  const label=btn.querySelector('span:first-child');
+  if(label)label.textContent=open?'收起預訂資訊':`預訂資訊 · ${count} 筆`;
+}
+
+function toggleTodayCode(idx){
+  const b=(TRIP.bookings||[])[idx]; if(!b?.code) return;
+  const el=qs('#today-code-'+idx); if(!el) return;
+  const masked=maskCode(b.code,b.secret);
+  el.textContent=el.textContent===masked?(b.secret?`${b.code} · PIN ${b.secret}`:b.code):masked;
+}
+function renderDayNote(d){
+  const wrap=qs('#dayNoteWrap'),toggle=qs('#dayNoteToggle'),body=qs('#dayNoteBody');
+  if(!wrap||!toggle||!body) return;
+  const note=String(d?.short||'').trim();
+  const visible=true;
+  wrap.hidden=false;
+
+  const icon=qs('#dayNoteIcon');
+  if(icon) icon.innerHTML=iconSVG('dayNote');
+  const preview=qs('#dayNotePreview');
+  const text=qs('#dayNoteText');
+  const editBtn=qs('#dayNoteEditBtn');
+  if(preview) preview.textContent=note?note.replace(/\s+/g,' ').trim():'尚未新增今日備註';
+  if(text) text.textContent=note||'尚未新增今日備註。';
+  if(editBtn){
+    editBtn.hidden=!(editMode&&canEditTrip());
+    editBtn.textContent='✎ 編輯本日';
+  }
+
+  toggle.setAttribute('aria-expanded','false');
+  wrap.classList.remove('open');
+  body.hidden=true;
+}
+
+function toggleDayNote(){
+  const wrap=qs('#dayNoteWrap'),toggle=qs('#dayNoteToggle'),body=qs('#dayNoteBody');
+  if(!wrap||!toggle||!body) return;
+  const open=toggle.getAttribute('aria-expanded')!=='true';
+  toggle.setAttribute('aria-expanded',String(open));
+  wrap.classList.toggle('open',open);
+  body.hidden=!open;
+}
+
+function ensureDayNoteEditor(){
+  let sheet=qs('#dayNoteEditSheet');
+  if(sheet) return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='dayNoteEditBackdrop';
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet day-note-edit-sheet';
+  sheet.id='dayNoteEditSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">DAY NOTE</span><h2>編輯今日備註</h2></div>
+      <button class="round-btn" id="closeDayNoteEdit">×</button>
+    </div>
+    <form class="edit-form" id="dayNoteEditForm">
+      <input type="hidden" id="dayNoteEditDayIndex">
+      <label><span>整日備註</span><textarea id="dayNoteEditText" rows="9" placeholder="例如：整天路線、備案、今天可能需要捨棄的景點、行車時間提醒…"></textarea></label>
+      <div class="edit-form-actions">
+        <button type="button" class="edit-delete" id="clearDayNote">清除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="dayNoteEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeDayNoteEdit').onclick=close;
+  backdrop.onclick=close;
+  qs('#clearDayNote').onclick=()=>{qs('#dayNoteEditText').value=''};
+  qs('#dayNoteEditForm').onsubmit=saveDayNoteEditor;
+  return sheet;
+}
+
+function openDayNoteEditor(dayIndex=selectedDay){
+  if(!canEditTrip()) return;
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const sheet=ensureDayNoteEditor();
+  qs('#dayNoteEditDayIndex').value=String(dayIndex);
+  qs('#dayNoteEditText').value=d.short||'';
+  qs('#dayNoteEditStatus').textContent='';
+  qs('#dayNoteEditBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>qs('#dayNoteEditText')?.focus(),60);
+}
+
+async function saveDayNoteEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#dayNoteEditDayIndex').value);
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const short=qs('#dayNoteEditText').value.trim();
+  const status=qs('#dayNoteEditStatus');
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_day',{day:{
+      id:d.id,baseVersion:d.version,date:d.date,label:d.label,name:d.name,short,
+      heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,
+      departureTime:d.departureTime||'',sunrise:d.sunrise,sunset:d.sunset
+    }});
+    qs('#dayNoteEditSheet').classList.remove('show');
+    qs('#dayNoteEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    if(err.code==='version_conflict'){
+      status.textContent='本日資料已被其他裝置更新，正在重新載入…';
+      await hydratePrivateCloudData();
+      return;
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message);
+  }
+}
+
+function renderToday(){
+  const d=currentDay();
+  const dayIndex=selectedDay;
+  const ui=dayUi(d);
+  const context=dayContext(d.date);
+  const weekday=d.date?new Intl.DateTimeFormat('en-US',{weekday:'short',timeZone:'UTC'}).format(new Date(d.date+'T00:00:00Z')).toUpperCase():'';
+  qs('#heroDay').textContent=`${d.label} · ${String(d.date||'').slice(5).replace('-','/')} ${weekday}`.trim();
+  qs('#heroTitle').textContent=derivedDayTitle(d,dayIndex);
+  const rel=qs('#heroRelativeLabel');
+  if(rel) rel.textContent=context.label;
+  const heading=qs('#timelineHeading');
+  if(heading) heading.textContent=`${context.timelineLabel||context.label}行程`;
+  qs('#todayView').classList.toggle('past-day',context.isPast);
+  const hero=qs('#heroCard');
+  hero.style.setProperty('--hero-photo',ui.photo);
+  hero.style.backgroundImage=ui.photo;
+  hero.dataset.heroSource=d.heroImageUrl?'manual':'fallback';
+  hero.dataset.heroSubject='';
+  refreshHeroPhoto(dayIndex);
+  const groupEstimateHidden=routeGroups().length&&activeRouteGroupId!=='all';
+  qs('#todayKm').textContent=groupEstimateHidden?'— km':`${d.km} km`;
+  qs('#todayDrive').textContent=groupEstimateHidden?'依本組路線計算':driveText(d);
+  const sun=sunTimesForDay(dayIndex);
+  qs('#todaySunrise').textContent=sun.sunrise;
+  qs('#todaySunset').textContent=sun.sunset;
+  qs('#weatherTemp').textContent='--°';
+  qs('#weatherLabel').textContent='讀取中';
+  renderDayNote(d);
+  const weatherIcon=qs('#weatherIconWrap');
+  if(weatherIcon) weatherIcon.innerHTML=iconSVG('weatherUnknown');
+  const groupPresent=groupActiveOnDay(activeRouteGroupId,d);
+  const prevStay=groupPresent&&dayIndex>0?stayForNight(dayIndex-1):null;
+  const firstEvent=groupEvents(d)[0]||null;
+  const firstIsSameOriginDrive=Boolean(prevStay&&firstEvent?.type==='drive'&&validCoord(firstEvent)&&Math.abs(firstEvent.lat-prevStay.lat)<1e-6&&Math.abs(firstEvent.lng-prevStay.lng)<1e-6);
+  const overnightDeparture=(prevStay&&!firstIsSameOriginDrive)
+    ? `<div class="timeline-item timeline-route-origin"><div class="timeline-dot" aria-hidden="true"></div><article class="timeline-card"><div class="timeline-top"><div><div class="type">移動</div><h3>${escapeHtml(prevStay.title)} 出發</h3></div><div class="time">${escapeHtml(d.departureTime||'')}</div></div><div class="sub">前一晚住宿 · 今日路線起點</div>${hasNavigationTarget(prevStay)?`<div class="card-actions"><button class="mini-btn" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(prevStay.navQuery||prevStay.address||`${prevStay.lat},${prevStay.lng}`)}&travelmode=driving','_blank','noopener')">導航</button></div>`:''}</article></div>`
+    : '';
+  const visible=groupEvents(d);
+  const groupOutside=routeGroups().length&&activeRouteGroupId!=='all'&&!groupActiveOnDay(activeRouteGroupId,d);
+  const noEventsHint=(!visible.length&&routeGroups().length)
+    ?'<div class="route-group-empty">'+(groupOutside?'這一組此日已不在旅程中。':'此組當日尚未安排活動或路線。')+'</div>':'';
+  qs('#timeline').innerHTML=groupOutside?'':overnightDeparture;
+  qs('#timeline').innerHTML+=d.events.map((e,eventIndex)=>
+    eventVisibleForGroup(e,d)?renderTimelineEvent(e,eventIndex,d,selectedDay):'').join('')+noEventsHint;
+  qsa('#timeline .timeline-item[data-event-index]').forEach(el=>{
+    const item=d.events[Number(el.dataset.eventIndex)];
+    const g=routeGroupById(item?.routeGroupId);
+    if(!g)return;
+    const host=el.querySelector('.timeline-top');
+    if(host){
+      const tag=document.createElement('span');
+      tag.className='route-group-event-label';
+      tag.textContent=String(g.shortLabel||String(g.code||'').toUpperCase()+'組');
+      host.appendChild(tag);
+    }
+  });
+  const stay=groupPresent?stayForNight(dayIndex):null;
+  qs('#tonightCard').innerHTML=stay?`<div class="stay-card"><div class="stay-top"><div><span class="section-kicker">TONIGHT</span><h3>${escapeHtml(stay.title||'')}</h3><p>${escapeHtml(stay.subtitle||'')}</p></div></div>${stay.note?`<p style="margin-top:10px">${escapeHtml(stay.note)}</p>`:''}${renderTonightBooking(stay)}</div>`:`<div class="stay-card"><p>今晚沒有住宿資料。</p></div>`;
+  decorateTimelineEditor();
+  refreshTodayRouteStats(dayIndex);
+  refreshHeroWeather(dayIndex);
+}
+
+async function refreshHeroWeather(dayIndex){
+  try{
+    const w=demoMode?demoWeatherForDay(dayIndex):await fetchWeatherForDay(dayIndex);
+    if(selectedDay!==dayIndex) return;
+    if(!w.available){
+      qs('#weatherTemp').textContent='--°';
+      qs('#weatherLabel').textContent='待預報';
+      const icon=qs('#weatherIconWrap');
+      if(icon) icon.innerHTML=iconSVG('weatherUnknown');
+      return;
+    }
+    const noon=w.noon||w.hours?.[0];
+    qs('#weatherTemp').textContent=`${Math.round(noon?.temp??w.max)}°`;
+    qs('#weatherLabel').textContent=wmoLabel(noon?.code??3);
+    const icon=qs('#weatherIconWrap');
+    if(icon) icon.innerHTML=iconSVG(wmoType(noon?.code??3));
+    // Sunrise/sunset are astronomical values from date + location and do not wait for forecast.
+  }catch(err){
+    if(selectedDay!==dayIndex) return;
+    console.warn('Weather unavailable',err);
+    qs('#weatherTemp').textContent='--°';
+    qs('#weatherLabel').textContent='暫無資料';
+    const icon=qs('#weatherIconWrap');
+    if(icon) icon.innerHTML=iconSVG('weatherUnknown');
+  }
+}
+
+function openMapsEvent(dayIndex,eventIndex){
+  const e=TRIP.days[dayIndex]?.events[eventIndex];
+  if(!e) return;
+  const coord=validCoord(e)?`${e.lat},${e.lng}`:'';
+  const destination=String(e.navQuery||e.address||coord||e.title||'').trim();
+  if(!destination) return;
+  const url=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+  window.open(url,'_blank','noopener');
+}
+
+function initMap(){
+  if(map) return;
+  map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([32.8031,130.7079],8);
+  L.control.zoom({position:'bottomright'}).addTo(map);
+
+  // Use Leaflet raster tiles directly. The previous MapLibre bridge could
+  // occasionally render as a blank/grey canvas on Android WebView/PWA.
+  const base=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,
+    attribution:'&copy; OpenStreetMap contributors',
+    updateWhenIdle:false,
+    keepBuffer:3
+  });
+  let tileErrors=0;
+  base.on('tileerror',()=>{
+    tileErrors++;
+    if(tileErrors===4) console.warn('Basemap tiles are failing to load.');
+  });
+  base.addTo(map);
+}
+
+function markerIcon(label,car=false){
+  const markerContent=car?iconSVG('car'):escapeHtml(label);
+  return L.divIcon({className:'',html:`<div class="custom-marker ${car?'car':''}"><div></div><span>${markerContent}</span></div>`,iconSize:[34,42],iconAnchor:[17,38]});
+}
+
+function hasExplicitRouteLocation(e){
+  if(!e) return false;
+  return Boolean(
+    String(e.navQuery||'').trim() ||
+    String(e.address||'').trim() ||
+    String(e.googleMapsUrl||'').trim() ||
+    String(e.googleMapsResolvedUrl||'').trim() ||
+    String(e.reservationId||'').trim()
+  );
+}
+
+function isRouteStop(e){
+  if(!e||e.uncertain||!validCoord(e)) return false;
+  if(e.type==='flight') return false;
+
+  // "drive" cards imported from the old spreadsheet sometimes carried only
+  // a rough region coordinate so the prototype map had something to draw.
+  if(e.type==='drive'&&!hasExplicitRouteLocation(e)) return false;
+  return true;
+}
+
+function flightRouteInfo(event,day){
+  if(!event||event.type!=='flight')return null;
+  let presentation=null;
+  try{presentation=flightPresentation(event,day?.date||'')}catch(_){}
+  const text=[
+    presentation?.subtitle,
+    event.title,
+    event.subtitle,
+    event.navQuery
+  ].filter(Boolean).join(' ');
+  const route=text.match(/\b([A-Z]{3})\s*(?:→|->|↔|–|-)\s*([A-Z]{3})\b/i);
+  if(!route)return null;
+  const dep=String(route[1]||'').toUpperCase();
+  const arr=String(route[2]||'').toUpperCase();
+  if(dep===arr)return null;
+  const flightNo=String(presentation?.flightNo||((text.match(/\b([A-Z0-9]{2}\s?\d{2,4})\b/i)||[])[1])||'').replace(/\s+/g,'');
+  return {dep,arr,flightNo,eventId:event.id||'',event};
+}
+
+function dayFlightInfos(day,groupId=activeRouteGroupId){
+  return groupEvents(day,groupId).map(e=>flightRouteInfo(e,day)).filter(Boolean);
+}
+function dayHasFlightRoute(day,groupId=activeRouteGroupId){return dayFlightInfos(day,groupId).length>0}
+
+function cachedAirportPoint(iata){
+  const code=String(iata||'').toUpperCase();
+  if(airportRouteCache.has(code))return airportRouteCache.get(code);
+  const known=(typeof AIRPORT_COORDS!=='undefined'&&AIRPORT_COORDS?.[code])||null;
+  if(known){
+    const point={iata:code,name:known.name||code+' Airport',address:'',lat:Number(known.lat),lng:Number(known.lng)};
+    airportRouteCache.set(code,point);
+    return point;
+  }
+  return null;
+}
+
+async function ensureAirportRoutePoint(iata){
+  const code=String(iata||'').trim().toUpperCase();
+  if(!/^[A-Z]{3}$/.test(code))return null;
+  const cached=cachedAirportPoint(code);
+  if(cached)return cached;
+  if(!navigator.onLine)return null;
+  try{
+    const data=await travelEditor('lookup_airport',{iata:code});
+    const a=data?.airport;
+    if(a&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lng))){
+      const point={
+        iata:code,
+        name:String(a.name||code+' Airport'),
+        address:String(a.address||''),
+        lat:Number(a.lat),
+        lng:Number(a.lng)
+      };
+      airportRouteCache.set(code,point);
+      return point;
+    }
+  }catch(err){
+    console.warn('Airport lookup failed',code,err);
+  }
+  return null;
+}
+
+async function ensureFlightAirportsForDay(day,groupId=activeRouteGroupId){
+  const codes=[...new Set(dayFlightInfos(day,groupId).flatMap(x=>[x.dep,x.arr]))];
+  await Promise.all(codes.map(ensureAirportRoutePoint));
+}
+
+function flightAirportStop(info,role){
+  const code=role==='departure'?info.dep:info.arr;
+  const airport=cachedAirportPoint(code);
+  if(!airport)return null;
+  return {
+    type:'airport',
+    title:`${code} 機場`,
+    subtitle:airport.name||'',
+    time:'',
+    lat:Number(airport.lat),
+    lng:Number(airport.lng),
+    address:airport.address||'',
+    navQuery:airport.name||code+' Airport',
+    _airportStop:true,
+    _airportCode:code,
+    _airportRole:role,
+    _flightKey:`${info.eventId||info.flightNo||''}:${info.dep}-${info.arr}`,
+    _flightNo:info.flightNo||'',
+    _flightEvent:info.event
+  };
+}
+
+function getRouteStops(d,groupId=activeRouteGroupId){
+  if(!groupActiveOnDay(groupId,d))return [];
+  const dayIndex=TRIP.days.indexOf(d);
+  const raw=[];
+  let previousFlightInfo=null;
+
+  for(const event of groupEvents(d,groupId)){
+    if(event?.type==='flight'){
+      const info=flightRouteInfo(event,d);
+      if(info){
+        // An imported reservation and an itinerary row may describe the same
+        // flight. Ignore that duplicate before constructing route segments;
+        // otherwise AMS -> KEF -> AMS -> KEF fabricates a cross-sea road leg.
+        const sameRoute=previousFlightInfo
+          && previousFlightInfo.dep===info.dep
+          && previousFlightInfo.arr===info.arr;
+        const sameFlight=sameRoute&&(
+          !previousFlightInfo.flightNo||!info.flightNo
+          ||previousFlightInfo.flightNo===info.flightNo
+        );
+        if(sameFlight)continue;
+        const dep=flightAirportStop(info,'departure');
+        const arr=flightAirportStop(info,'arrival');
+        if(dep)raw.push(dep);
+        if(arr)raw.push(arr);
+        previousFlightInfo=info;
+      }
+      continue;
+    }
+    if(isRouteStop(event)){
+      raw.push(event);
+      // A recorded ground stop separates two genuine flight segments.
+      previousFlightInfo=null;
+    }
+  }
+
+  // Start: previous night's accommodation.
+  if(dayIndex>0){
+    const prev=TRIP.days[dayIndex-1];
+    const overnight=stayForNight(dayIndex-1);
+    if(overnight&&!overnight.uncertain&&validCoord(overnight)){
+      const first=raw[0];
+      if(!first||Math.abs(first.lat-overnight.lat)>1e-6||Math.abs(first.lng-overnight.lng)>1e-6){
+        raw.unshift({...overnight,_routeCarryover:true,_routeCarryoverFrom:prev?.label||''});
+      }
+    }
+  }
+
+  // End: tonight's accommodation.
+  const tonight=stayForNight(dayIndex);
+  const branchEndsToday=routeGroups().length&&groupId!=='all'&&routeGroupById(groupId)?.endDate===d.date;
+  const finalStop=raw[raw.length-1];
+  const flightHomeToday=branchEndsToday&&finalStop?._airportStop&&finalStop?._airportRole==='arrival';
+  if(!flightHomeToday&&tonight&&!tonight.uncertain&&validCoord(tonight)){
+    const last=raw[raw.length-1];
+    if(!last||Math.abs(last.lat-tonight.lat)>1e-6||Math.abs(last.lng-tonight.lng)>1e-6){
+      raw.push({...tonight,_routeReturnStay:true,_routeReturnDay:d.label});
+    }
+  }
+
+  const out=[];
+  for(const e of raw){
+    const last=out[out.length-1];
+    const sameCoord=last&&Math.abs(last.lat-e.lat)<=1e-6&&Math.abs(last.lng-e.lng)<=1e-6;
+    const sameFlightAirport=last?._airportStop&&e?._airportStop&&last._flightKey===e._flightKey&&last._airportRole!==e._airportRole;
+    if(!sameCoord||sameFlightAirport)out.push(e);
+  }
+  return out;
+}
+
+function routeLegInfo(stops,index){
+  const a=stops[index],b=stops[index+1];
+  const flight=Boolean(
+    a?._airportStop&&b?._airportStop&&
+    a._airportRole==='departure'&&b._airportRole==='arrival'&&
+    a._flightKey&&a._flightKey===b._flightKey
+  );
+  // Two synthetic airport stops are not evidence of a planned road trip.
+  // Never send an arrival -> next departure handoff to road routing.
+  const airportHandoff=Boolean(
+    a?._airportStop&&b?._airportStop&&
+    a._airportRole==='arrival'&&b._airportRole==='departure'
+  );
+  return {
+    mode:flight?'flight':airportHandoff?'gap':'drive',
+    label:flight
+      ?(a._flightNo?`✈ ${a._flightNo}`:`✈ ${a._airportCode}→${b._airportCode}`)
+      :airportHandoff?(a._airportCode===b._airportCode?'轉機':'交通未指定'):''
+  };
+}
+function routeSegmentMeta(stops){
+  return Array.from({length:Math.max(0,stops.length-1)},(_,i)=>routeLegInfo(stops,i));
+}
+function fallbackRouteSegments(stops){
+  const meta=routeSegmentMeta(stops);
+  return meta.map((m,i)=>m.mode==='drive'?haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]):0);
+}
+
+function googleRoutePoint(stop){
+  if(!stop) return '';
+  // Coordinates are the most deterministic cross-device representation.
+  if(Number.isFinite(stop.lat)&&Number.isFinite(stop.lng)) return `${stop.lat},${stop.lng}`;
+  return String(stop.navQuery||stop.address||stop.title||'').trim();
+}
+
+// A day can contain a flight AND a separate driving route. Export only the
+// contiguous 'drive' legs; never connect departure and arrival airports by car.
+function googleDrivingChunks(stops){
+  const meta=routeSegmentMeta(stops);
+  const chunks=[];
+  let first=-1;
+  for(let i=0;i<meta.length;i++){
+    if(meta[i].mode==='drive'){
+      if(first<0)first=i;
+    }else if(first>=0){
+      chunks.push(stops.slice(first,i+1));
+      first=-1;
+    }
+  }
+  if(first>=0)chunks.push(stops.slice(first));
+  return chunks.filter(chunk=>chunk.length>1 && chunk.every(stop=>googleRoutePoint(stop)));
+}
+
+function googleDrivingUrl(stops){
+  if(stops.length<2)return '';
+  const params=new URLSearchParams({
+    api:'1',
+    origin:googleRoutePoint(stops[0]),
+    destination:googleRoutePoint(stops[stops.length-1]),
+    travelmode:'driving'
+  });
+  const via=stops.slice(1,-1).map(googleRoutePoint).filter(Boolean);
+  if(via.length)params.set('waypoints',via.join('|'));
+  return 'https://www.google.com/maps/dir/?'+params.toString();
+}
+
+function googleDrivingOptionsForDay(dayIndex){
+  const day=TRIP.days?.[dayIndex];
+  if(!day)return [];
+  return googleDrivingChunks(getRouteStops(day)).map((stops,index)=>({
+    index:index+1,
+    title:(stops[0].title||'起點')+' → '+(stops[stops.length-1].title||'終點'),
+    stopCount:stops.length,
+    url:googleDrivingUrl(stops)
+  })).filter(x=>x.url);
+}
+
+function buildGoogleMapsDayRouteUrl(dayIndex){
+  return googleDrivingOptionsForDay(dayIndex)[0]?.url||'';
+}
+
+// Multiple flights can split a day into several independent ground segments.
+// Show a native Travel OS selection sheet instead of silently skipping one.
+function showGoogleDrivingRouteChoices(routes){
+  let sheet=qs('#googleDrivingRoutesSheet');
+  if(!sheet){
+    const backdrop=document.createElement('div');
+    backdrop.className='modal-backdrop';
+    backdrop.id='googleDrivingRoutesBackdrop';
+    sheet=document.createElement('aside');
+    sheet.className='members-sheet';
+    sheet.id='googleDrivingRoutesSheet';
+    sheet.setAttribute('aria-hidden','true');
+    sheet.innerHTML=`<div class="sheet-handle"></div>
+      <div class="sheet-title"><div><span class="section-kicker">GOOGLE MAPS</span>
+      <h2>選擇地面開車路線</h2><p>航班會分段處理，不列入開車路線。</p></div>
+      <button type="button" class="round-btn" id="googleDrivingRoutesClose" aria-label="關閉">×</button></div>
+      <div id="googleDrivingRoutesList" style="display:grid;gap:12px;margin-top:18px"></div>`;
+    document.body.append(backdrop,sheet);
+    const close=()=>{
+      sheet.classList.remove('show');backdrop.classList.remove('show');
+      sheet.setAttribute('aria-hidden','true');
+    };
+    backdrop.onclick=close;
+    sheet.querySelector('#googleDrivingRoutesClose').onclick=close;
+    sheet.closeDrivingChooser=close;
+  }
+  const list=sheet.querySelector('#googleDrivingRoutesList');
+  list.innerHTML=routes.map((r,i)=>`<button type="button" class="sheet-toggle-card" data-driving-route="${i}">
+    <span class="section-kicker">地面路段 ${i+1}</span>
+    <strong style="display:block;margin:8px 0">${escapeHtml(r.title)}</strong>
+    <span>${r.stopCount} 個地點 · Google Maps ↗</span>
+  </button>`).join('');
+  list.querySelectorAll('[data-driving-route]').forEach(button=>button.onclick=()=>{
+    const route=routes[Number(button.dataset.drivingRoute)];
+    if(!route)return;
+    window.open(route.url,'_blank','noopener');
+    sheet.closeDrivingChooser();
+  });
+  qs('#googleDrivingRoutesBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+}
+
+function openGoogleDayRoute(){
+  const indices=sortedMapDays().length?sortedMapDays():[selectedDay];
+  if(indices.length!==1){
+    alert('Google 路線一次匯出一天。請先切回單日模式。');
+    return;
+  }
+  const routes=googleDrivingOptionsForDay(indices[0]);
+  if(!routes.length){
+    alert('這一天沒有至少兩個可連接的地面路線點。航班與地面交通不能串成同一條開車路線。');
+    return;
+  }
+  if(routes.length===1){
+    window.open(routes[0].url,'_blank','noopener');
+    return;
+  }
+  showGoogleDrivingRouteChoices(routes);
+}
+
+async function fetchRoadRoute(stops){
+  if(stops.length<2) return null;
+  const coordString=stops.map(e=>`${e.lng},${e.lat}`).join(';');
+  const url=`https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson&steps=false`;
+  const res=await fetch(url,{mode:'cors'});
+  if(!res.ok) throw new Error(`routing ${res.status}`);
+  const json=await res.json();
+  if(json.code!=='Ok'||!json.routes?.[0]) throw new Error(json.code||'No route');
+  const route=json.routes[0];
+  return {
+    points:route.geometry.coordinates.map(([lng,lat])=>[lat,lng]),
+    distanceKm:route.distance/1000,
+    durationSec:route.duration,
+    segmentDistancesKm:(route.legs||[]).map(leg=>Number(leg.distance||0)/1000),
+    segmentDurationsSec:(route.legs||[]).map(leg=>Number(leg.duration||0)),
+    snapped:(json.waypoints||[]).map(w=>[w.location[1],w.location[0]])
+  };
+}
+
+function routeCacheKey(dayIndex,stops){
+  const modes=routeSegmentMeta(stops).map(x=>x.mode[0]).join('');
+  return `${dayIndex}:${modes}:`+stops.map(e=>`${e.lat.toFixed(5)},${e.lng.toFixed(5)}`).join('|');
+}
+
+async function getRoadRouteForDay(dayIndex,groupId=activeRouteGroupId){
+  const d=TRIP.days[dayIndex];
+  if(!groupActiveOnDay(groupId,d))return null;
+  await ensureFlightAirportsForDay(d,groupId);
+  const stops=getRouteStops(d,groupId);
+  if(stops.length<2) return null;
+
+  const key=routeCacheKey(dayIndex,stops);
+  if(roadRouteCache.has(key)) return roadRouteCache.get(key);
+
+  const pending=(async()=>{
+    const meta=routeSegmentMeta(stops);
+    const hasFlight=meta.some(x=>x.mode==='flight');
+
+    if(!hasFlight){
+      const road=await fetchRoadRoute(stops);
+      if(!road)return null;
+      return {
+        ...road,
+        hasFlight:false,
+        segmentModes:meta.map(x=>x.mode),
+        segmentLabels:meta.map(x=>x.label),
+        legs:[{mode:'drive',points:road.points,distanceKm:road.distanceKm,durationSec:road.durationSec}]
+      };
+    }
+
+    const segmentDistancesKm=Array(stops.length-1).fill(0);
+    const segmentDurationsSec=Array(stops.length-1).fill(0);
+    const segmentModes=meta.map(x=>x.mode);
+    const segmentLabels=meta.map(x=>x.label);
+    const legs=[];
+    const points=[];
+    let distanceKm=0,durationSec=0,approx=false;
+
+    const appendPoints=pts=>{
+      for(const pt of pts||[]){
+        const last=points[points.length-1];
+        if(!last||Math.abs(last[0]-pt[0])>1e-8||Math.abs(last[1]-pt[1])>1e-8)points.push(pt);
+      }
+    };
+
+    const addDriveChunk=async(start,end)=>{
+      if(end<=start)return;
+      const chunk=stops.slice(start,end+1);
+      try{
+        const road=await fetchRoadRoute(chunk);
+        if(!road)return;
+        for(let j=0;j<road.segmentDistancesKm.length;j++){
+          segmentDistancesKm[start+j]=Number(road.segmentDistancesKm[j])||0;
+          segmentDurationsSec[start+j]=Number(road.segmentDurationsSec[j])||0;
+        }
+        distanceKm+=Number(road.distanceKm)||0;
+        durationSec+=Number(road.durationSec)||0;
+        legs.push({mode:'drive',points:road.points,distanceKm:road.distanceKm,durationSec:road.durationSec});
+        appendPoints(road.points);
+      }catch(err){
+        approx=true;
+        const direct=chunk.map(s=>[s.lat,s.lng]);
+        let chunkKm=0;
+        for(let j=0;j<chunk.length-1;j++){
+          const km=haversineKm([chunk[j].lat,chunk[j].lng],[chunk[j+1].lat,chunk[j+1].lng]);
+          segmentDistancesKm[start+j]=km;
+          chunkKm+=km;
+        }
+        distanceKm+=chunkKm;
+        legs.push({mode:'drive',points:direct,distanceKm:chunkKm,durationSec:0,approx:true});
+        appendPoints(direct);
+      }
+    };
+
+    let chunkStart=0;
+    for(let i=0;i<meta.length;i++){
+      if(meta[i].mode==='drive')continue;
+      await addDriveChunk(chunkStart,i);
+      if(meta[i].mode==='flight'){
+        const flightPoints=[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]];
+        legs.push({
+          mode:'flight',
+          points:flightPoints,
+          distanceKm:0,
+          durationSec:0,
+          label:meta[i].label,
+          from:stops[i]._airportCode||'',
+          to:stops[i+1]._airportCode||''
+        });
+        appendPoints(flightPoints);
+      }
+      // 'gap' produces no geometry or driving distance. Resume at next stop.
+      chunkStart=i+1;
+    }
+    await addDriveChunk(chunkStart,stops.length-1);
+
+    return {
+      points,
+      distanceKm,
+      durationSec,
+      segmentDistancesKm,
+      segmentDurationsSec,
+      segmentModes,
+      segmentLabels,
+      snapped:stops.map(s=>[s.lat,s.lng]),
+      legs,
+      hasFlight:true,
+      approx
+    };
+  })().catch(err=>{roadRouteCache.delete(key);throw err});
+
+  roadRouteCache.set(key,pending);
+  return pending;
+}
+
+function formatDriveTime(durationSec){
+  const mins=Math.round(durationSec/60), h=Math.floor(mins/60), m=mins%60;
+  return h?`${h}h ${String(m).padStart(2,'0')}m`:`${m}m`;
+}
+
+async function refreshTodayRouteStats(dayIndex){
+  if(!TRIP.days?.[dayIndex]) return;
+  const token=++todayRouteToken;
+  try{
+    await ensureFlightAirportsForDay(TRIP.days[dayIndex]);
+    const road=await getRoadRouteForDay(dayIndex);
+    if(token!==todayRouteToken||selectedDay!==dayIndex)return;
+    if(!road){
+      if(routeGroups().length&&activeRouteGroupId!=='all'){
+        qs('#todayKm').textContent='0 km';
+        qs('#todayDrive').textContent=groupActiveOnDay(activeRouteGroupId,TRIP.days[dayIndex])
+          ?'目前沒有可計算的地面路線':'本組當日沒有行程';
+      }
+      return;
+    }
+    qs('#todayKm').textContent=`${road.distanceKm.toFixed(1)} km`;
+    qs('#todayDrive').textContent=formatDriveTime(road.durationSec);
+  }catch(err){
+    console.warn('Today route stats unavailable; keeping itinerary values.',err);
+  }
+}
+
+function haversineKm(a,b){
+  const R=6371, toRad=x=>x*Math.PI/180;
+  const dLat=toRad(b[0]-a[0]), dLng=toRad(b[1]-a[1]);
+  const h=Math.sin(dLat/2)**2+Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+function setRouteGeometry(points,totalKm=null,stopPoints=[],segmentDistancesKm=null,segmentDurationsSec=null,totalDurationSec=null){
+  routeGeometry=points||[];
+  routeCumulative=[];
+  let total=0;
+  for(let i=0;i<routeGeometry.length;i++){
+    if(i) total+=haversineKm(routeGeometry[i-1],routeGeometry[i]);
+    routeCumulative.push(total);
+  }
+  routeTotalKm=Number.isFinite(totalKm)?totalKm:total;
+  routeStopFractions=[];
+  routeSegmentDistancesKm=[];
+  routeSegmentDurationsSec=[];
+  routeTotalDurationSec=Number.isFinite(Number(totalDurationSec))?Math.max(0,Number(totalDurationSec)):0;
+
+  const supplied=Array.isArray(segmentDistancesKm)?segmentDistancesKm.map(Number):[];
+  const suppliedDurations=Array.isArray(segmentDurationsSec)?segmentDurationsSec.map(Number):[];
+  const validSupplied=stopPoints.length>=2
+    && supplied.length===stopPoints.length-1
+    && supplied.every(v=>Number.isFinite(v)&&v>=0)
+    && supplied.reduce((a,b)=>a+b,0)>0;
+
+  if(validSupplied){
+    const legTotal=supplied.reduce((a,b)=>a+b,0);
+    let acc=0;
+    routeStopFractions=[0];
+    routeSegmentDistancesKm=[...supplied];
+    if(suppliedDurations.length===supplied.length && suppliedDurations.every(v=>Number.isFinite(v)&&v>=0)){
+      routeSegmentDurationsSec=[...suppliedDurations];
+      if(!routeTotalDurationSec) routeTotalDurationSec=suppliedDurations.reduce((a,b)=>a+b,0);
+    }
+    for(const km of supplied){
+      acc+=km;
+      routeStopFractions.push(Math.min(1,acc/legTotal));
+    }
+    routeStopFractions[routeStopFractions.length-1]=1;
+    return;
+  }
+
+  const denom=routeCumulative[routeCumulative.length-1]||1;
+  for(const stop of stopPoints){
+    let best=0,bestDist=Infinity;
+    for(let i=0;i<routeGeometry.length;i++){
+      const dist=(routeGeometry[i][0]-stop[0])**2+(routeGeometry[i][1]-stop[1])**2;
+      if(dist<bestDist){bestDist=dist;best=i}
+    }
+    routeStopFractions.push((routeCumulative[best]||0)/denom);
+  }
+  for(let i=0;i<routeStopFractions.length-1;i++){
+    routeSegmentDistancesKm.push(Math.max(0,(routeStopFractions[i+1]-routeStopFractions[i])*routeTotalKm));
+  }
+}
+
+function formatRouteKm(km){
+  const n=Math.max(0,Number(km)||0);
+  return n>=100?String(Math.round(n)):n.toFixed(1);
+}
+
+function formatRouteMinutes(durationSec){
+  return `${Math.max(0,Math.round((Number(durationSec)||0)/60))} min`;
+}
+
+function updateRouteMetricToggle(){
+  const btn=qs('#routeMetricToggle');
+  if(!btn) return;
+  btn.dataset.mode=routeMetricMode;
+  btn.setAttribute('aria-label',routeMetricMode==='distance'?'目前顯示公里，點擊切換成分鐘':'目前顯示分鐘，點擊切換成公里');
+  qsa('#routeMetricToggle [data-route-metric]').forEach(el=>{
+    el.classList.toggle('active',el.dataset.routeMetric===routeMetricMode);
+  });
+}
+
+function updateRouteProgressMetric(t=0){
+  const progress=Math.max(0,Math.min(1,Number(t)||0));
+  const value=qs('#routeDistance');
+  const suffix=qs('#routeDistanceSuffix');
+  if(!value||!suffix) return;
+  if(routeMetricMode==='time' && routeTotalDurationSec>0){
+    value.textContent=String(Math.round(routeTotalDurationSec*progress/60));
+    suffix.innerHTML=` / <span id="routeTotal">${Math.round(routeTotalDurationSec/60)}</span> min`;
+  }else{
+    const km=routeTotalKm*progress;
+    value.textContent=km<100?km.toFixed(1):String(Math.round(km));
+    suffix.innerHTML=` / <span id="routeTotal">${routeTotalKm<100?routeTotalKm.toFixed(1):Math.round(routeTotalKm)}</span> km`;
+  }
+}
+
+function setRouteMetricMode(mode){
+  routeMetricMode=mode==='time'?'time':'distance';
+  try{localStorage.setItem('travelRouteMetric',routeMetricMode)}catch(_){}
+  updateRouteMetricToggle();
+  if(routeScaleState){
+    renderRouteScale(
+      routeScaleState.stops,
+      routeScaleState.segments,
+      routeScaleState.totalKm,
+      {
+        approx:routeScaleState.approx,
+        durations:routeScaleState.durations,
+        totalDurationSec:routeScaleState.totalDurationSec,
+        modes:routeScaleState.modes,
+        labels:routeScaleState.labels
+      }
+    );
+  }
+  updateRouteProgressMetric((+qs('#routeSlider')?.value||0)/100);
+}
+
+function toggleRouteMetric(){
+  setRouteMetricMode(routeMetricMode==='distance'?'time':'distance');
+}
+
+function setRouteScaleMessage(message){
+  const el=qs('#routeStops');
+  if(!el) return;
+  el.innerHTML=`<div class="route-scale-message">${escapeHtml(message)}</div>`;
+}
+
+function renderRouteScale(stops,segments=routeSegmentDistancesKm,totalKm=routeTotalKm,{approx=false,durations=routeSegmentDurationsSec,totalDurationSec=routeTotalDurationSec,modes=[],labels=[]}={}){
+  const el=qs('#routeStops');
+  if(!el) return;
+  if(!Array.isArray(stops)||stops.length<2){
+    routeScaleState=null;
+    setRouteScaleMessage(stops?.length?'只有一個路線點':'沒有可用的路線點');
+    return;
+  }
+
+  const segmentModes=(Array.isArray(modes)&&modes.length===stops.length-1)
+    ?modes.map(x=>(x==='flight'||x==='gap')?x:'drive')
+    :routeSegmentMeta(stops).map(x=>x.mode);
+  const segmentLabels=(Array.isArray(labels)&&labels.length===stops.length-1)
+    ?labels.map(String)
+    :routeSegmentMeta(stops).map(x=>x.label);
+
+  let seg=Array.isArray(segments)?segments.map(Number):[];
+  const validNumbers=seg.length===stops.length-1&&seg.every(v=>Number.isFinite(v)&&v>=0);
+  if(!validNumbers){
+    seg=[];
+    for(let i=0;i<stops.length-1;i++){
+      seg.push(segmentModes[i]==='drive'?haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]):0);
+    }
+  }
+
+  const driveTotal=seg.reduce((a,b)=>a+Math.max(0,b),0);
+  const segTotal=driveTotal||1;
+  const displayTotal=Number.isFinite(Number(totalKm))?Math.max(0,Number(totalKm)):driveTotal;
+
+  let dur=Array.isArray(durations)?durations.map(Number):[];
+  const validDurations=dur.length===seg.length&&dur.every(v=>Number.isFinite(v)&&v>=0);
+  let displayTotalDuration=Number.isFinite(Number(totalDurationSec))?Math.max(0,Number(totalDurationSec)):0;
+  if(!validDurations){
+    dur=seg.map((km,i)=>segmentModes[i]!=='drive'?0:(displayTotalDuration>0?displayTotalDuration*(Math.max(0,km)/segTotal):0));
+  }else if(!displayTotalDuration){
+    displayTotalDuration=dur.reduce((a,b)=>a+b,0);
+  }
+
+  routeScaleState={
+    stops,
+    segments:[...seg],
+    totalKm:displayTotal,
+    approx:Boolean(approx),
+    durations:[...dur],
+    totalDurationSec:displayTotalDuration,
+    modes:[...segmentModes],
+    labels:[...segmentLabels]
+  };
+
+  const prefix=approx?'≈':'';
+  const flightLabel=i=>segmentLabels[i]||'✈ 航班';
+  const kmLabels=seg.map((km,i)=>segmentModes[i]==='flight'?flightLabel(i):segmentModes[i]==='gap'?(segmentLabels[i]||'未指定交通'):`${prefix}${formatRouteKm(km)} km`);
+  const timeLabels=dur.map((sec,i)=>segmentModes[i]==='flight'?flightLabel(i):segmentModes[i]==='gap'?(segmentLabels[i]||'未指定交通'):`${prefix}${formatRouteMinutes(sec)}`);
+  const activeLabels=routeMetricMode==='time'?timeLabels:kmLabels;
+
+  const wrapWidth=Math.max(240,Number(qs('#routeScaleWrap')?.clientWidth||el.clientWidth||360));
+  const edgeInsetPx=window.innerWidth<=420?20:22;
+  const trackWidth=Math.max(180,wrapWidth-edgeInsetPx*2);
+  const charPx=window.innerWidth<=420?5.0:5.6;
+  const minWidths=seg.map((_,i)=>{
+    const longest=Math.max(kmLabels[i].length,timeLabels[i].length);
+    return Math.max(segmentModes[i]==='flight'?72:46,Math.ceil(longest*charPx+14));
+  });
+  const wanted=minWidths.reduce((a,b)=>a+b,0);
+  const fitScale=wanted>trackWidth?trackWidth/wanted:1;
+  const reservedWidths=minWidths.map(px=>px*fitScale);
+  const reserved=reservedWidths.reduce((a,b)=>a+b,0);
+  const flexible=Math.max(0,trackWidth-reserved);
+  const driveWeight=seg.reduce((a,km,i)=>a+(segmentModes[i]==='drive'?Math.max(0,km):0),0);
+  const flexibleShare=seg.map((km,i)=>{
+    if(segmentModes[i]!=='drive')return 0;
+    if(driveWeight>0)return flexible*(Math.max(0,km)/driveWeight);
+    const driveCount=segmentModes.filter(x=>x==='drive').length||1;
+    return flexible/driveCount;
+  });
+  const displaySegPx=seg.map((_,i)=>reservedWidths[i]+flexibleShare[i]);
+
+  const positions=[0];
+  let displayAcc=0;
+  for(const px of displaySegPx){
+    displayAcc+=px;
+    positions.push(Math.min(100,(displayAcc/trackWidth)*100));
+  }
+  positions[positions.length-1]=100;
+
+  const labelsHtml=activeLabels.map((label,i)=>{
+    const left=(positions[i]+positions[i+1])/2;
+    return `<span class="route-segment-label ${segmentModes[i]==='flight'?'flight':''}" style="left:${left.toFixed(3)}%">${escapeHtml(label)}</span>`;
+  }).join('');
+
+  const flightTracks=segmentModes.map((mode,i)=>{
+    if(mode!=='flight')return '';
+    const left=positions[i],width=Math.max(0,positions[i+1]-positions[i]);
+    return `<span class="route-track-flight" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%"></span>`;
+  }).join('');
+
+  const realStopProgress=(()=>{
+    if(routeStopFractions.length===stops.length){
+      return routeStopFractions.map(v=>Math.max(0,Math.min(100,Number(v||0)*100)));
+    }
+    const out=[0];
+    let acc=0;
+    for(let i=0;i<seg.length;i++){
+      if(segmentModes[i]!=='flight')acc+=Math.max(0,Number(seg[i])||0);
+      out.push(driveTotal>0?Math.min(100,(acc/driveTotal)*100):0);
+    }
+    if(out.length&&driveTotal>0)out[out.length-1]=100;
+    return out;
+  })();
+
+  const nodes=positions.map((p,i)=>{
+    const title=escapeHtml(stops[i]?.title?.split('\n')[0]||`Stop ${i+1}`);
+    const edge=i===0?' edge-start':(i===positions.length-1?' edge-end':'');
+    const airport=stops[i]?._airportStop?' airport':'';
+    const target=Number(realStopProgress[i]??p);
+    return `<button type="button" class="route-node${i===0?' current':''}${edge}${airport}" data-route-node="${i}" data-route-progress="${p.toFixed(3)}" data-route-target="${target.toFixed(3)}" data-route-name="${title}" style="left:${p.toFixed(3)}%" aria-label="${title}"><b>${i+1}</b><span class="route-node-tooltip">${title}</span></button>`;
+  }).join('');
+
+  el.innerHTML=`<div class="route-scale" data-approx="${approx?'1':'0'}" data-metric="${routeMetricMode}" data-has-flight="${segmentModes.includes('flight')?'1':'0'}">
+    <div class="route-track-area">
+      <div class="route-track"><div class="route-track-progress"></div>${flightTracks}</div>
+      ${nodes}
+      ${labelsHtml}
+    </div>
+  </div>`;
+
+  qsa('.route-node').forEach(node=>{
+    node.addEventListener('click',e=>{
+      e.preventDefault();e.stopPropagation();
+      clearRouteTimer();
+      qsa('.route-node.show-name').forEach(other=>other.classList.remove('show-name'));
+      node.classList.add('show-name');
+      const target=Math.max(0,Math.min(100,Number(node.dataset.routeTarget||0)));
+      if(qs('#routeSlider')) qs('#routeSlider').value=target;
+      if(!segmentModes.includes('flight'))updateRouteAt(target);
+    });
+    node.addEventListener('focus',()=>node.classList.add('show-name'));
+    node.addEventListener('blur',()=>node.classList.remove('show-name'));
+  });
+
+  updateRouteMetricToggle();
+  updateRouteScaleProgress(+qs('#routeSlider')?.value||0);
+}
+
+function updateRouteScaleProgress(v){
+  const pct=Math.max(0,Math.min(100,Number(v)||0));
+  const nodes=qsa('.route-node');
+  let current=-1;
+
+  // Convert real route progress to the ruler's adjusted visual position so the
+  // fill, active node and car stay synchronized even when short legs are widened.
+  let visualPct=pct;
+  if(nodes.length>=2){
+    const target=nodes.map(node=>Math.max(0,Math.min(100,Number(node.dataset.routeTarget||0))));
+    const visual=nodes.map(node=>Math.max(0,Math.min(100,Number(node.dataset.routeProgress||0))));
+    if(pct<=target[0]) visualPct=visual[0];
+    else if(pct>=target[target.length-1]) visualPct=visual[visual.length-1];
+    else{
+      for(let i=0;i<target.length-1;i++){
+        if(pct<=target[i+1]+0.0001){
+          const span=Math.max(0.0001,target[i+1]-target[i]);
+          const f=Math.max(0,Math.min(1,(pct-target[i])/span));
+          visualPct=visual[i]+(visual[i+1]-visual[i])*f;
+          break;
+        }
+      }
+    }
+  }
+
+  const progress=qs('.route-track-progress');
+  if(progress) progress.style.width=`${visualPct}%`;
+
+  nodes.forEach((node,i)=>{
+    const target=Number(node.dataset.routeTarget||0);
+    const passed=target<=pct+0.001;
+    node.classList.toggle('passed',passed);
+    if(passed) current=i;
+    node.classList.remove('current');
+  });
+  if(current>=0) nodes[current]?.classList.add('current');
+}
+
+function positionAlongRoute(t){
+  if(!routeGeometry.length) return null;
+  if(routeGeometry.length===1) return routeGeometry[0];
+  const total=routeCumulative[routeCumulative.length-1]||0;
+  if(!total) return routeGeometry[0];
+  const target=Math.max(0,Math.min(1,t))*total;
+  let lo=0,hi=routeCumulative.length-1;
+  while(lo<hi){const mid=Math.floor((lo+hi)/2);if(routeCumulative[mid]<target)lo=mid+1;else hi=mid}
+  const i=Math.max(1,lo), before=routeCumulative[i-1], after=routeCumulative[i];
+  const f=after===before?0:(target-before)/(after-before);
+  return [routeGeometry[i-1][0]+(routeGeometry[i][0]-routeGeometry[i-1][0])*f,routeGeometry[i-1][1]+(routeGeometry[i][1]-routeGeometry[i-1][1])*f];
+}
+
+function currentStopIndex(t,stops){
+  if(!stops.length) return 0;
+  if(routeStopFractions.length!==stops.length) return Math.min(stops.length-1,Math.round(t*(stops.length-1)));
+  let idx=0;
+  for(let i=0;i<routeStopFractions.length;i++) if(t+0.001>=routeStopFractions[i]) idx=i;
+  return idx;
+}
+
+const MAP_ROUTE_COLORS=['#b59144','#3f7165','#a55b49','#64789a','#866899','#708d50','#bd7b45','#507486'];
+function routeColor(dayIndex){return MAP_ROUTE_COLORS[dayIndex%MAP_ROUTE_COLORS.length]}
+function parseDriveSeconds(value){
+  const text=String(value||'');
+  const h=Number((text.match(/(\d+)h/)||[])[1]||0);
+  const m=Number((text.match(/(\d+)m/)||[])[1]||0);
+  return h*3600+m*60;
+}
+function removeMapLayerSafe(layer){
+  if(layer&&map&&map.hasLayer(layer)) map.removeLayer(layer);
+}
+function clearMapTripLayers(){
+  clearRouteTimer();
+  mapRouteLayers.forEach(removeMapLayerSafe);
+  mapRouteLayers=[];
+  removeMapLayerSafe(routeLine); routeLine=null;
+  removeMapLayerSafe(routeCar); routeCar=null;
+  if(map) map.eachLayer(l=>{if(l.options&&l.options.tripMarker)map.removeLayer(l)});
+}
+// Preserve drive anchors (e.g. KEF after a flight) when flight-only pins are hidden.
+function shouldShowMapStop(stops,segments,index){
+  if(mapShowFlights||!stops[index]?._airportStop)return true;
+  return segments[index-1]?.mode==='drive'||segments[index]?.mode==='drive';
+}
+
+function selectionFallbackTotals(indices){
+  return indices.reduce((acc,i)=>{
+    const d=TRIP.days[i];
+    if(!groupActiveOnDay(activeRouteGroupId,d))return acc;
+    if(routeGroups().length&&activeRouteGroupId!=='all'){
+      const stops=getRouteStops(d);
+      const driveLegs=routeSegmentMeta(stops).filter(x=>x.mode==='drive');
+      if(!driveLegs.length)return acc;
+    }
+    acc.km+=Number(d.km)||0;
+    acc.sec+=Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive);
+    return acc;
+  },{km:0,sec:0});
+}
+function updateMapRangeText(indices,km,sec){
+  const all=indices.length===TRIP.days.length;
+  const hint=qs('#mapRangeHint');
+  if(hint){
+    if(all) hint.textContent='全部旅程';
+    else if(indices.length>1) hint.textContent=indices.map(i=>TRIP.days[i].label).join(' · ');
+    else if(mapMultiSelectMode) hint.textContent='複選模式：再點日期加入';
+    else hint.textContent='點日期直接切換';
+  }
+  const summary=qs('#mapRangeSummary');
+  if(summary) summary.textContent=`${indices.length} 天 · ${km.toFixed(1)} km · ${formatDriveTime(sec)}`;
+}
+
+
+function isKumamotoMapLocal(stop){
+  return TRIP?.slug==='kumamoto-2027'&&stop&&
+    Number(stop.lat)>=30&&Number(stop.lat)<=40&&
+    Number(stop.lng)>=128&&Number(stop.lng)<=140;
+}
+function preferredRouteMapBounds(local,bounds){
+  return local?.isValid?.()?local:bounds;
+}
+async function renderRouteGroupsOverview(indices,token){
+  const groups=routeGroups();
+  const multi=indices.length>1;
+  const day=TRIP.days[indices[0]];
+  qs('#mapDayLabel').textContent=multi?indices.length+'天':day.label;
+  qs('#mapDayName').textContent=multi?'分組總覽':derivedDayTitle(day,indices[0]);
+  clearMapTripLayers();
+  const play=qs('#playRoute'),exportBtn=qs('#exportGoogleRoute');
+  play.disabled=true;play.textContent='分組總覽';
+  play.title='請先選單一組別，才能播放該組道路路線';
+  exportBtn.disabled=true;exportBtn.title='請先選單一組別匯出道路導航';
+  qs('#routePanel').classList.add('multi-mode','group-overview');
+  qs('#routePanel').classList.remove('has-flight');
+  qs('#routeSlider').disabled=true;
+  qs('#routeDistance').textContent='—';
+  qs('#routeDistanceSuffix').textContent=' km';
+  qs('#routeCurrent').textContent=String(groups.length)+' 組路線分開顯示';
+  qs('#routeMeta').textContent='各組路線不相互連接，飛機不列入開車里程';
+  qs('#mapRangeSummary').textContent=String(indices.length)+' 天 · '+String(groups.length)+' 組路線';
+  qs('#mapRangeHint').textContent='各小組獨立，不跨組串接';
+  setRouteScaleMessage('分組總覽 · 選擇單一組別，即可查看該組道路距離及 Google 導航。');
+  routeGeometry=[];routeCumulative=[];routeStopFractions=[];routeSegmentDistancesKm=[];
+  routeSegmentDurationsSec=[];routeTotalKm=0;routeTotalDurationSec=0;
+  const bounds=L.latLngBounds([]),localBounds=L.latLngBounds([]);
+  const displayedStops=new Set(),displayedPaths=new Set();
+  let count=0;
+  const totalLabels=[];
+  for(const g of groups){
+    let km=0;
+    for(const index of indices){
+      if(token!==routeRenderToken)return;
+      const d=TRIP.days[index];
+      if(!groupActiveOnDay(g.id,d))continue;
+      await ensureFlightAirportsForDay(d,g.id);
+      if(token!==routeRenderToken)return;
+      const stops=getRouteStops(d,g.id);
+      if(!stops.length)continue;
+      const segments=routeSegmentMeta(stops);
+      for(let i=0;i<stops.length;i++){
+        const item=stops[i];
+        if(!shouldShowMapStop(stops,segments,i)||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+        const markerKey=[index,item.id||item._flightKey||'',item.lat.toFixed(5),item.lng.toFixed(5),item.title||''].join(':');
+        if(displayedStops.has(markerKey))continue;
+        displayedStops.add(markerKey);
+        const label=(item.routeGroupId?String(g.shortLabel||'組'):'共')+String(++count);
+        const mark=L.marker([item.lat,item.lng],{
+          icon:markerIcon(label),tripMarker:true
+        }).addTo(map);
+        mark.bindPopup(escapeHtml(item.routeGroupId?g.name:'共同')+' · '+escapeHtml(item.title||''));
+        bounds.extend([item.lat,item.lng]);
+        if(isKumamotoMapLocal(item))localBounds.extend([item.lat,item.lng]);
+      }
+      let road=null;
+      // Multi-day overview uses lightweight separate paths; do not request 16
+      // simultaneous full road routes. In single-day mode, use real roads.
+      if(!multi&&stops.length>1){
+        try{road=await getRoadRouteForDay(index,g.id)}
+        catch(err){console.warn('Grouped route fallback',g.code,err)}
+      }
+      if(token!==routeRenderToken)return;
+      const legs=road?.legs?.length?road.legs:segments.map((segment,i)=>({
+        mode:segment.mode,
+        points:[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]],
+        distanceKm:segment.mode==='drive'
+          ?haversineKm([stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]):0
+      }));
+      for(const leg of legs){
+        if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
+        const flight=leg.mode==='flight';
+        const midpoint=leg.points[Math.floor(leg.points.length/2)];
+        const pathKey=[index,leg.mode,leg.points.length,
+          leg.points[0].join(','),midpoint.join(','),leg.points[leg.points.length-1].join(',')].join(':');
+        if(displayedPaths.has(pathKey)){
+          if(!flight)km+=Number(leg.distanceKm)||0;
+          continue;
+        }
+        displayedPaths.add(pathKey);
+        const layer=L.polyline(leg.points,{
+          color:flight?'#786D91':g.color||'#386981',
+          weight:flight?3:5,opacity:flight?.85:.95,
+          dashArray:flight?'12,10':multi?'8,7':null,
+          lineCap:'round',lineJoin:'round'
+        }).addTo(map);
+        mapRouteLayers.push(layer);
+        if(!flight)km+=Number(leg.distanceKm)||0;
+      }
+    }
+    totalLabels.push(String(g.shortLabel||g.name||'組')+(multi?' 路線預覽':' 約 '+km.toFixed(1)+' km'));
+  }
+  qs('#routeMeta').textContent=totalLabels.join(' · ')+' · 各組不串接';
+  if(token!==routeRenderToken)return;
+  const preferred=preferredRouteMapBounds(localBounds,bounds);
+  if(preferred.isValid())map.fitBounds(preferred,{padding:[30,30],maxZoom:13});
+}
+
+async function renderMapDay(){
+  if(!map) return;
+  if(!TRIP.days?.length){
+    qs('#mapDayLabel').textContent='—';
+    qs('#mapDayName').textContent='尚未建立行程';
+    setRouteScaleMessage('請先由 Owner / Editor 新增行程日。');
+    return;
+  }
+  const token=++routeRenderToken;
+  const indices=sortedMapDays().length?sortedMapDays():[selectedDay];
+  if(routeGroups().length&&activeRouteGroupId==='all')
+    return renderRouteGroupsOverview(indices,token);
+  const isMulti=indices.length>1;
+  const singleIndex=indices[0];
+  const singleDay=TRIP.days[singleIndex];
+
+  await Promise.all(indices.map(i=>ensureFlightAirportsForDay(TRIP.days[i])));
+  if(token!==routeRenderToken)return;
+
+  const singleHasFlight=!isMulti&&dayHasFlightRoute(singleDay);
+  const fallbackTotals=selectionFallbackTotals(indices);
+
+  qs('#mapDayLabel').textContent=isMulti?`${indices.length}天`:singleDay.label;
+  qs('#mapDayName').textContent=isMulti?(indices.length===TRIP.days.length?'全程路線':'多日路線'):derivedDayTitle(singleDay,singleIndex);
+  clearMapTripLayers();
+
+  qs('#playRoute').disabled=isMulti||singleHasFlight;
+  qs('#playRoute').textContent=isMulti?'多日總覽':'▶ 跟著走';
+  qs('#playRoute').title=isMulti?'多日總覽不支援跟著走':singleHasFlight?'含航班日期暫不支援連續路線播放':'沿今日地面路線播放';
+  const googleRouteBtn=qs('#exportGoogleRoute');
+  if(googleRouteBtn){
+    const drivingRoutes=isMulti?[]:googleDrivingOptionsForDay(singleIndex);
+    googleRouteBtn.disabled=isMulti||!drivingRoutes.length;
+    googleRouteBtn.title=isMulti?'請先切回單日模式':!drivingRoutes.length?'當天沒有可匯出的地面路段':singleHasFlight?'僅匯出本組地面開車路段，航班自動排除':'用今天所有地面地點建立 Google Maps 路線';
+  }
+  qs('#routePanel').classList.toggle('multi-mode',isMulti);
+  qs('#routePanel').classList.remove('group-overview');
+  qs('#routePanel').classList.toggle('has-flight',singleHasFlight);
+  qs('#routeSlider').disabled=isMulti||singleHasFlight;
+  qs('#routeSlider').value=0;
+  qs('#routeDistance').textContent='0';
+  qs('#routeDistanceSuffix').innerHTML=isMulti?' km':` / <span id="routeTotal">${Math.round(singleDay.km)}</span> km`;
+  updateMapRangeText(indices,fallbackTotals.km,fallbackTotals.sec);
+  routeGeometry=[]; routeCumulative=[]; routeStopFractions=[]; routeSegmentDistancesKm=[]; routeSegmentDurationsSec=[]; routeTotalKm=0; routeTotalDurationSec=0; routeScaleState=null;
+
+  const bounds=L.latLngBounds([]);
+  const localBounds=L.latLngBounds([]);
+  const visibleMapStops=[];
+  const fallbackLayers=new Map();
+
+  indices.forEach(dayIndex=>{
+    const d=TRIP.days[dayIndex];
+    const stops=getRouteStops(d);
+    const meta=routeSegmentMeta(stops);
+
+    let visibleStopNumber=0;
+    stops.forEach((e,i)=>{
+      if(!shouldShowMapStop(stops,meta,i))return;
+      const eventIndex=d.events.indexOf(e);
+      const label=isMulti?`${dayIndex}·${++visibleStopNumber}`:`${++visibleStopNumber}`;
+      const m=L.marker([e.lat,e.lng],{icon:markerIcon(label),tripMarker:true}).addTo(map);
+      const carry=e._routeCarryover===true;
+      const airport=e._airportStop===true;
+      const directNav=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(e.navQuery||e.address||`${e.lat},${e.lng}`)}&travelmode=driving`;
+      const navButton=(carry||airport||eventIndex<0)
+        ?`<button class="popup-nav" onclick="window.open('${directNav}','_blank','noopener')">Google 導航</button>`
+        :`<button class="popup-nav" onclick="openMapsEvent(${dayIndex},${eventIndex})">Google 導航</button>`;
+      const metaText=carry?`${d.label} 起點 · 前晚住宿`:airport?`${d.label} · ${e._airportCode} Airport`:`${d.label} · ${e.time||''}`;
+      m.bindPopup(`<b>${metaText} ${e.title}</b><br><span style="font-size:11px">${e.subtitle||''}</span><br>${navButton}`);
+      visibleMapStops.push([e.lat,e.lng]);
+      bounds.extend([e.lat,e.lng]);
+      if(isKumamotoMapLocal(e))localBounds.extend([e.lat,e.lng]);
+    });
+
+    const layers=[];
+    for(let i=0;i<stops.length-1;i++){
+      const flight=meta[i]?.mode==='flight';
+      if(meta[i]?.mode==='gap'||(flight&&!mapShowFlights))continue;
+      const pts=[[stops[i].lat,stops[i].lng],[stops[i+1].lat,stops[i+1].lng]];
+      const layer=L.polyline(pts,{
+        color:flight?'#756589':routeColor(dayIndex),
+        weight:flight?3:(isMulti?4:4),
+        opacity:flight?.88:.58,
+        dashArray:flight?'12,10':'8,7',
+        lineCap:'round',
+        lineJoin:'round'
+      }).addTo(map);
+      layers.push(layer);mapRouteLayers.push(layer);
+    }
+    fallbackLayers.set(dayIndex,layers);
+
+    if(!isMulti){
+      const seg=fallbackRouteSegments(stops);
+      const segKm=seg.reduce((a,b)=>a+b,0);
+      const modes=meta.map(x=>x.mode),labels=meta.map(x=>x.label);
+      routeSegmentDistancesKm=[...seg];
+      routeSegmentDurationsSec=seg.map(()=>0);
+      routeTotalKm=segKm;
+      routeTotalDurationSec=Number(d.driveMinutes)?Number(d.driveMinutes)*60:parseDriveSeconds(d.drive);
+      renderRouteScale(stops,seg,segKm,{approx:true,totalDurationSec:routeTotalDurationSec,modes,labels});
+      if(!singleHasFlight&&stops.length){
+        const fallbackPoints=stops.map(e=>[e.lat,e.lng]);
+        setRouteGeometry(fallbackPoints,segKm,fallbackPoints,seg,routeSegmentDurationsSec,routeTotalDurationSec);
+        routeCar=L.marker(fallbackPoints[0],{icon:markerIcon('',true),zIndexOffset:1000}).addTo(map);
+        updateRouteAt(0);
+      }
+    }
+  });
+
+  if(bounds.isValid()){
+    const preferred=preferredRouteMapBounds(localBounds,bounds);
+    if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
+    else map.fitBounds(preferred,{padding:[28,28],maxZoom:14});
+  }
+
+  if(isMulti){
+    qs('#routeCurrent').textContent=`已選 ${indices.length} 天`;
+    qs('#routeMeta').textContent=indices.map(i=>TRIP.days[i].label).join(' · ');
+    qs('#routeDistance').textContent=fallbackTotals.km.toFixed(1);
+    setRouteScaleMessage(`合計估算 · ${fallbackTotals.km.toFixed(1)} km · ${formatDriveTime(fallbackTotals.sec)} · 正在更新道路路線…`);
+  }
+
+  const results=[];
+  for(const dayIndex of indices){
+    if(token!==routeRenderToken) return;
+    const d=TRIP.days[dayIndex];
+    const stops=getRouteStops(d);
+    try{
+      const road=await getRoadRouteForDay(dayIndex);
+      if(token!==routeRenderToken) return;
+      results.push({dayIndex,road});
+
+      const fallback=fallbackLayers.get(dayIndex)||[];
+      fallback.forEach(layer=>{
+        removeMapLayerSafe(layer);
+        mapRouteLayers=mapRouteLayers.filter(x=>x!==layer);
+      });
+
+      for(const leg of road?.legs||[]){
+        if(!leg?.points?.length||leg.mode==='gap'||(leg.mode==='flight'&&!mapShowFlights))continue;
+        const flight=leg.mode==='flight';
+        const line=L.polyline(leg.points,{
+          color:flight?'#756589':routeColor(dayIndex),
+          weight:flight?4:(isMulti?5:5),
+          opacity:flight?.9:.95,
+          dashArray:flight?'12,10':null,
+          lineCap:'round',lineJoin:'round'
+        }).addTo(map);
+        mapRouteLayers.push(line);
+        leg.points.forEach(pt=>bounds.extend(pt));
+      }
+
+      if(!isMulti&&road){
+        setRouteGeometry(
+          road.points,
+          road.distanceKm,
+          road.snapped.length?road.snapped:stops.map(e=>[e.lat,e.lng]),
+          road.segmentDistancesKm,
+          road.segmentDurationsSec,
+          road.durationSec
+        );
+        renderRouteScale(stops,road.segmentDistancesKm,road.distanceKm,{
+          approx:Boolean(road.approx),
+          durations:road.segmentDurationsSec,
+          totalDurationSec:road.durationSec,
+          modes:road.segmentModes,
+          labels:road.segmentLabels
+        });
+        qs('#routeDistanceSuffix').innerHTML=` / <span id="routeTotal">${road.distanceKm<100?road.distanceKm.toFixed(1):Math.round(road.distanceKm)}</span> km`;
+        updateMapRangeText(indices,road.distanceKm,road.durationSec);
+        if(!road.hasFlight)updateRouteAt(+qs('#routeSlider').value);
+        else{
+          qs('#routeCurrent').textContent=stops[0]?.title||derivedDayTitle(d,dayIndex);
+          qs('#routeMeta').textContent=`${d.label} · 地面里程，不含航班`;
+          qs('#routeDistance').textContent='0';
+        }
+      }
+    }catch(err){
+      console.warn(`Road routing unavailable for ${d.label}; keeping fallback.`,err);
+      results.push({dayIndex,road:null});
+    }
+  }
+
+  if(token!==routeRenderToken) return;
+  if(bounds.isValid()){
+    const preferred=preferredRouteMapBounds(localBounds,bounds);
+    if(visibleMapStops.length===1&&mapRouteLayers.length===0)map.setView(visibleMapStops[0],13);
+    else map.fitBounds(preferred,{padding:[28,28],maxZoom:14});
+  }
+
+  if(isMulti){
+    let totalKm=0,totalSec=0;
+    for(const {dayIndex,road} of results){
+      if(road){totalKm+=road.distanceKm;totalSec+=road.durationSec}
+      else{totalKm+=Number(TRIP.days[dayIndex].km)||0;totalSec+=parseDriveSeconds(TRIP.days[dayIndex].drive)}
+    }
+    qs('#routeDistance').textContent=totalKm.toFixed(1);
+    setRouteScaleMessage(`${indices.length} 天合計 · 約 ${totalKm.toFixed(1)} km · ${formatDriveTime(totalSec)} · 航班不計入開車里程 · `+indices.map(i=>TRIP.days[i].label).join(' + '));
+    updateMapRangeText(indices,totalKm,totalSec);
+  }else if(!results[0]?.road){
+    const d=singleDay,stops=getRouteStops(d),meta=routeSegmentMeta(stops),seg=fallbackRouteSegments(stops);
+    renderRouteScale(stops,seg,seg.reduce((a,b)=>a+b,0),{approx:true,modes:meta.map(x=>x.mode),labels:meta.map(x=>x.label)});
+    qs('#routeMeta').textContent=dayHasFlightRoute(d)?`${d.label} · 航班不計入開車里程`:`${d.label} · 離線備援距離`;
+  }
+}
+
+function updateRouteAt(v){
+  const indices=sortedMapDays();
+  if(indices.length!==1||!map||!routeGeometry.length||!routeCar) return;
+  const d=TRIP.days[indices[0]], stops=getRouteStops(d), t=v/100, pos=positionAlongRoute(t);
+  if(pos) routeCar.setLatLng(pos);
+  const idx=currentStopIndex(t,stops), stop=stops[idx]||stops[0];
+  qs('#routeCurrent').textContent=stop?stop.title.split('\n')[0]:derivedDayTitle(d,selectedDay);
+  qs('#routeMeta').textContent=`${d.label} · ${stop?.time||''}`;
+  qs('#routeSlider').value=v;
+  updateRouteProgressMetric(t);
+  updateRouteScaleProgress(v);
+}
+
+function clearRouteTimer(){
+  if(routeTimer){clearInterval(routeTimer);routeTimer=null}
+  qs('#routePlayCircle').textContent='▶';
+  qs('#playRoute').textContent='▶ 跟著走';
+}
+
+function togglePlay(){
+  if(sortedMapDays().length!==1) return;
+  if(routeTimer){clearRouteTimer();return}
+  let v=+qs('#routeSlider').value;
+  if(v>=100)v=0;
+  qs('#routePlayCircle').textContent='Ⅱ';
+  qs('#playRoute').textContent='Ⅱ 暫停';
+  routeTimer=setInterval(()=>{v+=0.5;if(v>100){updateRouteAt(100);clearRouteTimer();return}updateRouteAt(v)},55);
+}
+
+function bookingDetailHtml(b,idx){
+  const d=b.details||{};
+  const rows=(d.rows||[]).map(([label,value])=>`<div class="booking-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  const amenities=(d.amenities||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label">設備／包含</div><div class="amenity-chips">${d.amenities.map(x=>`<span>${x}</span>`).join('')}</div></div>`:'';
+  const tips=(d.tips||[]).length?`<div class="booking-detail-section"><div class="booking-detail-label warn">注意事項</div><ul class="booking-tip-list">${d.tips.map(x=>`<li>${x}</li>`).join('')}</ul></div>`:'';
+  const source=d.source?`<div class="booking-detail-source">資料來源：${d.source}</div>`:'';
+  return `<div class="booking-detail-panel" id="booking-detail-${idx}" hidden><div class="booking-detail-grid">${rows}</div>${amenities}${tips}${source}</div>`;
+}
+
+function renderBookings(){
+  const filters=[['all','全部'],['stay','住宿'],['flight','航班'],['car','租車'],['tour','Tour']];
+  qs('#bookingFilters').innerHTML=filters.map(([k,n])=>`<button class="filter-btn ${currentFilter===k?'active':''}" data-filter="${k}">${n}</button>`).join('');
+  qsa('[data-filter]').forEach(b=>b.onclick=()=>{currentFilter=b.dataset.filter;renderBookings()});
+  const list=TRIP.bookings.map((b,idx)=>({b,idx})).filter(({b})=>
+    (currentFilter==='all'||b.type===currentFilter)&&
+    (!routeGroups().length||activeRouteGroupId==='all'||!b.routeGroupId||String(b.routeGroupId)===String(activeRouteGroupId)));
+  qs('#bookingList').innerHTML=list.map(({b,idx})=>`<article class="booking-card expandable-booking"><div class="booking-top"><div class="booking-icon" data-booking-type="${b.type}"></div><div><div class="booking-provider">${escapeHtml(b.provider||"")}${b.routeGroupId?'<span class="booking-group-badge">'+escapeHtml(routeGroupCode(b.routeGroupId))+'</span>':""}</div><h3>${escapeHtml(b.title||"")}</h3><div class="booking-dates">${escapeHtml(b.dates||'')}</div></div><div class="code-pill">${b.status==='confirmed'?'CONFIRMED':'PLAN'}</div></div><div class="booking-meta">${escapeHtml(b.meta||'')}</div>${(canEditTrip()&&routeGroups().length)?'<label class="booking-group-assignment"><span>預訂組別</span><select class="booking-group-select" data-booking-id="'+escapeHtml(b.id||'')+'" data-original-group="'+escapeHtml(b.routeGroupId||'')+'"><option value="">共同</option>'+routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'"'+(g.id===b.routeGroupId?' selected':'')+'>'+escapeHtml(g.name)+'</option>').join('')+'</select></label>':''}<div class="booking-code"><div><small>CONFIRMATION${b.secret?' / PIN':''}</small><strong id="code-${idx}">${maskCode(b.code,b.secret)}</strong></div><button class="reveal-btn" onclick="event.stopPropagation();toggleCode(${idx},'${b.code}','${b.secret||''}')">顯示</button></div>${b.alert?`<div class="alert-box">⚠️ ${b.alert}</div>`:''}<div class="notice">${b.notice}</div>${b.details?`<button class="booking-detail-toggle" id="booking-toggle-${idx}" onclick="event.stopPropagation();toggleBookingDetails(${idx})"><span>查看完整預訂細節</span><span class="detail-chevron">⌄</span></button>${bookingDetailHtml(b,idx)}`:''}</article>`).join('');
+  renderBookingIcons();
+  decorateBookingEditor(list);
+  qs('#bookingList').querySelectorAll('.booking-group-select').forEach(el=>{
+    el.onclick=e=>e.stopPropagation();
+    el.onchange=async()=>{
+      const id=String(el.dataset.bookingId||''),previous=String(el.dataset.originalGroup||'');
+      const current=String(el.value||'');
+      if(current===previous)return;
+      const name=current?routeGroupById(current)?.name||'指定組':'共同（全部組）';
+      if(!window.confirm('確定將這張預訂設定為「'+name+'」？\n訂位代碼和所有原始信件不會被修改。')){
+        el.value=previous;return;
+      }
+      el.disabled=true;
+      try{
+        await travelEditor('assign_reservation_route_group',{reservationId:id,routeGroupId:current||null});
+        await hydratePrivateCloudData();
+      }catch(err){
+        el.value=previous;
+        alert('更新預訂組別失敗：'+String(err?.code||err?.message||err));
+      }finally{el.disabled=false}
+    };
+  });
+  qsa('.expandable-booking').forEach((card,visualIndex)=>{
+    const item=list[visualIndex];
+    if(!item?.b?.details)return;
+    card.addEventListener('click',e=>{
+      if(e.target.closest('button,select,label.booking-group-assignment'))return;
+      toggleBookingDetails(item.idx);
+    });
+  });
+}
+
+function toggleBookingDetails(idx){
+  const panel=qs('#booking-detail-'+idx),btn=qs('#booking-toggle-'+idx);
+  if(!panel||!btn)return;
+  const willOpen=panel.hidden;
+  panel.hidden=!willOpen;
+  btn.classList.toggle('open',willOpen);
+  btn.querySelector('span:first-child').textContent=willOpen?'收起預訂細節':'查看完整預訂細節';
+}
+
+function maskCode(code,secret){if(!code)return '—';return secret?`${code} · PIN ••••`:`${code.length>4?'••••'+code.slice(-4):code}`}
+function toggleCode(i,code,secret){const el=qs('#code-'+i);const masked=maskCode(code,secret);el.textContent=el.textContent===masked?(secret?`${code} · PIN ${secret}`:code):masked}
+
+const AIRPORT_COORDS={
+  TPE:{name:'Taiwan Taoyuan International Airport',lat:25.0797,lng:121.2342},
+  KHH:{name:'高雄國際機場',lat:22.5706,lng:120.3500},
+  HKG:{name:'Hong Kong International Airport',lat:22.3080,lng:113.9185},
+  AMS:{name:'Amsterdam Airport Schiphol',lat:52.3105,lng:4.7683},
+  KEF:{name:'Keflavík International Airport',lat:63.9850,lng:-22.6056},
+  LHR:{name:'Heathrow Airport',lat:51.4700,lng:-0.4543},
+  KMJ:{name:'熊本機場',lat:32.8373,lng:130.8551},
+  FUK:{name:'福岡機場',lat:33.5859,lng:130.4507},
+  AKL:{name:'Auckland Airport',lat:-37.0082,lng:174.7850},
+  CHC:{name:'Christchurch Airport',lat:-43.4894,lng:172.5322},
+  ZQN:{name:'Queenstown Airport',lat:-45.0211,lng:168.7392}
+};
+function arrivalAirportForDay(day){
+  const flight=(day?.events||[]).find(e=>e?.type==='flight');
+  const text=String(flight?.title||'');
+  const route=text.match(/\b([A-Z]{3})\s*(?:→|->|›|–|-)\s*([A-Z]{3})\b/i);
+  const code=(route?.[2]||'').toUpperCase();
+  return code&&AIRPORT_COORDS[code]?AIRPORT_COORDS[code]:null;
+}
+function sunLocationForDay(dayIndex){
+  const day=TRIP.days?.[dayIndex];
+  if(!day)return null;
+  // Arrival day: sunrise/sunset follows the landing point when known.
+  if(dayIndex===0){
+    const airport=arrivalAirportForDay(day);
+    if(airport)return airport;
+  }
+  // Travel days: use the previous night's accommodation as the local base.
+  if(dayIndex>0){
+    const previousNight=stayForNight(dayIndex-1);
+    if(previousNight&&validCoord(previousNight)){
+      return {name:previousNight.title||'前一晚住宿',lat:previousNight.lat,lng:previousNight.lng};
+    }
+  }
+  const first=(day.events||[]).find(validCoord);
+  if(first)return {name:first.title||derivedDayTitle(day,dayIndex),lat:first.lat,lng:first.lng};
+  if(TRIP?.slug==='iceland-2026')return WEATHER_LOCATIONS[day.label]||null;
+  if(TRIP?.slug==='kumamoto-2027')return {name:'熊本',lat:32.8031,lng:130.7079};
+  return null;
+}
+function dayOfYearUTC(dateString){
+  const [y,m,d]=String(dateString).split('-').map(Number);
+  const start=Date.UTC(y,0,0),current=Date.UTC(y,m-1,d);
+  return Math.floor((current-start)/86400000);
+}
+function normalizeDegrees(v){return ((v%360)+360)%360}
+function timezoneOffsetMinutes(dateString,timeZone){
+  try{
+    const ref=new Date(`${dateString}T12:00:00Z`);
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timeZone||'UTC',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(ref);
+    const get=t=>Number(parts.find(p=>p.type===t)?.value||0);
+    const localAsUtc=Date.UTC(get('year'),get('month')-1,get('day'),get('hour'),get('minute'),get('second'));
+    return Math.round((localAsUtc-ref.getTime())/60000);
+  }catch(_){return 0}
+}
+function solarTimeLocal(dateString,lat,lng,isSunrise,timeZone){
+  const n=dayOfYearUTC(dateString);
+  const lngHour=lng/15;
+  const t=n+(((isSunrise?6:18)-lngHour)/24);
+  const m=0.9856*t-3.289;
+  let l=m+1.916*Math.sin(m*Math.PI/180)+0.020*Math.sin(2*m*Math.PI/180)+282.634;
+  l=normalizeDegrees(l);
+  let ra=Math.atan(0.91764*Math.tan(l*Math.PI/180))*180/Math.PI;
+  ra=normalizeDegrees(ra);
+  const lQuadrant=Math.floor(l/90)*90,raQuadrant=Math.floor(ra/90)*90;
+  ra=(ra+(lQuadrant-raQuadrant))/15;
+  const sinDec=0.39782*Math.sin(l*Math.PI/180);
+  const cosDec=Math.cos(Math.asin(sinDec));
+  const cosH=(Math.cos(90.833*Math.PI/180)-sinDec*Math.sin(lat*Math.PI/180))/(cosDec*Math.cos(lat*Math.PI/180));
+  if(cosH>1||cosH<-1)return '--:--';
+  let h=(isSunrise?360-Math.acos(cosH)*180/Math.PI:Math.acos(cosH)*180/Math.PI)/15;
+  const localMean=h+ra-0.06571*t-6.622;
+  let utc=localMean-lngHour;
+  utc=((utc%24)+24)%24;
+  const offset=timezoneOffsetMinutes(dateString,timeZone)/60;
+  let local=((utc+offset)%24+24)%24;
+  let hour=Math.floor(local),minute=Math.round((local-hour)*60);
+  if(minute===60){minute=0;hour=(hour+1)%24}
+  return String(hour).padStart(2,'0')+':'+String(minute).padStart(2,'0');
+}
+function sunTimesForDay(dayIndex){
+  const day=TRIP.days?.[dayIndex],loc=sunLocationForDay(dayIndex);
+  if(!day||!loc)return {sunrise:'--:--',sunset:'--:--',location:null};
+  return {
+    sunrise:solarTimeLocal(day.date,Number(loc.lat),Number(loc.lng),true,TRIP.timezone||'UTC'),
+    sunset:solarTimeLocal(day.date,Number(loc.lat),Number(loc.lng),false,TRIP.timezone||'UTC'),
+    location:loc
+  };
+}
+
+function weatherLocationForDay(dayIndex){
+  const d=TRIP.days?.[dayIndex];
+  if(!d) return null;
+  const fallback=(d.events||[]).find(validCoord);
+  if(TRIP?.slug!=='iceland-2026'){
+    if(fallback)return {name:d.name||fallback.title||d.label,lat:fallback.lat,lng:fallback.lng};
+    if(TRIP?.slug==='kumamoto-2027')return {name:'Kumamoto',lat:32.8031,lng:130.7079};
+  }
+  return WEATHER_LOCATIONS[d.label]||(fallback?{name:d.name||d.label,lat:fallback.lat,lng:fallback.lng}:null);
+}
+
+function weatherSourceLinks(dayIndex){
+  const d=TRIP.days?.[dayIndex];
+  const loc=weatherLocationForDay(dayIndex);
+  if(!d||!loc) return {openMeteo:'#',google:'#',locationName:d?.name||'weather'};
+  const api=new URL('https://api.open-meteo.com/v1/forecast');
+  api.searchParams.set('latitude',loc.lat);
+  api.searchParams.set('longitude',loc.lng);
+  api.searchParams.set('hourly','temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m');
+  api.searchParams.set('daily','sunrise,sunset,temperature_2m_max,temperature_2m_min,precipitation_probability_max');
+  api.searchParams.set('timezone',TRIP.timezone||'UTC');
+  api.searchParams.set('wind_speed_unit','ms');
+  api.searchParams.set('forecast_days','16');
+  const google='https://www.google.com/search?q='+encodeURIComponent((loc.name||d.name||'')+' weather');
+  return {openMeteo:api.toString(),google,locationName:loc.name||d.name||'weather'};
+}
+
+function renderWeatherSources(dayIndex){
+  const host=qs('#weatherSources');
+  if(!host) return;
+  const links=weatherSourceLinks(dayIndex);
+  const demoNote=demoMode?'<p class="weather-source-note">目前為 DEMO 示意資料，不代表 Open-Meteo 或 Google 的實際預報。</p>':'';
+  host.innerHTML=`${demoNote}<div class="weather-source-actions">
+    <a class="weather-source-btn" href="${links.openMeteo}" target="_blank" rel="noopener">Open-Meteo 原始預報 ↗</a>
+    <a class="weather-source-btn" href="${links.google}" target="_blank" rel="noopener">Google 天氣 ↗</a>
+  </div>`;
+}
+
+async function renderWeatherSheet(){
+  const dayIndex=selectedDay;
+  const d=TRIP.days[dayIndex];
+  const loc=weatherLocationForDay(dayIndex);
+  qs('#weatherSheetTitle').textContent=`${d.label} · ${derivedDayTitle(d,dayIndex)}`;
+  renderWeatherSources(dayIndex);
+  qs('#weatherSheetSubtitle').textContent=`${loc?.name||'今日路線'} · ${demoMode?'DEMO 示意預報':'Open-Meteo 真實預報'}`;
+  qs('#weatherSummary').innerHTML=`<div class="weather-loading">正在讀取天氣資料…</div>`;
+  qs('#weatherHourly').innerHTML='';
+  try{
+    const w=demoMode?demoWeatherForDay(dayIndex):await fetchWeatherForDay(dayIndex);
+    if(selectedDay!==dayIndex) return;
+    if(!w.available){
+      qs('#weatherSheetSubtitle').textContent=`${loc.name} · 尚未進入可預報範圍`;
+      qs('#weatherSummary').innerHTML=`
+        <div class="weather-unavailable">
+          <strong>目前還沒有這一天的真實預報</strong>
+          <p>Open-Meteo 最長提供 16 天預報。這一天的逐小時預報預計從 <b>${zhDate(w.availableFrom)}</b> 起開始出現；到時重新打開 App 就會自動抓最新資料。</p>
+        </div>`;
+      qs('#weatherHourly').innerHTML='';
+      return;
+    }
+    qs('#weatherSheetSubtitle').textContent=`${loc.name} · ${wmoLabel(w.noon?.code??3)} · ${w.demo?'DEMO 示意資料':'真實資料'}`;
+    qs('#weatherSummary').innerHTML=`
+      <div class="weather-summary-card"><small>最高 / 最低</small><strong>${Math.round(w.max)}° / ${Math.round(w.min)}°</strong></div>
+      <div class="weather-summary-card"><small>最高降雨機率</small><strong>${Math.round(w.rainMax)}%</strong></div>
+      <div class="weather-summary-card"><small>最大風速</small><strong>${w.maxWind.toFixed(1)} m/s</strong></div>
+    `;
+    qs('#weatherHourly').innerHTML=w.hours.map(h=>`<div class="weather-row"><div class="time">${h.time}</div><div class="temp"><span class="mini-weather-icon">${iconSVG(wmoType(h.code))}</span>${Math.round(h.temp)}° <small>體感 ${Math.round(h.feels)}°</small></div><div class="rain"><span class="mini-weather-icon">${iconSVG('drop')}</span>${Math.round(h.rain)}%</div><div class="wind"><span class="mini-weather-icon">${iconSVG('wind')}</span>${Number(h.wind).toFixed(1)} m/s</div></div>`).join('');
+  }catch(err){
+    console.warn('Weather sheet unavailable',err);
+    qs('#weatherSheetSubtitle').textContent=`${loc?.name||'今日路線'} · 天氣服務暫時無法連線`;
+    qs('#weatherSummary').innerHTML=`<div class="weather-unavailable"><strong>暫時無法取得天氣資料</strong><p>請確認網路後再試一次。</p></div>`;
+    qs('#weatherHourly').innerHTML='';
+  }
+}
+
+function openWeatherSheet(){
+  qs('#weatherBackdrop').classList.add('show');
+  qs('#weatherSheet').classList.add('show');
+  qs('#weatherSheet').setAttribute('aria-hidden','false');
+  renderWeatherSheet();
+}
+
+function closeWeatherSheet(){
+  qs('#weatherBackdrop').classList.remove('show');
+  qs('#weatherSheet').classList.remove('show');
+  qs('#weatherSheet').setAttribute('aria-hidden','true');
+}
+
+// v0.13 — Today Hero becomes the page header. At the top it is the full photo
+// card; while scrolling it smoothly collapses to a compact cream header that
+// keeps only ICELAND · 2026 / 今天 / menu.
+function updateHeroCollapse(){
+  const hero=qs('#heroCard');
+  const today=qs('#todayView');
+  if(!hero||!today||!today.classList.contains('active')) return;
+  const y=Math.max(0,window.scrollY||document.documentElement.scrollTop||0);
+  const collapseDistance=230;
+  const progress=Math.min(1,y/collapseDistance);
+  hero.style.setProperty('--hero-progress',String(progress));
+  // Do not switch layout states mid-animation: the old 0.82 threshold changed
+  // Hero height/font/display in one frame, which could change scrollY and flicker.
+  // hero-compact is now only a final visual state after the continuous animation.
+  hero.classList.toggle('hero-compact',progress>=0.995);
+}
+
+let heroScrollRAF=0;
+window.addEventListener('scroll',()=>{
+  if(heroScrollRAF) return;
+  heroScrollRAF=requestAnimationFrame(()=>{
+    heroScrollRAF=0;
+    updateHeroCollapse();
+  });
+},{passive:true});
+window.addEventListener('resize',updateHeroCollapse,{passive:true});
+
+function updateDemoModeUI(){
+  const btn=qs('#demoModeToggle');
+  const state=qs('#demoModeState');
+  const badge=qs('#heroDemoBadge');
+  if(btn){
+    btn.classList.toggle('active',demoMode);
+    btn.setAttribute('aria-pressed',String(demoMode));
+  }
+  const isIceland=window.TRAVEL_CONFIG?.tripSlug==='iceland-2026';
+  if(btn) btn.hidden=!isIceland;
+  if(!isIceland&&demoMode){demoMode=false;try{localStorage.setItem('icelandDemoMode','0')}catch(_){}}
+  if(state) state.textContent=demoMode?'開啟 · 11/23':'關閉';
+  if(badge) badge.hidden=!demoMode||!isIceland;
+}
+
+function toggleDemoMode(){
+  demoMode=!demoMode;
+  try{localStorage.setItem('icelandDemoMode',demoMode?'1':'0')}catch(_){}
+  if(demoMode){
+    syncToReferenceTripDay(true);
+  }else{
+    syncToReferenceTripDay(false);
+  }
+  updateDemoModeUI();
+  renderAll();
+  updateEditAvailability();
+  updateMailBadges();
+  requestAnimationFrame(updateHeroCollapse);
+}
+
+
+const EXPENSE_CATEGORY_LABELS={
+  flight:'機票',stay:'住宿',transport:'交通',car:'租車',fuel:'加油',
+  food:'餐飲',grocery:'超市',tour:'Tour / 門票',shopping:'購物',other:'其他'
+};
+let expenseTab='ledger';
+let expenseIdentityPrompted=false;
+
+function expensePeople(){return Array.isArray(TRIP?.people)?TRIP.people:[]}
+function expenseRows(){return Array.isArray(TRIP?.expenses)?TRIP.expenses:[]}
+function expensePersonName(id){
+  return expensePeople().find(p=>String(p.id)===String(id))?.displayName||'—';
+}
+function expenseMoney(amount,currency){
+  const n=Number(amount||0);
+  return `${currency||''} ${new Intl.NumberFormat('zh-TW',{maximumFractionDigits:2}).format(n)}`.trim();
+}
+function expenseCurrencyTotals(rows=expenseRows()){
+  const map=new Map();
+  rows.forEach(e=>{
+    if(e.reviewStatus!=='confirmed')return;
+    const cur=String(e.currency||'').toUpperCase()||'—';
+    const signed=e.entryType==='refund'?-Math.abs(Number(e.amount||0)):Number(e.amount||0);
+    map.set(cur,(map.get(cur)||0)+signed);
+  });
+  return [...map.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+}
+function expenseTotalsText(rows=expenseRows()){
+  const totals=expenseCurrencyTotals(rows);
+  if(!totals.length)return '—';
+  return totals.map(([cur,amt])=>expenseMoney(amt,cur)).join(' · ');
+}
+function expenseCurrentPerson(){return expensePeople().find(p=>String(p.id)===String(TRIP?.currentPersonId||''))||null}
+
+function renderExpenses(){
+  if(!qs('#expenseView')||!TRIP)return;
+  const rows=expenseRows().filter(e=>e.reviewStatus==='confirmed');
+  const booked=rows.filter(e=>e.sourceType==='reservation_email');
+  const trip=rows.filter(e=>e.sourceType!=='reservation_email');
+  const total=qs('#expenseTotal'); if(total)total.textContent=expenseTotalsText(rows);
+  const bookedEl=qs('#expenseBookedTotal'); if(bookedEl)bookedEl.textContent=expenseTotalsText(booked);
+  const tripEl=qs('#expenseTripTotal'); if(tripEl)tripEl.textContent=expenseTotalsText(trip);
+  const countEl=qs('#expenseCount'); if(countEl)countEl.textContent=String(rows.length);
+  const identity=expenseCurrentPerson();
+  const identityBtn=qs('#expenseIdentityBtn');
+  if(identityBtn)identityBtn.textContent=identity?identity.displayName:'設定';
+
+  qsa('[data-expense-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.expenseTab===expenseTab));
+  const panels={ledger:'#expenseLedgerPanel',bookings:'#expenseBookingsPanel',people:'#expensePeoplePanel',analysis:'#expenseAnalysisPanel'};
+  Object.entries(panels).forEach(([key,sel])=>qs(sel)?.classList.toggle('active',key===expenseTab));
+
+  renderExpenseLedger();
+  renderExpenseBookings();
+  renderExpensePeople();
+  renderExpenseAnalysis();
+
+  const addBtn=qs('#addExpenseBtn'), receiptBtn=qs('#receiptExpenseBtn'), addPerson=qs('#addExpensePersonBtn');
+  const editable=canEditTrip();
+  if(addBtn)addBtn.hidden=!editable;
+  if(receiptBtn)receiptBtn.hidden=!editable;
+  if(addPerson)addPerson.hidden=!editable;
+}
+
+function renderExpenseLedger(){
+  const box=qs('#expenseList'); if(!box)return;
+  const rows=[...expenseRows()].filter(e=>e.reviewStatus==='confirmed')
+    .sort((a,b)=>String(b.expenseDate||'').localeCompare(String(a.expenseDate||''))||String(b.expenseTime||'').localeCompare(String(a.expenseTime||'')));
+  if(!rows.length){box.innerHTML='<div class="booking-empty">還沒有花費。可以手動記帳，或從「預訂費用」納入。</div>';return}
+  box.innerHTML=rows.map(e=>{
+    const splitNames=(e.splits||[]).map(s=>expensePersonName(s.personId)).filter(Boolean).join('、');
+    return `<button type="button" class="expense-card" data-expense-id="${escapeHtml(e.id)}">
+      <div class="expense-card-main">
+        <small>${escapeHtml(EXPENSE_CATEGORY_LABELS[e.category]||e.category||'其他')} · ${escapeHtml(e.expenseDate||'')}${e.expenseTime?' '+escapeHtml(e.expenseTime):''}</small>
+        <strong>${escapeHtml(e.title||'花費')}</strong>
+        <span>${escapeHtml(expenseMoney(e.amount,e.currency))}</span>
+      </div>
+      <div class="expense-card-meta">
+        <em>支付：${escapeHtml(expensePersonName(e.paidByPersonId))}</em>
+        <em>${splitNames?'分帳：'+escapeHtml(splitNames):'未分帳'}</em>
+        <i>${e.sourceType==='reservation_email'?'預訂':e.sourceType==='receipt'?'收據':'手動'}</i>
+      </div>
+    </button>`;
+  }).join('');
+  box.querySelectorAll('[data-expense-id]').forEach(btn=>btn.onclick=()=>{
+    const row=expenseRows().find(e=>String(e.id)===String(btn.dataset.expenseId));
+    if(row)openExpenseEditor(row);
+  });
+}
+
+function bookingHasExpense(id){return expenseRows().some(e=>String(e.reservationId||'')===String(id)&&e.sourceType==='reservation_email')}
+function renderExpenseBookings(){
+  const box=qs('#expenseBookingList'); if(!box)return;
+  const rows=(TRIP.bookings||[]).filter(b=>Number(b.amount)>0&&String(b.currency||'').length===3);
+  if(!rows.length){box.innerHTML='<div class="booking-empty">目前沒有可辨識金額的正式預訂。</div>';return}
+  box.innerHTML=rows.map(b=>{
+    const added=bookingHasExpense(b.id);
+    return `<div class="expense-booking-card">
+      <div><small>${escapeHtml(EXPENSE_CATEGORY_LABELS[b.type]||b.type||'預訂')}</small><strong>${escapeHtml(b.title||b.provider||'預訂')}</strong><span>${escapeHtml(expenseMoney(b.amount,b.currency))}</span></div>
+      <button type="button" data-expense-booking="${escapeHtml(b.id)}" ${added?'disabled':''}>${added?'已納入':'納入花費'}</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-expense-booking]').forEach(btn=>btn.onclick=()=>addReservationExpense(btn.dataset.expenseBooking));
+}
+
+function renderExpensePeople(){
+  const box=qs('#expensePeopleList');if(!box)return;
+  const current=String(TRIP?.currentPersonId||'');
+  const rows=expensePeople();
+  if(!rows.length){box.innerHTML='<div class="booking-empty">尚未建立分帳人員。</div>';return}
+  box.innerHTML=rows.map(p=>`<div class="expense-person-card ${String(p.id)===current?'me':''}">
+    <div><strong>${escapeHtml(p.displayName)} <b class="person-short-code">${escapeHtml(p.shortCode||suggestShortCode(p.displayName))}</b></strong><small>${p.linkedUserId?'已連結登入帳號':'未連結帳號 · 可供之後認領'}</small></div>
+    <span>${String(p.id)===current?'我':p.personType==='member'?'MEMBER':'TRAVELER'}</span>
+  </div>`).join('');
+}
+
+function renderExpenseAnalysis(){
+  const box=qs('#expenseAnalysis');if(!box)return;
+  const rows=expenseRows().filter(e=>e.reviewStatus==='confirmed');
+  if(!rows.length){box.innerHTML='<strong>還沒有足夠資料</strong><p>新增帳目後會在這裡看到逐日與類別摘要。</p>';return}
+  const byDay=new Map(),byCat=new Map();
+  rows.forEach(e=>{
+    const key=e.expenseDate||'未指定';
+    const cur=e.currency||'';
+    const dayKey=key+'|'+cur;
+    byDay.set(dayKey,(byDay.get(dayKey)||0)+Number(e.amount||0));
+    const cat=(EXPENSE_CATEGORY_LABELS[e.category]||e.category||'其他')+'|'+cur;
+    byCat.set(cat,(byCat.get(cat)||0)+Number(e.amount||0));
+  });
+  const dayHtml=[...byDay.entries()].sort().map(([key,v])=>{const [d,c]=key.split('|');return `<div><span>${escapeHtml(d)}</span><strong>${escapeHtml(expenseMoney(v,c))}</strong></div>`}).join('');
+  const catHtml=[...byCat.entries()].sort((a,b)=>b[1]-a[1]).map(([key,v])=>{const [d,c]=key.split('|');return `<div><span>${escapeHtml(d)}</span><strong>${escapeHtml(expenseMoney(v,c))}</strong></div>`}).join('');
+  box.innerHTML=`<section><h3>逐日開銷</h3>${dayHtml}</section><section><h3>類別摘要</h3>${catHtml}</section>`;
+}
+
+let expenseIdentityReturnView='expense';
+
+function isValidShortCode(value){
+  const s=String(value||'').trim();
+  return /^[A-Za-z]{1,2}$/.test(s)||/^[\u3400-\u9FFF]$/u.test(s);
+}
+function suggestShortCode(name){
+  const s=String(name||'').trim();
+  if(!s)return '';
+  const chinese=Array.from(s).find(ch=>/^[\u3400-\u9FFF]$/u.test(ch));
+  if(chinese)return chinese;
+  const ascii=(s.match(/[A-Za-z]/g)||[]).join('');
+  return ascii.slice(0,2);
+}
+function ensureExpenseIdentitySheet(){
+  let sheet=qs('#expenseIdentitySheet');
+  if(sheet&&sheet.dataset.identityVersion!=='3'){
+    sheet.remove();
+    qs('#expenseIdentityBackdrop')?.remove();
+    sheet=null;
+  }
+  if(sheet)return sheet;
+
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='expenseIdentityBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet expense-identity-sheet';sheet.id='expenseIdentitySheet';sheet.dataset.identityVersion='3';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP IDENTITY</span><h2>你在這趟旅程是誰？</h2><p>同一個旅伴身份會用於打包、付款與分帳。</p></div><button class="round-btn" id="closeExpenseIdentity">×</button></div>
+    <div id="expenseClaimList" class="expense-claim-list"></div>
+    <form class="edit-form" id="expenseIdentityForm">
+      <label><span>暱稱</span><input id="expenseNickname" maxlength="80" placeholder="例如 Matt" required></label>
+      <label class="identity-short-code-field">
+        <span class="identity-short-code-label"><strong>簡稱：</strong><em>最多 2 碼半形英文（如「Ma」） or 一個中文字（如「慶」）</em></span>
+        <input id="expenseShortCode" maxlength="2" placeholder="Ma / 慶" required>
+        <small>同一趟旅程不可重複；多人打包畫面會使用這個簡稱。</small>
+      </label>
+      <div class="edit-form-actions"><button type="submit" class="edit-save">使用這個身份</button></div>
+      <p class="edit-status" id="expenseIdentityStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeExpenseIdentity').onclick=close;backdrop.onclick=close;
+
+  let shortDirty=false;
+  qs('#expenseShortCode').oninput=()=>{shortDirty=true};
+  qs('#expenseNickname').oninput=()=>{if(!shortDirty)qs('#expenseShortCode').value=suggestShortCode(qs('#expenseNickname').value)};
+
+  qs('#expenseIdentityForm').onsubmit=async e=>{
+    e.preventDefault();
+    const name=qs('#expenseNickname').value.trim(),shortCode=qs('#expenseShortCode').value.trim(),status=qs('#expenseIdentityStatus');
+    if(!name){status.textContent='請輸入暱稱。';return}
+    if(!isValidShortCode(shortCode)){status.textContent='簡稱請輸入最多 2 碼半形英文，或 1 個中文字。';return}
+    status.textContent='儲存中…';
+    try{
+      await travelEditor('set_expense_identity',{displayName:name,shortCode});
+      close();await hydratePrivateCloudData();showView(expenseIdentityReturnView||'expense');
+    }catch(err){
+      const code=err.code||err.message;
+      status.textContent=code==='short_code_taken'
+        ?'這個簡稱已有人使用，請換一個。'
+        :code==='invalid_short_code'
+          ?'簡稱請輸入最多 2 碼半形英文，或 1 個中文字。'
+          :'儲存失敗：'+code;
+    }
+  };
+  return sheet;
+}
+
+async function openExpenseIdentitySheet(returnView='expense'){
+  if(!TRIP)return;
+  expenseIdentityReturnView=returnView||'expense';
+
+  if((!cloudLoaded||cloudSyncState!=='synced')&&navigator.onLine){
+    try{await hydratePrivateCloudData()}catch(_){}
+  }
+
+  const sheet=ensureExpenseIdentitySheet(),list=qs('#expenseClaimList');
+  const me=expenseCurrentPerson();
+  const unclaimed=expensePeople().filter(p=>!p.linkedUserId);
+
+  if(me){
+    list.innerHTML=`<div class="expense-current-identity"><span>目前身份</span><strong>${escapeHtml(me.displayName)} <b>${escapeHtml(me.shortCode||'')}</b></strong><em>已認領</em></div>`;
+  }else if(unclaimed.length){
+    list.innerHTML='<p class="expense-claim-hint">如果你已經在清單裡，直接認領：</p>'+unclaimed.map(p=>`<button type="button" data-claim-person="${escapeHtml(p.id)}"><span><strong>${escapeHtml(p.displayName)}</strong><small>${escapeHtml(p.shortCode||'尚未設定簡稱')}</small></span><span>認領</span></button>`).join('');
+  }else{
+    list.innerHTML='<p class="expense-claim-hint">目前沒有可認領的旅伴身份，請在下方建立自己的身份。</p>';
+  }
+
+  list.querySelectorAll('[data-claim-person]').forEach(btn=>btn.onclick=async()=>{
+    const person=expensePeople().find(p=>String(p.id)===String(btn.dataset.claimPerson));
+    let shortCode=person?.shortCode||'';
+    if(!shortCode){
+      shortCode=(prompt('請設定簡稱：最多 2 碼半形英文，或 1 個中文字',suggestShortCode(person?.displayName||''))||'').trim();
+      if(!shortCode)return;
+      if(!isValidShortCode(shortCode)){alert('簡稱請輸入最多 2 碼半形英文，或 1 個中文字。');return}
+    }
+    const status=qs('#expenseIdentityStatus');status.textContent='認領中…';
+    try{
+      await travelEditor('set_expense_identity',{personId:btn.dataset.claimPerson,shortCode});
+      sheet.classList.remove('show');qs('#expenseIdentityBackdrop').classList.remove('show');
+      await hydratePrivateCloudData();showView(expenseIdentityReturnView||'expense');
+    }catch(err){
+      const code=err.code||err.message;
+      status.textContent=code==='short_code_taken'
+        ?'這個簡稱已有人使用，請換一個。'
+        :code==='invalid_short_code'
+          ?'簡稱請輸入最多 2 碼半形英文，或 1 個中文字。'
+          :'認領失敗：'+code;
+    }
+  });
+
+  qs('#expenseNickname').value=me?.displayName||'';
+  qs('#expenseShortCode').value=me?.shortCode||suggestShortCode(me?.displayName||'');
+  qs('#expenseIdentityStatus').textContent='';
+  qs('#expenseIdentityBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+
+function ensureExpenseEditor(){
+  let sheet=qs('#expenseEditSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='expenseEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet expense-edit-sheet';sheet.id='expenseEditSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">EXPENSE</span><h2 id="expenseEditTitle">新增花費</h2><p id="expenseReceiptNotice"></p></div><button class="round-btn" id="closeExpenseEdit">×</button></div>
+    <form class="edit-form" id="expenseEditForm">
+      <input type="hidden" id="expenseEditId"><input type="hidden" id="expenseEditVersion"><input type="hidden" id="expenseReceiptPath">
+      <div class="edit-form-grid">
+        <label><span>日期</span><input id="expenseDate" type="date" required></label>
+        <label><span>時間</span><input id="expenseTime" type="time"></label>
+      </div>
+      <label><span>名稱</span><input id="expenseName" required placeholder="例如 Bónus / 晚餐 / 停車"></label>
+      <div class="edit-form-grid">
+        <label><span>類別</span><select id="expenseCategory">
+          <option value="food">餐飲</option><option value="grocery">超市</option><option value="transport">交通</option>
+          <option value="car">租車</option><option value="fuel">加油</option><option value="stay">住宿</option>
+          <option value="flight">機票</option><option value="tour">Tour / 門票</option><option value="shopping">購物</option><option value="other">其他</option>
+        </select></label>
+        <label><span>支付方式</span><input id="expensePaymentMethod" placeholder="現金 / Visa ••••4131"></label>
+      </div>
+      <div class="edit-form-grid">
+        <label><span>幣別</span><input id="expenseCurrency" maxlength="3" value="ISK" required></label>
+        <label><span>金額</span><input id="expenseAmount" inputmode="decimal" type="number" min="0" step="0.01" required></label>
+      </div>
+      <label><span>支付人</span><select id="expensePayer"></select></label>
+      <fieldset class="expense-split-fieldset"><legend>應分帳人 · 目前先以平均分攤</legend><div id="expenseSplitPeople"></div></fieldset>
+      <label><span>備註</span><textarea id="expenseNote" rows="4"></textarea></label>
+      <div class="edit-form-actions expense-form-actions">
+        <button type="button" class="edit-delete" id="deleteExpenseBtn">刪除</button>
+        <button type="submit" class="edit-save">儲存花費</button>
+      </div>
+      <p class="edit-status" id="expenseEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeExpenseEdit').onclick=close;backdrop.onclick=close;
+  qs('#expenseEditForm').onsubmit=saveExpenseEditor;
+  qs('#deleteExpenseBtn').onclick=deleteExpenseEditor;
+  return sheet;
+}
+function fillExpensePeopleControls(selected=[]){
+  const payer=qs('#expensePayer'),split=qs('#expenseSplitPeople'),people=expensePeople();
+  payer.innerHTML='<option value="">—</option>'+people.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.displayName)}</option>`).join('');
+  split.innerHTML=people.map(p=>`<label><input type="checkbox" value="${escapeHtml(p.id)}" ${selected.includes(String(p.id))?'checked':''}><span>${escapeHtml(p.displayName)}</span></label>`).join('');
+}
+function openExpenseEditor(row=null,prefill={}){
+  if(!canEditTrip())return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet();return}
+  const sheet=ensureExpenseEditor();
+  const source=row||prefill||{};
+  const selected=(source.splits||[]).map(s=>String(s.personId));
+  const defaultSelected=selected.length?selected:expensePeople().map(p=>String(p.id));
+  fillExpensePeopleControls(defaultSelected);
+  qs('#expenseEditId').value=row?.id||'';
+  qs('#expenseEditVersion').value=row?.version||'';
+  qs('#expenseDate').value=source.expenseDate||new Date().toISOString().slice(0,10);
+  qs('#expenseTime').value=source.expenseTime||new Date().toTimeString().slice(0,5);
+  qs('#expenseName').value=source.title||'';
+  qs('#expenseCategory').value=source.category||'other';
+  qs('#expensePaymentMethod').value=source.paymentMethod||'';
+  qs('#expenseCurrency').value=source.currency||'ISK';
+  qs('#expenseAmount').value=source.amount??'';
+  qs('#expensePayer').value=source.paidByPersonId||TRIP.currentPersonId||'';
+  qs('#expenseNote').value=source.note||'';
+  qs('#expenseReceiptPath').value=source.receiptPath||'';
+  qs('#expenseReceiptNotice').textContent=source.receiptParseStatus==='parsed'?'收據已辨識；請逐欄確認後再儲存。':'';
+  qs('#expenseEditTitle').textContent=row?'編輯花費':(source.receiptPath?'確認收據':'新增花費');
+  qs('#deleteExpenseBtn').hidden=!row;
+  qs('#expenseEditStatus').textContent='';
+  sheet._receiptOcr=source.receiptOcr||{};
+  sheet._sourceType=source.sourceType||(source.receiptPath?'receipt':'manual');
+  qs('#expenseEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+async function saveExpenseEditor(e){
+  e.preventDefault();const status=qs('#expenseEditStatus');
+  const splitIds=[...qs('#expenseSplitPeople').querySelectorAll('input:checked')].map(x=>x.value);
+  if(!splitIds.length){status.textContent='至少選一位應分帳人。';return}
+  const payload={
+    id:qs('#expenseEditId').value||null,baseVersion:Number(qs('#expenseEditVersion').value||1),
+    expenseDate:qs('#expenseDate').value,expenseTime:qs('#expenseTime').value,
+    title:qs('#expenseName').value.trim(),category:qs('#expenseCategory').value,
+    paymentMethod:qs('#expensePaymentMethod').value.trim(),currency:qs('#expenseCurrency').value.trim().toUpperCase(),
+    amount:Number(qs('#expenseAmount').value),paidByPersonId:qs('#expensePayer').value||null,
+    note:qs('#expenseNote').value.trim(),splitMode:'equal',splitPersonIds:splitIds,
+    sourceType:qs('#expenseEditSheet')._sourceType||'manual',
+    receiptPath:qs('#expenseReceiptPath').value||null,
+    receiptParseStatus:qs('#expenseReceiptPath').value?'parsed':null,
+    receiptOcr:qs('#expenseEditSheet')._receiptOcr||{}
+  };
+  status.textContent='儲存中…';
+  try{await travelEditor('save_expense',{expense:payload});qs('#expenseEditSheet').classList.remove('show');qs('#expenseEditBackdrop').classList.remove('show');await hydratePrivateCloudData();showView('expense')}
+  catch(err){status.textContent='儲存失敗：'+(err.code||err.message||'unknown')}
+}
+async function deleteExpenseEditor(){
+  const id=qs('#expenseEditId').value;if(!id)return;
+  if(!confirm('刪除這筆花費？'))return;
+  const status=qs('#expenseEditStatus');status.textContent='刪除中…';
+  try{await travelEditor('delete_expense',{id,baseVersion:Number(qs('#expenseEditVersion').value||1)});qs('#expenseEditSheet').classList.remove('show');qs('#expenseEditBackdrop').classList.remove('show');await hydratePrivateCloudData();showView('expense')}
+  catch(err){status.textContent='刪除失敗：'+(err.code||err.message||'unknown')}
+}
+async function addReservationExpense(reservationId){
+  if(!canEditTrip())return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet();return}
+  const people=expensePeople(); if(!people.length)return;
+  try{
+    await travelEditor('expense_from_reservation',{
+      reservationId,
+      paidByPersonId:TRIP.currentPersonId,
+      splitPersonIds:people.map(p=>p.id)
+    });
+    await hydratePrivateCloudData();showView('expense');
+  }catch(err){alert('無法納入花費：'+(err.code||err.message||'unknown'))}
+}
+async function addExpensePerson(){
+  const person=await createTripPerson();
+  if(person)showView('expense');
+}
+
+async function receiptFileToDataUrl(file){
+  return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=reject;r.readAsDataURL(file)});
+}
+async function parseReceiptFile(file){
+  if(!file)return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet();return}
+  const btn=qs('#receiptExpenseBtn');if(btn){btn.disabled=true;btn.textContent='辨識中…'}
+  try{
+    const dataUrl=await receiptFileToDataUrl(file);
+    const base64=String(dataUrl).split(',')[1]||'';
+    const client=window.TravelAuth?.getClient?.();if(!client)throw new Error('auth_not_ready');
+    const device=await window.TravelStore.getDevice();
+    const {data,error}=await client.functions.invoke('travel-receipt-parser',{body:{
+      tripSlug:window.TRAVEL_CONFIG.tripSlug,devicePublicId:device.device_public_id,deviceSecret:device.device_secret,
+      mimeType:file.type,base64
+    }});
+    if(error)throw error;if(data?.error)throw new Error(data.error);
+    const v=data.verifiedFields||{};
+    openExpenseEditor(null,{
+      expenseDate:v.date||new Date().toISOString().slice(0,10),
+      expenseTime:v.time||'',title:v.merchant||'',category:v.category||'other',
+      paymentMethod:v.paymentMethod||'',currency:v.currency||'ISK',amount:v.total??'',
+      paidByPersonId:TRIP.currentPersonId,
+      note:v.note||'',
+      sourceType:'receipt',receiptPath:data.receiptPath,receiptParseStatus:'parsed',
+      receiptOcr:{confidence:data.confidence,verifiedFields:v,uncertainFields:data.uncertainFields||[],visibleText:data.visibleText||[],evidence:data.evidence||{},model:data.model}
+    });
+    const notice=qs('#expenseReceiptNotice');
+    if(notice){
+      const pct=Math.round(Number(data.confidence||0)*100);
+      const uncertain=(data.uncertainFields||[]).length;
+      notice.textContent=`AI / OCR 草稿 · 信心 ${pct}%${uncertain?' · '+uncertain+' 個欄位需確認':''}。不會自動入帳。`;
+    }
+  }catch(err){alert('收據辨識失敗：'+(err.message||'unknown')+'\n請改用手動記帳。')}
+  finally{if(btn){btn.disabled=false;btn.textContent='▣ 拍收據'}}
+}
+function chooseReceiptPhoto(){
+  if(!canEditTrip())return;
+  let input=qs('#expenseReceiptInput');
+  if(!input){input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';input.capture='environment';input.id='expenseReceiptInput';input.hidden=true;document.body.append(input);input.onchange=()=>{const file=input.files?.[0];if(file)parseReceiptFile(file);input.value=''};}
+  input.click();
+}
+
+
+let checklistTab=(()=>{try{const v=localStorage.getItem('travelChecklistTab');return ['pack','buy','notes'].includes(v)?v:''}catch(_){return ''}})();
+let checklistScope=(()=>{try{return localStorage.getItem('travelChecklistScope')==='team'?'team':'mine'}catch(_){return 'mine'}})();
+const CHECKLIST_CATEGORIES=['食','衣','行','盥洗','藥品','娛樂','其他'];
+const NOTE_CATEGORIES=['攻略','景點','美食','購物','住宿','交通','其他'];
+let checklistCategory='all';
+let travelNotesQuery='';
+
+function tripTodayISO(){
+  try{
+    const tz=TRIP?.timezone||'UTC';
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+    const map=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+  }catch(_){return new Date().toISOString().slice(0,10)}
+}
+function defaultChecklistTab(){
+  const start=TRIP?.startDate||TRIP?.days?.[0]?.date||'';
+  return start&&tripTodayISO()<start?'pack':'buy';
+}
+function checklistRows(type=checklistTab||defaultChecklistTab()){
+  return (Array.isArray(TRIP?.checklistItems)?TRIP.checklistItems:[])
+    .filter(x=>x.listType===type)
+    .sort((a,b)=>Number(a.sortOrder||0)-Number(b.sortOrder||0));
+}
+function checklistPerson(id){return expensePeople().find(p=>String(p.id)===String(id))||null}
+function checklistShort(p){
+  if(!p)return '—';
+  return String(p.shortCode||suggestShortCode(p.displayName)||'?').slice(0,2);
+}
+function packApplies(item,personId){
+  return item.assignmentMode!=='specific'||(item.assignedPersonIds||[]).map(String).includes(String(personId));
+}
+function packStatusFor(item,personId){
+  return (item.packStatuses||[]).find(s=>String(s.personId)===String(personId))?.status||'todo';
+}
+function packNoteFor(item,personId){
+  return (item.packStatuses||[]).find(s=>String(s.personId)===String(personId))?.note||'';
+}
+function nextPackStatus(status){return status==='todo'?'ready':status==='ready'?'packed':'todo'}
+function checklistStatusButton(status,itemId,personId,enabled=true){
+  const mark=status==='packed'||status==='ready'?'✓':'';
+  const title=status==='packed'?'已打包':status==='ready'?'已準備、未打包':'尚未準備';
+  return `<button type="button" class="pack-status-btn ${status}" data-pack-item="${escapeHtml(itemId)}" data-pack-person="${escapeHtml(personId)}" title="${title}" aria-label="${title}" ${enabled?'':'disabled'}>${mark}</button>`;
+}
+function checklistCategoryRows(){
+  return ['all',...(checklistTab==='notes'?NOTE_CATEGORIES:CHECKLIST_CATEGORIES)];
+}
+function renderChecklistFilters(){
+  const host=qs('#checklistFilters');if(!host)return;
+  const cats=checklistCategoryRows();
+  if(checklistCategory!=='all'&&!cats.includes(checklistCategory))checklistCategory='all';
+  host.innerHTML=cats.map(cat=>`<button type="button" class="${cat===checklistCategory?'active':''}" data-checklist-category="${escapeHtml(cat)}">${cat==='all'?'全部':escapeHtml(cat)}</button>`).join('');
+  host.querySelectorAll('[data-checklist-category]').forEach(btn=>btn.onclick=()=>{checklistCategory=btn.dataset.checklistCategory||'all';renderChecklist()});
+}
+function checklistFilteredRows(){
+  let rows=checklistRows();
+  if(checklistCategory!=='all')rows=rows.filter(x=>String(x.category||'其他')===checklistCategory);
+  if(checklistTab==='pack'&&checklistScope==='mine'&&TRIP?.currentPersonId){
+    rows=rows.filter(item=>packApplies(item,TRIP.currentPersonId));
+  }
+  return rows;
+}
+function checklistPackMeta(item){
+  const bits=[item.category||'其他'];
+  if(item.note)bits.push(item.note);
+  return bits.join(' · ');
+}
+function renderChecklistPack(){
+  const host=qs('#checklistPackList');if(!host)return;
+  const rows=checklistFilteredRows(),people=expensePeople(),current=String(TRIP?.currentPersonId||'');
+  if(!rows.length){
+    host.innerHTML=`<div class="checklist-empty"><strong>${checklistScope==='mine'?'目前沒有分配給你的項目':'尚未建立要帶清單'}</strong><p>${canEditTrip()?'按「＋ 新增」建立第一筆。':'等 Trip Editor 建立清單後就會出現在這裡。'}</p></div>`;
+    return;
+  }
+  host.innerHTML=rows.map(item=>{
+    let statuses='';
+    if(checklistScope==='mine'){
+      const p=checklistPerson(current);
+      const applicable=p&&packApplies(item,current);
+      statuses=applicable?checklistStatusButton(packStatusFor(item,current),item.id,current,true):'<span class="pack-status-na">—</span>';
+    }else{
+      statuses=`<div class="checklist-team-status">${people.map(p=>{
+        const applicable=packApplies(item,p.id);
+        if(!applicable)return '<span class="pack-status-na">—</span>';
+        const canChange=canEditTrip()||String(p.id)===current;
+        return checklistStatusButton(packStatusFor(item,p.id),item.id,p.id,canChange);
+      }).join('')}</div>`;
+    }
+    const personNotes=checklistScope==='mine'
+      ?(()=>{
+          const note=packNoteFor(item,current);
+          const p=checklistPerson(current);
+          return note&&p?`${checklistShort(p)} ${note}`:'';
+        })()
+      :people.filter(p=>packApplies(item,p.id)).map(p=>{
+          const note=packNoteFor(item,p.id);
+          return note?`${checklistShort(p)} ${note}`:'';
+        }).filter(Boolean).join(' · ');
+    const notes=[item.note||'',personNotes].filter(Boolean).join(' · ');
+    return `<article class="checklist-item pack-item checklist-pack-row ${checklistScope==='team'?'team-mode':'mine-mode'} ${item.packStatuses?.length?'has-status':''}" data-checklist-category="${escapeHtml(item.category||'其他')}" data-checklist-id="${escapeHtml(item.id)}">
+      <div class="checklist-status-cell">${statuses}</div>
+      <div class="checklist-item-copy">
+        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div>
+      </div>
+      <div class="checklist-note-cell" title="${escapeHtml(notes)}">${notes?escapeHtml(notes):'<span class="checklist-note-empty">—</span>'}</div>
+      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}" aria-label="編輯"><span class="checklist-edit-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`:''}
+    </article>`;
+  }).join('');
+  bindChecklistRows();
+}
+function buyPersonLabel(personId,customName){
+  const p=checklistPerson(personId);
+  return p?.displayName||customName||'—';
+}
+function renderChecklistBuy(){
+  const host=qs('#checklistBuyList');if(!host)return;
+  const rows=checklistFilteredRows();
+  if(!rows.length){
+    host.innerHTML=`<div class="checklist-empty"><strong>還沒有要買的東西</strong><p>${canEditTrip()?'旅行途中想到什麼就加進來。':'等 Trip Editor 建立購物清單後就會出現在這裡。'}</p></div>`;
+    return;
+  }
+  host.innerHTML=rows.map(item=>{
+    const bought=item.buyStatus==='bought';
+    const buyer=buyPersonLabel(item.buyerPersonId,item.buyerCustomName);
+    const wantedBy=buyPersonLabel(item.forPersonId,item.forCustomName);
+    const info=[];
+    if(item.quantity)info.push('數量 '+item.quantity);
+    if(item.note)info.push(item.note);
+    if(buyer!=='—')info.push('誰去買 '+buyer);
+    if(wantedBy!=='—')info.push('誰要的 '+wantedBy);
+    const notes=info.join(' · ');
+    return `<article class="checklist-item buy-item checklist-pack-row checklist-buy-row mine-mode ${bought?'bought':''}" data-checklist-id="${escapeHtml(item.id)}">
+      <div class="checklist-status-cell"><button type="button" class="buy-status-btn ${bought?'bought':'todo'}" data-buy-item="${escapeHtml(item.id)}" aria-label="${bought?'已買':'未買'}">${bought?'✓':''}</button></div>
+      <div class="checklist-item-copy">
+        <div class="checklist-item-title"><span class="checklist-category-tag">${escapeHtml(item.category||'其他')}</span><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div>
+      </div>
+      <div class="checklist-note-cell checklist-buy-note" title="${escapeHtml(notes)}">
+        <span class="checklist-note-text">${notes?escapeHtml(notes):'<span class="checklist-note-empty">—</span>'}</span>
+        ${bought&&canEditTrip()?`<button type="button" class="checklist-expense-link compact" data-buy-expense="${escapeHtml(item.id)}">＋記帳</button>`:''}
+      </div>
+      ${canEditTrip()?`<button type="button" class="checklist-edit-btn" data-edit-checklist="${escapeHtml(item.id)}" aria-label="編輯"><span class="checklist-edit-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`:''}
+    </article>`;
+  }).join('');
+  bindChecklistRows();
+}
+function travelNoteSharerName(note){
+  const userId=String(note?.createdByUserId||'');
+  const person=(TRIP?.people||[]).find(p=>String(p.linkedUserId||'')===userId);
+  return String(person?.displayName||'').trim()||'旅伴';
+}
+function travelNoteRows(){
+  const q=String(travelNotesQuery||'').trim().toLowerCase();
+  let rows=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[]).slice();
+  if(checklistCategory!=='all')rows=rows.filter(n=>String(n.category||'其他')===checklistCategory);
+  if(q){
+    rows=rows.filter(n=>[n.title,n.sourceText,n.note,n.url,n.category,travelNoteSharerName(n)]
+      .some(v=>String(v||'').toLowerCase().includes(q)));
+  }
+  return rows.sort((a,b)=>{
+    const pin=Number(Boolean(b.isPinned))-Number(Boolean(a.isPinned));
+    if(pin)return pin;
+    return String(b.createdAt||'').localeCompare(String(a.createdAt||''));
+  });
+}
+function travelNoteSourceLabel(type){
+  return ({threads:'Threads',instagram:'Instagram',facebook:'Facebook',youtube:'YouTube',google_maps:'Google Maps',article:'文章',link:'連結',other:'筆記'})[type]||'連結';
+}
+function travelNoteHost(url){
+  try{return new URL(url).hostname.replace(/^www\./,'')}catch{return ''}
+}
+function travelNoteDayLabel(note){
+  if(!note?.dayId)return '';
+  const day=(TRIP?.days||[]).find(d=>String(d.id)===String(note.dayId));
+  return day?.label||day?.date||'';
+}
+function renderTravelNotes(){
+  const host=qs('#travelNotesList');if(!host)return;
+  const unresolved=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
+    .filter(n=>isSupportedSocialUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericSocialNoteTitle(n.title,n.url)));
+  const controls=qs('#travelNoteRecoveryBar'),button=qs('#travelNoteRecoverTitlesBtn');
+  if(controls)controls.hidden=!canEditTrip()||!unresolved.length;
+  if(button)button.textContent='補抓內文（'+unresolved.length+'）';
+  const rows=travelNoteRows();
+  if(!rows.length){
+    host.innerHTML=`<div class="checklist-empty travel-notes-empty"><strong>${travelNotesQuery?'找不到符合的筆記':'還沒有旅遊筆記'}</strong><p>${canEditTrip()?'看到 Threads、文章或攻略時就存進來，旅行時不用再回群組翻。':'旅伴新增的文章與貼文會整理在這裡。'}</p></div>`;
+    return;
+  }
+  host.innerHTML=rows.map(n=>{
+    const sharer=travelNoteSharerName(n);
+    const sourceText=String(n.sourceText||'').trim();
+    const personalNote=String(n.note||'').trim();
+    const longText=sourceText.length>155||sourceText.split('\n').length>4;
+    const day=travelNoteDayLabel(n);
+    return `<article class="travel-note-card ${n.isPinned?'pinned':''}" data-note-id="${escapeHtml(n.id)}">
+      <div class="travel-note-main">
+        <div class="travel-note-topline">
+          <span class="travel-note-category">${escapeHtml(n.category||'其他')}</span>
+          <span class="travel-note-sharer" aria-label="分享者：${escapeHtml(sharer)}">${escapeHtml(sharer)}</span>
+          ${day?`<span class="travel-note-day">${escapeHtml(day)}</span>`:''}
+          ${n.isPinned?'<span class="travel-note-pin">置頂</span>':''}
+        </div>
+        <h3>${escapeHtml(n.title||'未命名筆記')}</h3>
+        ${sourceText?`<p class="travel-note-source-body">${escapeHtml(sourceText)}</p>`
+          :(isSupportedSocialUrl(n.url)?'<p class="travel-note-unavailable">尚未擷取貼文內文</p>':'')}
+        ${longText?`<button type="button" class="travel-note-expand" data-expand-note="${escapeHtml(n.id)}" aria-expanded="false">展開全文</button>`:''}
+        ${personalNote?`<p class="travel-note-personal">備註：${escapeHtml(personalNote)}</p>`:''}
+      </div>
+      <div class="travel-note-actions">
+        ${n.url?`<button type="button" data-open-note-url="${escapeHtml(n.id)}">原文 ↗</button>`:''}
+        ${canEditTrip()?`<button type="button" class="travel-note-more" data-edit-note="${escapeHtml(n.id)}" aria-label="編輯筆記">⋯</button>`:''}
+      </div>
+    </article>`;
+  }).join('');
+  host.querySelectorAll('[data-expand-note]').forEach(btn=>btn.onclick=()=>{
+    const card=btn.closest('.travel-note-card');
+    const expanded=card?.classList.toggle('note-expanded');
+    btn.setAttribute('aria-expanded',String(Boolean(expanded)));
+    btn.textContent=expanded?'收合內文':'展開全文';
+  });
+  host.querySelectorAll('[data-open-note-url]').forEach(btn=>btn.onclick=()=>{
+    const note=(TRIP?.travelNotes||[]).find(n=>String(n.id)===String(btn.dataset.openNoteUrl));
+    if(note?.url)window.open(note.url,'_blank','noopener');
+  });
+  host.querySelectorAll('[data-edit-note]').forEach(btn=>btn.onclick=()=>{
+    const note=(TRIP?.travelNotes||[]).find(n=>String(n.id)===String(btn.dataset.editNote));
+    if(note)openTravelNoteEditor(note);
+  });
+}
+function noteDayOptions(selected=''){
+  return ['<option value="">不指定日期</option>',...(TRIP?.days||[]).map(day=>`<option value="${escapeHtml(day.id)}" ${String(day.id)===String(selected)?'selected':''}>${escapeHtml(day.label||'')} · ${escapeHtml(day.date||'')} ${escapeHtml(day.name||'')}</option>`)].join('');
+}
+function ensureTravelNoteEditor(){
+  let sheet=qs('#travelNoteSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='travelNoteBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet travel-note-sheet';sheet.id='travelNoteSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">TRAVEL NOTE</span><h2 id="travelNoteEditTitle">新增旅遊筆記</h2><p>文章、Threads、貼文、攻略與臨時看到的資訊都可以存。</p></div>
+      <button class="round-btn" id="closeTravelNote">×</button>
+    </div>
+    <form class="edit-form" id="travelNoteForm">
+      <input type="hidden" id="travelNoteId"><input type="hidden" id="travelNoteVersion">
+      <label><span>連結</span><input id="travelNoteUrl" type="url" inputmode="url" placeholder="貼上 Threads / 網頁 / Google Maps 連結"></label>
+      <label><span>標題</span><input id="travelNoteTitle" maxlength="220" placeholder="例如：雷克雅維克必吃魚湯" required></label>
+      <button type="button" class="travel-note-fetch-title" id="travelNoteFetchTitle">抓取貼文標題與內文</button>
+      <label><span>原文內文（自動擷取，也可手動補充）</span><textarea id="travelNoteSourceText" rows="5" maxlength="8000" placeholder="原始貼文內容會顯示在筆記卡片的灰字區域。"></textarea></label>
+      <div class="edit-form-grid">
+        <label><span>分類</span><select id="travelNoteCategory">${NOTE_CATEGORIES.map(x=>`<option value="${x}">${x}</option>`).join('')}</select></label>
+        <label><span>關聯日期</span><select id="travelNoteDay"></select></label>
+      </div>
+      <label><span>自己的重點 / 為什麼存</span><textarea id="travelNoteText" rows="4" maxlength="5000" placeholder="例如：D3 經過時可以去、記得買這個、文章第 2 段有停車資訊…"></textarea></label>
+      <label class="travel-note-pin-field"><input id="travelNotePinned" type="checkbox"><span>置頂這筆筆記</span></label>
+      <div class="edit-form-actions expense-form-actions">
+        <button type="button" class="edit-delete" id="deleteTravelNoteBtn">刪除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="travelNoteStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeTravelNote').onclick=close;backdrop.onclick=close;
+  qs('#travelNoteForm').onsubmit=saveTravelNote;
+  qs('#deleteTravelNoteBtn').onclick=deleteTravelNote;
+  qs('#travelNoteFetchTitle').onclick=async()=>{
+    const btn=qs('#travelNoteFetchTitle'),status=qs('#travelNoteStatus'),url=qs('#travelNoteUrl').value.trim();
+    if(!isSupportedSocialUrl(url)){
+      status.textContent='目前支援 Threads 與 Facebook 公開貼文；其他網址可手動補充。';return;
+    }
+    btn.disabled=true;status.textContent='正在取得公開貼文資訊…';
+    try{
+      const content=await lookupSocialPostContent(url);
+      const titleField=qs('#travelNoteTitle'),textField=qs('#travelNoteSourceText');
+      let titleAdded=false,bodyAdded=false;
+      if(content.title&&isGenericSocialNoteTitle(titleField.value,url)){
+        titleField.value=content.title;titleAdded=true;
+      }
+      if(content.text&&!textField.value.trim()){
+        textField.value=content.text;bodyAdded=true;
+      }
+      if(titleAdded||bodyAdded){
+        status.textContent=(bodyAdded?'已取得貼文內文':'已取得公開標題')+'；請確認後按儲存。原有標題與手動內文不會被覆蓋。';
+      }else if(content.text){
+        status.textContent='已有手動填寫的標題或內文，已保留原內容。';
+      }else{
+        const platform=isThreadsUrl(url)?'Threads':'Facebook';
+        status.textContent='目前無法取得這篇 '+platform+' 的公開內文；可能受貼文權限或平台讀取限制影響。可手動貼上原文，連結會保留。';
+      }
+    }catch(_){status.textContent='暫時無法取得公開貼文內容，可手動貼入原文。';}
+    finally{btn.disabled=false;}
+  };
+  return sheet;
+}
+function inferNoteTitleFromUrl(url){
+  try{
+    const u=new URL(url);
+    const host=u.hostname.replace(/^www\./,'');
+    if(host.includes('threads.'))return 'Threads 貼文';
+    if(host.includes('facebook.')||host==='fb.watch')return 'Facebook 貼文';
+    if(host.includes('instagram.'))return 'Instagram 貼文';
+    if(host.includes('youtube.')||host==='youtu.be')return 'YouTube 影片';
+    if(host.includes('google.')||host==='maps.app.goo.gl')return 'Google Maps 收藏';
+    return host;
+  }catch{return ''}
+}
+function openTravelNoteEditor(note=null,preset={}){
+  if(!canEditTrip())return;
+  const sheet=ensureTravelNoteEditor();
+  const data=note||{};
+  const url=preset.url??data.url??'';
+  qs('#travelNoteId').value=data.id||'';
+  qs('#travelNoteVersion').value=data.version||1;
+  qs('#travelNoteEditTitle').textContent=note?'編輯旅遊筆記':'新增旅遊筆記';
+  qs('#travelNoteUrl').value=url;
+  qs('#travelNoteTitle').value=preset.title??data.title??inferNoteTitleFromUrl(url);
+  qs('#travelNoteSourceText').value=preset.sourceText??data.sourceText??'';
+  qs('#travelNoteCategory').value=NOTE_CATEGORIES.includes(preset.category??data.category)?(preset.category??data.category):'攻略';
+  qs('#travelNoteDay').innerHTML=noteDayOptions(preset.dayId??data.dayId??'');
+  qs('#travelNoteText').value=preset.note??data.note??'';
+  qs('#travelNotePinned').checked=Boolean(preset.isPinned??data.isPinned);
+  qs('#deleteTravelNoteBtn').hidden=!note;
+  qs('#travelNoteStatus').textContent='';
+  qs('#travelNoteBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>{(url?qs('#travelNoteTitle'):qs('#travelNoteUrl'))?.focus()},50);
+}
+let socialNotesRecovering=false;
+async function recoverMissingSocialNotes(){
+  if(socialNotesRecovering||!canEditTrip())return;
+  const target=(Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[])
+    .filter(n=>isSupportedSocialUrl(n.url)&&(!String(n.sourceText||'').trim()||isGenericSocialNoteTitle(n.title,n.url)))
+    .slice(0,12);
+  if(!target.length)return;
+  const btn=qs('#travelNoteRecoverTitlesBtn'),status=qs('#travelNoteRecoveryStatus');
+  socialNotesRecovering=true;if(btn)btn.disabled=true;
+  let updated=0,unavailable=0,failed=0;
+  try{
+    for(const n of target){
+      if(status)status.textContent='正在取得公開貼文 '+(updated+unavailable+failed+1)+' / '+target.length+' 篇…';
+      try{
+        const content=await lookupSocialPostContent(n.url);
+        if(!content.text&&!content.title){unavailable++;continue;}
+        const upgraded=tripNoteUpdatePayload(n,content);
+        if(upgraded.title===n.title&&upgraded.sourceText===String(n.sourceText||'')){unavailable++;continue;}
+        await travelEditor('save_trip_note',{note:upgraded});
+        updated++;
+      }catch(err){console.warn('Public post recovery unavailable',String(err?.code||err?.message||err));failed++;}
+    }
+    if(updated)await hydratePrivateCloudData();
+    renderTravelNotes();
+    if(status)status.textContent='已更新 '+updated+' 篇標題／原文；'+(unavailable+failed)+' 篇無法自動取得，可手動補充內文。';
+  }finally{socialNotesRecovering=false;if(btn)btn.disabled=false;}
+}
+
+async function saveTravelNote(e){
+  e.preventDefault();
+  const status=qs('#travelNoteStatus');
+  const url=qs('#travelNoteUrl').value.trim();
+  const title=qs('#travelNoteTitle').value.trim()||inferNoteTitleFromUrl(url);
+  if(!title){status.textContent='請輸入標題。';return}
+  const note={
+    id:qs('#travelNoteId').value||null,
+    baseVersion:Number(qs('#travelNoteVersion').value||1),
+    url,title,
+    category:qs('#travelNoteCategory').value,
+    dayId:qs('#travelNoteDay').value||null,
+    note:qs('#travelNoteText').value.trim(),
+    sourceText:qs('#travelNoteSourceText').value.trim(),
+    isPinned:qs('#travelNotePinned').checked
+  };
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_trip_note',{note});
+    if(incomingSharePayload()){
+      clearIncomingShare();
+      incomingShareOpened=true;
+    }
+    qs('#travelNoteSheet').classList.remove('show');qs('#travelNoteBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){
+    status.textContent=(err.code||err.message)==='invalid_note_url'?'連結格式不正確。':'儲存失敗：'+(err.code||err.message);
+  }
+}
+async function deleteTravelNote(){
+  const id=qs('#travelNoteId').value;if(!id)return;
+  if(!confirm('刪除這筆旅遊筆記？'))return;
+  try{
+    await travelEditor('delete_trip_note',{id,baseVersion:Number(qs('#travelNoteVersion').value||1)});
+    qs('#travelNoteSheet').classList.remove('show');qs('#travelNoteBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){qs('#travelNoteStatus').textContent='刪除失敗：'+(err.code||err.message)}
+}
+
+function renderChecklistPersonHead(){
+  const head=qs('#checklistPersonHead');if(!head)return;
+  const show=checklistTab==='pack'||checklistTab==='buy';
+  head.hidden=!show;
+  if(!show)return;
+  const people=expensePeople();
+  const teamMode=checklistTab==='pack'&&checklistScope==='team';
+  const statusHead=teamMode
+    ?`<div class="checklist-team-status checklist-team-head" aria-label="隊友">${people.map(p=>`<b title="${escapeHtml(p.displayName)}">${escapeHtml(checklistShort(p))}</b>`).join('')}</div>`
+    :'<span class="checklist-mine-head">狀態</span>';
+  head.classList.toggle('team-mode',teamMode);
+  head.classList.toggle('mine-mode',!teamMode);
+  head.classList.toggle('buy-mode',checklistTab==='buy');
+  head.innerHTML=`${statusHead}<span class="checklist-column-title">項目</span><span class="checklist-column-title">備註</span><span class="checklist-head-edit-spacer"></span>`;
+}
+function renderChecklist(){
+  if(!qs('#checklistView')||!TRIP)return;
+  if(!checklistTab)checklistTab=defaultChecklistTab();
+  qsa('[data-checklist-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.checklistTab===checklistTab));
+  qs('#checklistPackPanel')?.classList.toggle('active',checklistTab==='pack');
+  qs('#checklistBuyPanel')?.classList.toggle('active',checklistTab==='buy');
+  qs('#checklistNotesPanel')?.classList.toggle('active',checklistTab==='notes');
+
+  const scope=qs('#checklistScopeBtn');
+  if(scope){
+    scope.hidden=checklistTab!=='pack';
+    scope.textContent=checklistScope==='mine'?'全部隊友':'只看我';
+    scope.classList.toggle('team',checklistScope==='team');
+  }
+  const importBtn=qs('#checklistImportBtn');if(importBtn)importBtn.hidden=checklistTab!=='pack'||!canEditTrip();
+  const legend=qs('#checklistLegend');if(legend)legend.hidden=checklistTab!=='pack';
+  const add=qs('#addChecklistItemBtn');
+  if(add){
+    add.hidden=!canEditTrip();
+    add.textContent=checklistTab==='notes'?'＋ 新增筆記':'＋ 新增';
+  }
+
+  const heroTitle=qs('#checklistHeroTitle'),heroSummary=qs('#checklistHeroSummary');
+  if(heroTitle)heroTitle.textContent=checklistTab==='pack'?'出發準備':checklistTab==='buy'?'旅途中要買':'旅遊筆記';
+  if(heroSummary){
+    if(checklistTab==='pack'){
+      const mine=TRIP?.currentPersonId?checklistRows('pack').filter(x=>packApplies(x,TRIP.currentPersonId)):[];
+      const packed=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length;
+      const ready=mine.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length;
+      heroSummary.textContent=TRIP?.currentPersonId?`${packed}/${mine.length} 已打包 · ${ready} 已準備`:'設定旅伴身份後就能追蹤自己的打包進度。';
+    }else if(checklistTab==='buy'){
+      const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
+      heroSummary.textContent=`${done}/${rows.length} 已買 · ${rows.length-done} 待買`;
+    }else{
+      const rows=Array.isArray(TRIP?.travelNotes)?TRIP.travelNotes:[];
+      const pinned=rows.filter(n=>n.isPinned).length;
+      heroSummary.textContent=rows.length?`${rows.length} 筆收藏${pinned?` · ${pinned} 筆置頂`:''}`:'把網路上看到的文章、貼文與攻略收在這裡。';
+    }
+  }
+
+  renderChecklistFilters();
+  renderChecklistPersonHead();
+  if(checklistTab==='pack')renderChecklistPack();
+  else if(checklistTab==='buy')renderChecklistBuy();
+  else renderTravelNotes();
+}
+function ensureChecklistImportSheet(){
+  let sheet=qs('#checklistImportSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistImportBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet checklist-import-sheet';sheet.id='checklistImportSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">IMPORT PACKING LIST</span><h2>從旅程匯入</h2><p>只匯入「要帶」品項。狀態全部重設，適用人員預設只有你自己。</p></div>
+      <button class="round-btn" id="closeChecklistImport">×</button>
+    </div>
+    <div class="checklist-import-list" id="checklistImportList"><div class="booking-empty">讀取其他旅程中…</div></div>
+    <p class="edit-status" id="checklistImportStatus"></p>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeChecklistImport').onclick=close;
+  backdrop.onclick=close;
+  return sheet;
+}
+function checklistImportDateRange(src){
+  const a=src?.startDate||'',b=src?.endDate||'';
+  if(a&&b)return a===b?a:`${a} → ${b}`;
+  return a||b||'日期未設定';
+}
+async function openChecklistImportSheet(){
+  if(!canEditTrip())return;
+  if(!TRIP?.currentPersonId){openExpenseIdentitySheet('checklist');return}
+  const sheet=ensureChecklistImportSheet();
+  const list=qs('#checklistImportList'),status=qs('#checklistImportStatus');
+  list.innerHTML='<div class="booking-empty">讀取其他旅程中…</div>';
+  status.textContent='';
+  qs('#checklistImportBackdrop').classList.add('show');
+  sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+  try{
+    const data=await travelEditor('list_checklist_import_sources');
+    const sources=Array.isArray(data?.sources)?data.sources:[];
+    if(!sources.length){
+      list.innerHTML='<div class="booking-empty">目前沒有其他可匯入的旅程。</div>';
+      return;
+    }
+    list.innerHTML=sources.map(src=>`
+      <article class="checklist-import-card">
+        <div>
+          <strong>${escapeHtml(src.title||src.slug||'未命名旅程')}</strong>
+          <span>${escapeHtml(checklistImportDateRange(src))}</span>
+          <small>${Number(src.packCount||0)} 個打包品項</small>
+        </div>
+        <button type="button" data-import-trip="${escapeHtml(src.id)}" ${Number(src.packCount||0)>0?'':'disabled'}>
+          ${Number(src.packCount||0)>0?'匯入':'沒有清單'}
+        </button>
+      </article>`).join('');
+    list.querySelectorAll('[data-import-trip]').forEach(btn=>btn.onclick=()=>importChecklistFromTrip(btn.dataset.importTrip,btn));
+  }catch(err){
+    list.innerHTML='<div class="booking-empty">無法讀取其他旅程。</div>';
+    status.textContent='讀取失敗：'+(err.code||err.message);
+  }
+}
+async function importChecklistFromTrip(sourceTripId,btn){
+  if(!sourceTripId||btn?.disabled)return;
+  const status=qs('#checklistImportStatus');
+  const old=btn.textContent;
+  btn.disabled=true;btn.textContent='匯入中…';status.textContent='';
+  try{
+    const data=await travelEditor('import_checklist_from_trip',{sourceTripId});
+    await hydratePrivateCloudData();
+    renderChecklist();
+    renderChecklistHome();
+    const imported=Number(data?.imported||0),skipped=Number(data?.skipped||0);
+    status.textContent=imported
+      ?`已從「${data?.sourceTitle||'其他旅程'}」匯入 ${imported} 項；狀態已重設，適用人員只有你自己。${skipped?` 已略過 ${skipped} 個重複品項。`:''}`
+      :`沒有新增品項。${skipped?` ${skipped} 個品項因重複已略過。`:''}`;
+    btn.textContent='完成';
+    setTimeout(()=>{
+      qs('#checklistImportSheet')?.classList.remove('show');
+      qs('#checklistImportBackdrop')?.classList.remove('show');
+    },900);
+  }catch(err){
+    btn.disabled=false;btn.textContent=old;
+    status.textContent=err.code==='checklist_identity_required'
+      ?'請先設定你在這趟旅程的身份。'
+      :'匯入失敗：'+(err.code||err.message);
+  }
+}
+
+function renderChecklistHome(){
+  const card=qs('#checklistHomeCard');if(!card||!TRIP)return;
+  const isD0=String(currentDay()?.label||'').toUpperCase()==='D0';
+  card.hidden=!isD0;
+  if(!isD0)return;
+  const title=qs('#checklistHomeTitle'),summary=qs('#checklistHomeSummary');
+  const beforeStart=(TRIP?.startDate||'')&&tripTodayISO()<TRIP.startDate;
+  if(beforeStart){
+    const rows=TRIP?.currentPersonId?checklistRows('pack').filter(x=>packApplies(x,TRIP.currentPersonId)):checklistRows('pack');
+    const packed=TRIP?.currentPersonId?rows.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='packed').length:0;
+    const ready=TRIP?.currentPersonId?rows.filter(x=>packStatusFor(x,TRIP.currentPersonId)==='ready').length:0;
+    if(title)title.textContent='出發準備';
+    if(summary)summary.textContent=rows.length?(TRIP?.currentPersonId?`${packed}/${rows.length} 已打包 · ${ready} 已準備`:`${rows.length} 項待準備`):'開始建立旅行清單';
+  }else{
+    const rows=checklistRows('buy'),done=rows.filter(x=>x.buyStatus==='bought').length;
+    if(title)title.textContent='購物清單';
+    if(summary)summary.textContent=rows.length?`待買 ${rows.length-done} · 已買 ${done}`:'旅行途中想買的東西放這裡';
+  }
+}
+const checklistPackSaveState=new Map();
+let checklistPackRefreshTimer=null;
+function setLocalPackStatus(item,personId,status){
+  if(!item)return;
+  if(!Array.isArray(item.packStatuses))item.packStatuses=[];
+  const idx=item.packStatuses.findIndex(s=>String(s.personId)===String(personId));
+  const next={personId:String(personId),status,updatedAt:new Date().toISOString()};
+  if(idx>=0)item.packStatuses[idx]={...item.packStatuses[idx],...next};
+  else item.packStatuses.push(next);
+}
+function scheduleChecklistPackRefresh(){
+  clearTimeout(checklistPackRefreshTimer);
+  checklistPackRefreshTimer=setTimeout(()=>{
+    hydratePrivateCloudData().catch(()=>{});
+  },900);
+}
+function setPackChecklistStatus(itemId,personId){
+  const item=checklistRows('pack').find(x=>String(x.id)===String(itemId));if(!item)return;
+  const previous=packStatusFor(item,personId);
+  const status=nextPackStatus(previous);
+  setLocalPackStatus(item,personId,status);
+  renderChecklist();
+  renderChecklistHome();
+
+  const key=String(itemId)+':'+String(personId);
+  const prevState=checklistPackSaveState.get(key)||{seq:0,promise:Promise.resolve()};
+  const seq=prevState.seq+1;
+  const promise=prevState.promise
+    .catch(()=>{})
+    .then(()=>travelEditor('set_checklist_pack_status',{id:itemId,personId,status}));
+
+  checklistPackSaveState.set(key,{seq,promise});
+
+  promise.then(()=>{
+    const current=checklistPackSaveState.get(key);
+    if(current?.seq===seq){
+      checklistPackSaveState.delete(key);
+      scheduleChecklistPackRefresh();
+    }
+  }).catch(err=>{
+    const current=checklistPackSaveState.get(key);
+    if(current?.seq===seq){
+      checklistPackSaveState.delete(key);
+      const freshItem=checklistRows('pack').find(x=>String(x.id)===String(itemId));
+      setLocalPackStatus(freshItem,personId,previous);
+      renderChecklist();
+      renderChecklistHome();
+      alert('更新打包狀態失敗：'+(err.code||err.message));
+    }
+  });
+}
+async function setBuyChecklistStatus(itemId){
+  const item=checklistRows('buy').find(x=>String(x.id)===String(itemId));if(!item)return;
+  const status=item.buyStatus==='bought'?'todo':'bought';
+  try{await travelEditor('set_checklist_buy_status',{id:itemId,status});await hydratePrivateCloudData();showView('checklist')}
+  catch(err){alert('更新購物狀態失敗：'+(err.code||err.message))}
+}
+function bindChecklistRows(){
+  qsa('[data-pack-item]').forEach(btn=>btn.onclick=()=>setPackChecklistStatus(btn.dataset.packItem,btn.dataset.packPerson));
+  qsa('[data-buy-item]').forEach(btn=>btn.onclick=()=>setBuyChecklistStatus(btn.dataset.buyItem));
+  qsa('[data-buy-expense]').forEach(btn=>btn.onclick=()=>{
+    const item=checklistRows('buy').find(x=>String(x.id)===String(btn.dataset.buyExpense));if(!item)return;
+    const note=[item.quantity?'數量 '+item.quantity:'',item.forPersonId||item.forCustomName?'誰要的 '+buyPersonLabel(item.forPersonId,item.forCustomName):'',item.note||''].filter(Boolean).join(' · ');
+    showView('expense');
+    openExpenseEditor(null,{title:item.title,category:'shopping',paidByPersonId:TRIP.currentPersonId,note});
+  });
+}
+function personSelectOptions(selectedId='',allowCustom=true){
+  const rows=['<option value="">—</option>',...expensePeople().map(p=>`<option value="${escapeHtml(p.id)}" ${String(selectedId)===String(p.id)?'selected':''}>${escapeHtml(p.displayName)} · ${escapeHtml(checklistShort(p))}</option>`)];
+  if(allowCustom)rows.push('<option value="__custom__">自訂…</option>');
+  return rows.join('');
+}
+function checklistPersonChip(p,inputHtml){
+  return `<label class="checklist-person-option">${inputHtml}<span class="checklist-person-name">${escapeHtml(p.displayName)} <em>(${escapeHtml(checklistShort(p))})</em></span></label>`;
+}
+function renderChecklistAssignedPeople(selectedIds=[],allSelected=false){
+  const host=qs('#checklistAssignedPeople');if(!host)return;
+  const people=expensePeople();
+  const selected=new Set((selectedIds||[]).map(String));
+  host.innerHTML=`
+    <label class="checklist-person-option checklist-person-all">
+      <input type="checkbox" id="checklistSelectAll" ${allSelected?'checked':''}>
+      <span class="checklist-person-name">全選</span>
+    </label>
+    ${people.map(p=>checklistPersonChip(p,`<input type="checkbox" data-checklist-person value="${escapeHtml(p.id)}" ${allSelected||selected.has(String(p.id))?'checked':''}>`)).join('')}
+    ${canEditTrip()?'<button type="button" class="checklist-add-person-btn" id="checklistAddPersonBtn">＋ 新增人員</button>':''}
+  `;
+  const all=qs('#checklistSelectAll');
+  const personChecks=[...host.querySelectorAll('[data-checklist-person]')];
+  if(all)all.onchange=()=>{
+    if(all.checked)personChecks.forEach(x=>x.checked=true);
+  };
+  personChecks.forEach(input=>input.onchange=()=>{
+    if(all)all.checked=false;
+  });
+  const addBtn=qs('#checklistAddPersonBtn');
+  if(addBtn)addBtn.onclick=addChecklistPersonFromEditor;
+}
+function renderChecklistWantedByPeople(selectedPersonId='',customName=''){
+  const host=qs('#checklistWantedByPeople');if(!host)return;
+  const people=expensePeople();
+  const selected=customName&&!selectedPersonId?'__custom__':String(selectedPersonId||'');
+  host.innerHTML=`
+    <label class="checklist-person-option">
+      <input type="radio" name="checklistWantedBy" data-checklist-wanted-by value="" ${selected===''?'checked':''}>
+      <span class="checklist-person-name">不指定</span>
+    </label>
+    ${people.map(p=>checklistPersonChip(p,`<input type="radio" name="checklistWantedBy" data-checklist-wanted-by value="${escapeHtml(p.id)}" ${selected===String(p.id)?'checked':''}>`)).join('')}
+    <label class="checklist-person-option">
+      <input type="radio" name="checklistWantedBy" data-checklist-wanted-by value="__custom__" ${selected==='__custom__'?'checked':''}>
+      <span class="checklist-person-name">自訂</span>
+    </label>
+    ${canEditTrip()?'<button type="button" class="checklist-add-person-btn" id="checklistAddWantedByPersonBtn">＋ 新增人員</button>':''}
+  `;
+  host.querySelectorAll('[data-checklist-wanted-by]').forEach(input=>input.onchange=syncChecklistEditorFields);
+  const addBtn=qs('#checklistAddWantedByPersonBtn');
+  if(addBtn)addBtn.onclick=addChecklistWantedByPersonFromEditor;
+}
+async function createTripPerson(){
+  if(!canEditTrip())return null;
+  const name=prompt('旅伴名稱');if(!name?.trim())return null;
+  const shortCode=(prompt('簡稱：1–2 個半形英文字母，或 1 個中文字（同一趟不可重複）',suggestShortCode(name))||'').trim();
+  if(!isValidShortCode(shortCode)){alert('簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。');return null}
+  try{
+    const result=await travelEditor('add_expense_person',{displayName:name.trim(),shortCode});
+    await hydratePrivateCloudData();
+    return result?.person||null;
+  }catch(err){
+    const code=err.code||err.message;
+    alert(code==='short_code_taken'
+      ?'這個簡稱已有人使用，請換一個。'
+      :code==='invalid_short_code'
+        ?'簡稱請輸入 1–2 個半形英文字母，或 1 個中文字。'
+        :'新增失敗：'+code);
+    return null;
+  }
+}
+async function addChecklistPersonFromEditor(){
+  const host=qs('#checklistAssignedPeople');if(!host)return;
+  const allWasChecked=Boolean(qs('#checklistSelectAll')?.checked);
+  const selected=[...host.querySelectorAll('[data-checklist-person]:checked')].map(x=>String(x.value));
+  const person=await createTripPerson();
+  if(!person)return;
+  const nextSelected=allWasChecked?expensePeople().map(p=>String(p.id)):[...new Set([...selected,String(person.id)])];
+  renderChecklistAssignedPeople(nextSelected,allWasChecked);
+}
+async function addChecklistWantedByPersonFromEditor(){
+  const person=await createTripPerson();
+  if(!person)return;
+  renderChecklistWantedByPeople(String(person.id),'');
+  syncChecklistEditorFields();
+}
+function ensureChecklistEditor(){
+  let sheet=qs('#checklistEditSheet');
+  if(sheet&&(!qs('#checklistEditForm')||!qs('#checklistAssignedPeople')||!qs('#checklistWantedByPeople'))){
+    sheet.remove();
+    qs('#checklistEditBackdrop')?.remove();
+    sheet=null;
+  }
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='checklistEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet checklist-edit-sheet';sheet.id='checklistEditSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">CHECKLIST</span><h2 id="checklistEditTitle">新增項目</h2><p id="checklistEditSubtitle"></p></div><button class="round-btn" id="closeChecklistEdit">×</button></div>
+    <form class="edit-form" id="checklistEditForm">
+      <input type="hidden" id="checklistEditId"><input type="hidden" id="checklistEditVersion"><input type="hidden" id="checklistEditType">
+      <div class="edit-form-grid">
+        <label><span>分類</span><select id="checklistCategoryInput" required><option value="食">食</option><option value="衣">衣</option><option value="行">行</option><option value="盥洗">盥洗</option><option value="藥品">藥品</option><option value="娛樂">娛樂</option><option value="其他">其他</option></select></label>
+        <label class="checklist-quantity-field"><span>數量</span><input id="checklistQuantityInput" maxlength="40" placeholder="1 / 2盒"></label>
+      </div>
+      <label><span>品項</span><input id="checklistTitleInput" maxlength="180" required placeholder="要帶或要買的東西"></label>
+      <label><span>備註</span><textarea id="checklistNoteInput" rows="3" placeholder="哪裡買、品牌、尺寸、提醒…"></textarea></label>
+      <div id="checklistPackFields">
+        <fieldset class="expense-split-fieldset checklist-people-fieldset">
+          <legend>適用對象</legend>
+          <div id="checklistAssignedPeople"></div>
+        </fieldset>
+      </div>
+      <div id="checklistBuyFields" hidden>
+        <label><span>誰去買</span><select id="checklistBuyerSelect"></select></label>
+        <label id="checklistBuyerCustomWrap" hidden><span>自訂購買人</span><input id="checklistBuyerCustom" maxlength="80"></label>
+        <fieldset class="expense-split-fieldset checklist-people-fieldset checklist-wanted-by-fieldset">
+          <legend>誰要的</legend>
+          <div id="checklistWantedByPeople"></div>
+        </fieldset>
+        <label id="checklistForCustomWrap" hidden><span>自訂對象</span><input id="checklistForCustom" maxlength="80" placeholder="例如 媽媽 / 同事"></label>
+      </div>
+      <div class="edit-form-actions expense-form-actions">
+        <button type="button" class="edit-delete" id="deleteChecklistItemBtn">刪除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="checklistEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeChecklistEdit').onclick=close;backdrop.onclick=close;
+  qs('#checklistEditForm').onsubmit=saveChecklistEditor;
+  qs('#deleteChecklistItemBtn').onclick=deleteChecklistEditor;
+  qs('#checklistBuyerSelect').onchange=syncChecklistEditorFields;
+  return sheet;
+}
+function syncChecklistEditorFields(){
+  const type=qs('#checklistEditType')?.value||'pack';
+  const pack=qs('#checklistPackFields'),buy=qs('#checklistBuyFields'),qty=qs('.checklist-quantity-field');
+  if(pack)pack.hidden=type!=='pack';
+  if(buy)buy.hidden=type!=='buy';
+  if(qty)qty.hidden=type!=='buy';
+  if(qs('#checklistAssignedPeople'))qs('#checklistAssignedPeople').closest('fieldset').hidden=type!=='pack';
+  if(qs('#checklistBuyerCustomWrap'))qs('#checklistBuyerCustomWrap').hidden=qs('#checklistBuyerSelect')?.value!=='__custom__';
+  const wantedBy=qs('[data-checklist-wanted-by]:checked')?.value||'';
+  if(qs('#checklistForCustomWrap'))qs('#checklistForCustomWrap').hidden=wantedBy!=='__custom__';
+}
+function openChecklistEditor(row=null){
+  if(!canEditTrip())return;
+  const sheet=ensureChecklistEditor();
+  const type=row?.listType||checklistTab||defaultChecklistTab();
+  qs('#checklistEditId').value=row?.id||'';
+  qs('#checklistEditVersion').value=row?.version||1;
+  qs('#checklistEditType').value=type;
+  qs('#checklistEditTitle').textContent=row?'編輯項目':(type==='pack'?'新增要帶':'新增要買');
+  qs('#checklistEditSubtitle').textContent=type==='pack'?'空白 → 已準備 → 已打包 循環切換':'未買 → 已買，購買地點直接寫在備註。';
+  const category=CHECKLIST_CATEGORIES.includes(row?.category)?row.category:'其他';
+  qs('#checklistCategoryInput').value=category;
+  qs('#checklistTitleInput').value=row?.title||'';
+  qs('#checklistQuantityInput').value=row?.quantity||'';
+  qs('#checklistNoteInput').value=row?.note||'';
+  const selected=(row?.assignedPersonIds||[]).map(String);
+  renderChecklistAssignedPeople(selected,(row?.assignmentMode||'all')==='all');
+  const buyerCustom=Boolean(row?.buyerCustomName&&!row?.buyerPersonId);
+  qs('#checklistBuyerSelect').innerHTML=personSelectOptions(row?.buyerPersonId||'');
+  qs('#checklistBuyerSelect').value=buyerCustom?'__custom__':(row?.buyerPersonId||'');
+  qs('#checklistBuyerCustom').value=row?.buyerCustomName||'';
+  qs('#checklistForCustom').value=row?.forCustomName||'';
+  renderChecklistWantedByPeople(row?.forPersonId||'',row?.forCustomName||'');
+  qs('#deleteChecklistItemBtn').hidden=!row;
+  qs('#checklistEditStatus').textContent='';
+  syncChecklistEditorFields();
+  qs('#checklistEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+async function saveChecklistEditor(e){
+  e.preventDefault();
+  const status=qs('#checklistEditStatus'),type=qs('#checklistEditType').value;
+  const assigned=[...qs('#checklistAssignedPeople').querySelectorAll('[data-checklist-person]:checked')].map(x=>x.value);
+  const assignmentMode=type==='pack'&&qs('#checklistSelectAll')?.checked?'all':'specific';
+  if(type==='pack'&&!assigned.length){status.textContent='至少選一位旅伴，或使用全選。';return}
+  const buyerSel=qs('#checklistBuyerSelect').value;
+  const forSel=qs('[data-checklist-wanted-by]:checked')?.value||'';
+  const item={
+    id:qs('#checklistEditId').value||null,
+    baseVersion:Number(qs('#checklistEditVersion').value||1),
+    listType:type,
+    category:CHECKLIST_CATEGORIES.includes(qs('#checklistCategoryInput').value)?qs('#checklistCategoryInput').value:'其他',
+    title:qs('#checklistTitleInput').value.trim(),
+    quantity:type==='buy'?qs('#checklistQuantityInput').value.trim():'',
+    note:qs('#checklistNoteInput').value.trim(),
+    assignmentMode,
+    assignedPersonIds:assigned,
+    buyerPersonId:type==='buy'&&buyerSel&&buyerSel!=='__custom__'?buyerSel:null,
+    buyerCustomName:type==='buy'&&buyerSel==='__custom__'?qs('#checklistBuyerCustom').value.trim():'',
+    forPersonId:type==='buy'&&forSel&&forSel!=='__custom__'?forSel:null,
+    forCustomName:type==='buy'&&forSel==='__custom__'?qs('#checklistForCustom').value.trim():''
+  };
+  if(!item.title){status.textContent='請輸入品項。';return}
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_checklist_item',{item});
+    qs('#checklistEditSheet').classList.remove('show');qs('#checklistEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){status.textContent='儲存失敗：'+(err.code||err.message)}
+}
+async function deleteChecklistEditor(){
+  const id=qs('#checklistEditId').value;if(!id)return;
+  if(!confirm('刪除這個清單項目？'))return;
+  try{
+    await travelEditor('delete_checklist_item',{id,baseVersion:Number(qs('#checklistEditVersion').value||1)});
+    qs('#checklistEditSheet').classList.remove('show');qs('#checklistEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();showView('checklist');
+  }catch(err){qs('#checklistEditStatus').textContent='刪除失敗：'+(err.code||err.message)}
+}
+
+function renderAll(){
+  renderDayStrip();
+  renderStaticIcons();
+  renderToday();
+  renderBookings();
+  renderExpenses();
+  renderChecklist();
+  renderChecklistHome();
+  renderBottomNavIcons();
+  if(map)renderMapDay();
+  syncEditModeChrome();
+}
+
+document.addEventListener('click',e=>{
+  const btn=e.target?.closest?.('[data-edit-checklist]');
+  if(!btn)return;
+  e.preventDefault();
+  e.stopPropagation();
+  const row=(TRIP?.checklistItems||[]).find(x=>String(x.id)===String(btn.dataset.editChecklist));
+  if(!row)return;
+  try{
+    openChecklistEditor(row);
+  }catch(err){
+    console.error('Checklist editor failed to open',err);
+    alert('無法開啟編輯視窗，請重新整理後再試。');
+  }
+},true);
+
+qsa('.nav-item[data-target]').forEach(b=>b.onclick=()=>showView(b.dataset.target));
+qsa('[data-nav]').forEach(b=>b.onclick=()=>showView(b.dataset.nav));
+qsa('[data-expense-tab]').forEach(btn=>btn.onclick=()=>{expenseTab=btn.dataset.expenseTab;renderExpenses()});
+qsa('[data-checklist-tab]').forEach(btn=>btn.onclick=()=>{
+  checklistTab=btn.dataset.checklistTab||'pack';checklistCategory='all';
+  try{localStorage.setItem('travelChecklistTab',checklistTab)}catch(_){}
+  renderChecklist();
+});
+if(qs('#checklistScopeBtn'))qs('#checklistScopeBtn').onclick=()=>{
+  checklistScope=checklistScope==='mine'?'team':'mine';
+  try{localStorage.setItem('travelChecklistScope',checklistScope)}catch(_){}
+  renderChecklist();
+};
+if(qs('#addChecklistItemBtn'))qs('#addChecklistItemBtn').onclick=()=>checklistTab==='notes'?openTravelNoteEditor():openChecklistEditor();
+if(qs('#checklistImportBtn'))qs('#checklistImportBtn').onclick=openChecklistImportSheet;
+if(qs('#travelNoteRecoverTitlesBtn'))qs('#travelNoteRecoverTitlesBtn').onclick=recoverMissingSocialNotes;
+if(qs('#travelNotesSearch'))qs('#travelNotesSearch').oninput=e=>{
+  travelNotesQuery=e.target.value||'';
+  if(checklistTab==='notes')renderTravelNotes();
+};
+if(qs('#addExpenseBtn'))qs('#addExpenseBtn').onclick=()=>openExpenseEditor();
+if(qs('#receiptExpenseBtn'))qs('#receiptExpenseBtn').onclick=chooseReceiptPhoto;
+if(qs('#expenseIdentityBtn'))qs('#expenseIdentityBtn').onclick=openExpenseIdentitySheet;
+if(qs('#addExpensePersonBtn'))qs('#addExpensePersonBtn').onclick=addExpensePerson;
+qs('#routeSlider').oninput=e=>{clearRouteTimer();updateRouteAt(+e.target.value)};
+qs('#routePlayCircle').onclick=togglePlay;
+qs('#playRoute').onclick=togglePlay;
+if(qs('#exportGoogleRoute')) qs('#exportGoogleRoute').onclick=openGoogleDayRoute;
+if(qs('#routeMetricToggle')) qs('#routeMetricToggle').onclick=toggleRouteMetric;
+updateRouteMetricToggle();
+qs('#mapMultiToggle').onclick=toggleMapMultiMode;
+qs('#mapFlightsToggle').onclick=toggleMapFlights;
+function closeTripDatesEditor(){
+  qs('#tripDatesSheet')?.classList.remove('show');
+  qs('#tripDatesBackdrop')?.classList.remove('show');
+  qs('#tripDatesSheet')?.setAttribute('aria-hidden','true');
+}
+function openTripDatesEditor(){
+  if(!canEditTrip())return;
+  qs('#tripStartDateInput').value=TRIP?.startDate||TRIP?.days?.[0]?.date||'';
+  qs('#tripEndDateInput').value=TRIP?.endDate||TRIP?.days?.at(-1)?.date||'';
+  qs('#tripDatesStatus').textContent='';
+  qs('#tripDatesBackdrop').classList.add('show');
+  qs('#tripDatesSheet').classList.add('show');
+  qs('#tripDatesSheet').setAttribute('aria-hidden','false');
+}
+async function saveTripDates(e){
+  e.preventDefault();
+  const startDate=qs('#tripStartDateInput').value,endDate=qs('#tripEndDateInput').value;
+  const status=qs('#tripDatesStatus');
+  if(!startDate||!endDate||endDate<startDate){status.textContent='結束日期不可早於開始日期。';return}
+  status.textContent='儲存中…';
+  try{
+    const data=await travelEditor('set_trip_dates',{startDate,endDate});
+    closeTripDatesEditor();
+    await hydratePrivateCloudData();
+    syncTripLabels();
+    renderAll();
+    if(data?.adjusted){
+      alert('日期已儲存。因為範圍外仍有既有行程或正式預訂，Travel OS 已自動保留那些日期，沒有刪除資料。');
+    }
+  }catch(err){
+    status.textContent='儲存失敗：'+(err.code||err.message||'unknown');
+  }
+}
+
+const openTripSheet=()=>{
+  updateEditAvailability();
+  qs('#tripSheet').classList.add('show');
+  qs('#sheetBackdrop').classList.add('show');
+  if(cloudSyncState!=='synced'){
+    window.TravelAuth?.resumeSessionCheck?.({keepReady:true})
+      .then(()=>hydratePrivateCloudData())
+      .catch(()=>{});
+  }
+};
+qs('#tripMenuBtn').onclick=openTripSheet;
+qs('#heroMenuBtn').onclick=openTripSheet;
+qsa('.subview-menu-btn').forEach(btn=>btn.onclick=openTripSheet);
+if(qs('#globalManageGroups')) qs('#globalManageGroups').onclick=openTravelGroupsManager;
+if(qs('#globalEditDay')) qs('#globalEditDay').onclick=editCurrentDay;
+if(qs('#globalAddItem')) qs('#globalAddItem').onclick=()=>openItemEditor(selectedDay,null);
+if(qs('#globalDoneEdit')) qs('#globalDoneEdit').onclick=()=>toggleEditMode(false);
+if(qs('#editTripDatesBtn')) qs('#editTripDatesBtn').onclick=()=>openTripSettingsEditor('edit');
+if(qs('#closeTripDates')) qs('#closeTripDates').onclick=closeTripDatesEditor;
+if(qs('#tripDatesBackdrop')) qs('#tripDatesBackdrop').onclick=closeTripDatesEditor;
+if(qs('#tripDatesForm')) qs('#tripDatesForm').onsubmit=saveTripDates;
+function closeSheet(){qs('#tripSheet').classList.remove('show');qs('#sheetBackdrop').classList.remove('show')}
+qs('#closeSheet').onclick=closeSheet;
+qs('#sheetBackdrop').onclick=closeSheet;
+qs('#weatherBtn').onclick=openWeatherSheet;
+qs('#closeWeather').onclick=closeWeatherSheet;
+qs('#weatherBackdrop').onclick=closeWeatherSheet;
+qs('#demoModeToggle').onclick=toggleDemoMode;
+if(qs('#newTripBtn')) qs('#newTripBtn').onclick=createNewTrip;
+if(qs('#moreNewTrip')) qs('#moreNewTrip').onclick=createNewTrip;
+if(qs('#moreSettingsBtn')) qs('#moreSettingsBtn').onclick=()=>{closeSheet();showView('more')};
+// Resync is a diagnostic as well as a refresh. The old handler quietly
+// returned to "Offline cache" on a missing session, making it look like a
+// button that did nothing. Never delete local data or sign out on failure.
+let moreSyncRunning=false;
+function syncWithDeadline(promise,ms,code){
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(code)),ms)})
+  ]).finally(()=>clearTimeout(timer));
+}
+if(qs('#moreResync')) qs('#moreResync').onclick=async()=>{
+  if(moreSyncRunning)return;
+  moreSyncRunning=true;
+  const btn=qs('#moreResync');btn.disabled=true;
+  try{
+    // Explicit sync always tests real Supabase connectivity; navigator.onLine can be stale.
+    cloudSyncState='syncing';
+    cloudLastError='正在檢查這個 App 的雲端登入狀態…';
+    syncMoreStatus();
+    const restore=await syncWithDeadline(
+      window.TravelAuth?.tryRestoreCloudSession?.()||{ok:false,reason:'auth_module_unavailable'},
+      22000,'auth_restore_timeout'
+    );
+    if(!restore?.ok){
+      const reason=String(restore?.reason||'session_temporarily_unavailable');
+      const loginNeeded=reason==='session_missing'||reason==='explicit_signout';
+      cloudSyncState=loginNeeded?'auth':'error';
+      cloudLastError=reason==='session_missing'
+        ?'此 App 沒有可恢復的雲端登入。冰島為本機快取，請按下方「在此 App 登入帳號」。登入一次後即可使用所有已授權的旅程。'
+        :reason==='explicit_signout'
+        ?'此 App 已登出，需要在此 App 重新登入一次；不會刪除任何快取。'
+        :reason==='sdk_unavailable'||reason==='auth_module_unavailable'
+        ?'雲端登入模組目前無法載入。請確認網路，重新開啟 App，但不要清除網站資料。'
+        :reason==='offline'
+        ?'裝置無法連上網路；本機行程資料仍保留。'
+        :'無法完成雲端 Session 檢查（'+reason+'）。本機資料已保留，請確認網路後重試。';
+      return;
+    }
+    cloudLastError='登入確認成功，正在下載雲端旅程…';syncMoreStatus();
+    const synced=await syncWithDeadline(hydratePrivateCloudData(),26000,'trip_download_timeout');
+    if(synced!==true){
+      cloudSyncState='error';
+      cloudLastError='已恢復登入，但尚未下載到雲端旅程。請檢查網路後重試。';
+      return;
+    }
+    cloudSyncState='synced';
+    cloudLastError='已確認 Supabase 登入並成功取得最新旅程資料。';
+  }catch(error){
+    cloudSyncState='error';
+    const code=String(error?.message||'sync_failed');
+    cloudLastError=code==='auth_restore_timeout'
+      ?'雲端登入檢查超時（22 秒）。請確認網路與 Supabase 連線，本機資料安全保留。'
+      :code==='trip_download_timeout'
+      ?'雲端行程下載超時（26 秒）。本機資料安全保留。'
+      :'同步檢查失敗：'+code;
+  }finally{
+    moreSyncRunning=false;
+    btn.disabled=false;
+    syncMoreStatus();
+  }
+};
+if(qs('#moreSyncLogin')) qs('#moreSyncLogin').onclick=()=>{
+  // A new email/code login is explicit, never automatic or per-Trip.
+  const started=window.TravelAuth?.requestAccountLogin?.();
+  if(started===false){
+    cloudLastError='此 App 已明確登出，請由登入畫面重新登入。';
+    syncMoreStatus();
+  }
+};
+async function confirmTravelSignOut(){
+  const answer=window.confirm('確定要登出 Travel OS？\\n\\n此裝置登出後，重新登入可能需要 Owner 核發一次性登入碼。\\n旅程和雲端資料不會被刪除。');
+  if(!answer)return;
+  try{await window.TravelAuth?.signOut?.();location.reload();}
+  catch(err){alert('登出失敗：'+(err?.message||'unknown'));}
+}
+if(qs('#moreSignOut')) qs('#moreSignOut').onclick=confirmTravelSignOut;
+if(qs('#moreBackBtn')) qs('#moreBackBtn').onclick=returnFromMore;
+if(qs('#moreRerouteMail')) qs('#moreRerouteMail').onclick=rerouteGlobalMail;
+
+if(qs('#chooserSignOut')) qs('#chooserSignOut').onclick=confirmTravelSignOut;
+if(qs('#heroTripSwitch')) qs('#heroTripSwitch').onclick=e=>{
+  e.stopPropagation();
+  location.href='/travel-os/';
+};
+
+function setAuthGateState(state){
+  const msg=qs('#authMessage'), foot=qs('#authFoot'), btn=qs('#magicLinkBtn');
+  if(btn) btn.disabled=state==='redeeming_code'||state==='loading'||state==='registering_device';
+  if(state==='link_sent'){
+    if(msg) msg.textContent='請輸入 Owner 提供的裝置登入碼。';
+    if(foot) foot.textContent='登入碼使用一次即失效，此裝置日後會被記住。';
+  }else if(state==='unauthorized_email'){
+    if(msg) msg.textContent='此信箱不在授權清單，請找 Trip Owner 加入再登入。';
+  }else if(state==='device_error'){
+    if(msg) msg.textContent='帳號已登入，但這支裝置尚未完成授權。請保持連線後重試。';
+  }else if(state==='signed_out'){
+    if(msg) msg.textContent='輸入 Email 和一次性登入碼即可登入。';
+  }
+}
+
+function normalizeReservation(row){
+  if(row?.type&&row?.provider&&row?.title) return row;
+  const d=row?.details&&typeof row.details==='object'?row.details:{};
+  const nested=d.details&&typeof d.details==='object'?d.details:d;
+  const rows=Array.isArray(nested.rows)?[...nested.rows]:[];
+  if(row?.public_price_text&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('費用'))) rows.push(['費用',row.public_price_text]);
+  if(row?.cancellation_policy&&!rows.some(x=>Array.isArray(x)&&String(x[0]).includes('取消'))) rows.push(['取消條款',row.cancellation_policy]);
+  const mailImportMeta=row?.details?.mailImport&&typeof row.details.mailImport==='object'?row.details.mailImport:{};
+  const imported=mailImportMeta?.parsed||null;
+  const pushImported=(label,value)=>{
+    if(value===null||value===undefined||value==='')return;
+    if(rows.some(x=>Array.isArray(x)&&String(x[0])===label))return;
+    rows.push([label,String(value)]);
+  };
+  const forwarders=Array.isArray(mailImportMeta?.forwardedByHistory)
+    ?mailImportMeta.forwardedByHistory.filter(Boolean)
+    :(mailImportMeta?.forwardedBy?[mailImportMeta.forwardedBy]:[]);
+  if(forwarders.length)pushImported('轉寄自',Array.from(new Set(forwarders)).join('、'));
+
+  if(imported){
+    pushImported('房型',imported.roomType);
+    pushImported('主要住客',imported.leadGuest);
+    pushImported('入住人數',imported.guests||(imported.guestCount?imported.guestCount+' 人':''));
+    pushImported('房間數',imported.roomCount?imported.roomCount+' 間':'');
+    pushImported('住宿晚數',imported.nightCount?imported.nightCount+' 晚':'');
+    pushImported('方案 / 餐食',imported.mealPlan||imported.amenities);
+    if(imported.mealPlan&&imported.amenities)pushImported('包含 / 設施',imported.amenities);
+
+    pushImported('租車公司',imported.rentalCompany);
+    pushImported('車型',imported.vehicleModel);
+    pushImported('租車天數',imported.rentalDays?imported.rentalDays+' 天':'');
+    pushImported('取車地點',imported.pickupLocation);
+    pushImported('還車地點',imported.dropoffLocation);
+    pushImported('變速箱',imported.transmission);
+    pushImported('租車方案',imported.plan);
+    pushImported('租車包含',imported.extras);
+    pushImported('保險',imported.insurances);
+
+    pushImported('營運公司',imported.activityProvider);
+    pushImported('集合地點',imported.meetingPoint||imported.address);
+    pushImported('集合時間',imported.meetingTime||imported.time);
+    pushImported('活動備註',imported.providerNote||imported.importantInfo);
+
+    pushImported('航空公司',imported.airlineName);
+    pushImported('行李',imported.baggageSummary);
+
+    if(Array.isArray(imported.segments)&&imported.segments.length){
+      imported.segments.forEach((seg,i)=>{
+        const direction='航段 '+(i+1);
+        const dep=[seg.departureAirport,seg.departureName].filter(Boolean).join(' ');
+        const arr=[seg.arrivalAirport,seg.arrivalName].filter(Boolean).join(' ');
+        const depTerminal=seg.departureTerminal?('T'+String(seg.departureTerminal).replace(/^T/i,'')):'';
+        const arrTerminal=seg.arrivalTerminal?('T'+String(seg.arrivalTerminal).replace(/^T/i,'')):'';
+        const when=[seg.date,seg.departureTime].filter(Boolean).join(' ');
+        const arrival=[seg.arrivalDate&&seg.arrivalDate!==seg.date?seg.arrivalDate:'',seg.arrivalTime,arr,arrTerminal].filter(Boolean).join(' ');
+        pushImported(direction+' '+(seg.flightNo||''),[when,dep,depTerminal,'→',arrival].filter(Boolean).join(' '));
+        pushImported(direction+' 機型 / 艙等',[seg.aircraft,seg.cabin].filter(Boolean).join(' · '));
+        pushImported(direction+' 座位 / 行李',[seg.seat,seg.carryOn,seg.checkedBaggage].filter(Boolean).join(' · '));
+      });
+    }
+    if(imported.awardMiles)pushImported('兌換里數',Number(imported.awardMiles).toLocaleString()+' miles');
+    let flightPassengers=Array.isArray(imported.passengers)?imported.passengers.filter(Boolean):[];
+    if(!flightPassengers.length&&Array.isArray(imported.passengerDetails)){
+      flightPassengers=Array.from(new Set(imported.passengerDetails.map(line=>{
+        const m=String(line).match(/^(?:去程|回程)\s+[A-Z]{2}\d+\s+((?:MR|MS|MRS|MISS|MSTR)\s+.+?)\s+\d+\s*公斤/i);
+        return m?.[1]?.trim()||'';
+      }).filter(Boolean)));
+    }
+    if(flightPassengers.length)pushImported('旅客',flightPassengers.join('、'));
+    if(Array.isArray(imported.passengerDetails)){
+      imported.passengerDetails.forEach((line,i)=>{
+        pushImported((i===0?'去程':i===1?'回程':'航段 '+(i+1))+' 行李 / 座位',line);
+      });
+    }
+    if(row?.amount!==null&&row?.amount!==undefined&&row?.amount!==''){
+      pushImported('總金額',(row.currency?row.currency+' ':'')+Number(row.amount).toLocaleString());
+    }
+    if(imported.paymentStatus||row?.payment_status)pushImported('付款狀態',imported.paymentStatus||row.payment_status);
+    pushImported('付款方式',imported.paymentMethod);
+    pushImported('付款卡',imported.paymentCardLast4?'••••'+imported.paymentCardLast4:'');
+  }
+  return {
+    id:row?.id,
+    version:row?.version||1,
+    type:d.type||row?.reservation_type||'other',
+    provider:d.provider||row?.provider||'',
+    title:d.title||row?.title||'預訂',
+    dates:d.dates||row?.public_summary||(
+      imported?.segments?.length
+        ?imported.segments.map(s=>[String(s.date||'').slice(5).replace('-','/'),s.departureAirport&&s.arrivalAirport?(s.departureAirport+'→'+s.arrivalAirport):''].filter(Boolean).join(' ')).join(' · ')
+        :''
+    ),
+    meta:d.meta||row?.location_name||row?.public_summary||(
+      imported?.passengers?.length?imported.passengers.join('、'):''
+    ),
+    code:row?.confirmation_code||d.code||'',
+    secret:row?.pin_code||d.secret||'',
+    status:d.status||row?.status||'confirmed',
+    routeGroupId:row?.route_group_id||null,
+    alert:d.alert||'',
+    notice:d.notice||row?.private_notes||'',
+    details:{
+      rows,
+      amenities:Array.isArray(nested.amenities)?nested.amenities:[],
+      tips:Array.isArray(nested.tips)?nested.tips:[],
+      source:nested.source||d.source||row?.source_type||'Supabase 私人預訂資料'
+    },
+    imported:row?.details?.mailImport?.parsed||null,
+    amount:row?.amount??null,
+    currency:row?.currency||'',
+    paymentStatus:row?.payment_status||'',
+    _raw:row
+  };
+}
+
+function cloudTripToUi(data){
+  const days=(data.days||[]).map(day=>({
+    ...day,
+    drive:driveText(day),
+    events:(day.events||[]).map(e=>({...e}))
+  }));
+  return {
+    id:data.trip?.id,
+    slug:data.trip?.slug,
+    title:data.trip?.title||'Travel OS',
+    timezone:data.trip?.timezone||'UTC',
+    startDate:data.trip?.startDate,
+    endDate:data.trip?.endDate,
+    settings:data.trip?.settings&&typeof data.trip.settings==='object'?data.trip.settings:{},
+    version:data.trip?.version||1,
+    role:data.role||'viewer',
+    days,
+    bookings:(data.reservations||[]).map(normalizeReservation),
+    people:Array.isArray(data.people)?data.people:[],
+    travelGroups:Array.isArray(data.travelGroups)?data.travelGroups:[],
+    currentPersonId:data.currentPersonId||null,
+    expenses:Array.isArray(data.expenses)?data.expenses:[],
+    checklistItems:Array.isArray(data.checklistItems)?data.checklistItems:[],
+    travelNotes:Array.isArray(data.travelNotes)?data.travelNotes:[],
+    mailImports:Array.isArray(data.mailImports)?data.mailImports:[]
+  };
+}
+
+let placeAutoResolveRunning=false;
+async function maybeAutoResolveMissingPlaces(){
+  if(placeAutoResolveRunning||!cloudLoaded||!canEditTrip()||demoMode)return;
+  const eligible=new Set(['spot','food','shop','stay','car','tour']);
+  const due=[];
+  const retryCutoff=Date.now()-30*86400000;
+  (TRIP?.days||[]).forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
+    if(!event?.id||!eligible.has(event.type)||event.uncertain||validCoord(event))return;
+    const checked=event.placeLookupCheckedAt?new Date(event.placeLookupCheckedAt).getTime():0;
+    if(event.placeLookupStatus==='not_found'&&checked>retryCutoff)return;
+    due.push({dayIndex,eventIndex,event});
+  }));
+  if(!due.length)return;
+  placeAutoResolveRunning=true;
+  let changed=false;
+  try{
+    for(const row of due.slice(0,8)){
+      try{
+        const r=await travelEditor('lookup_place',{id:row.event.id,title:row.event.title});
+        if(r?.status==='matched')changed=true;
+      }catch(err){console.warn('Auto place lookup failed',row.event.title,err)}
+    }
+    if(changed)await hydratePrivateCloudData();
+  }finally{placeAutoResolveRunning=false}
+}
+
+let placeAutoCheckRunning=false;
+function daysBetweenISO(a,b){return isoDayNumber(a)-isoDayNumber(b)}
+function placeAutoCheckPlan(){
+  const today=icelandTodayISO();
+  const start=TRIP?.startDate||TRIP?.days?.[0]?.date;
+  const end=TRIP?.endDate||TRIP?.days?.at(-1)?.date;
+  if(!start||!end||today>end)return {enabled:false,reason:'trip_ended'};
+  const until=daysBetweenISO(start,today);
+  if(until>30)return {enabled:false,reason:'more_than_30_days'};
+  if(until>=8)return {enabled:true,maxAgeDays:14,scope:'all'};
+  if(until>=2)return {enabled:true,maxAgeDays:7,scope:'all'};
+  if(until===1)return {enabled:true,maxAgeDays:1,scope:'all'};
+  return {enabled:true,maxAgeDays:1,scope:'today_tomorrow'};
+}
+async function maybeAutoCheckPlaceHours(){
+  if(placeAutoCheckRunning||!cloudLoaded||!canEditTrip()||demoMode)return;
+  const plan=placeAutoCheckPlan();
+  if(!plan.enabled)return;
+  const today=icelandTodayISO();
+  const tomorrow=new Date(today+'T00:00:00Z');tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
+  const tomorrowISO=tomorrow.toISOString().slice(0,10);
+  const cutoff=Date.now()-plan.maxAgeDays*86400000;
+  const eligible=new Set(['spot','food','shop','stay','car','tour']);
+  const due=[];
+  (TRIP.days||[]).forEach(day=>(day.events||[]).forEach(event=>{
+    if(!event?.id||!event.googleMapsUrl||!eligible.has(event.type))return;
+    if(plan.scope==='today_tomorrow'&&![today,tomorrowISO].includes(day.date))return;
+    const checked=event.hoursCheckedAt?new Date(event.hoursCheckedAt).getTime():0;
+    if(!checked||checked<=cutoff)due.push({day,event});
+  }));
+  if(!due.length)return;
+  placeAutoCheckRunning=true;
+  try{
+    for(const {event} of due){
+      try{
+        const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl,title:event.title,lat:event.lat,lng:event.lng});
+        if(data?.hoursLookup?.status==='api_error')continue;
+        await travelEditor('save_place_hours',{
+          id:event.id,googleMapsUrl:event.googleMapsUrl,
+          googleMapsResolvedUrl:data.finalUrl||event.googleMapsResolvedUrl||'',
+          openingHours:Array.isArray(data.weeklyHours)?data.weeklyHours:[],
+          closedWeekdays:Array.isArray(data.closedDays)?data.closedDays:[],
+          hoursSource:data.hoursSource||null
+        });
+      }catch(_){}
+    }
+    await hydratePrivateCloudData();
+  }finally{placeAutoCheckRunning=false}
+}
+
+function compactSharedSentence(text,maxChars=32){
+  const raw=String(text||'').replace(/https?:\/\/\S+/gi,' ').replace(/\r/g,'').trim();
+  if(!raw)return '';
+  const firstLine=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean)[0]||'';
+  const first=(firstLine.match(/^[^。！？!?]+[。！？!?]?/)?.[0]||firstLine).replace(/\s+/g,' ').trim();
+  if(!first)return '';
+  const chars=Array.from(first);
+  return chars.length<=maxChars?first:chars.slice(0,maxChars).join('').replace(/[，、；;：:]$/,'')+'…';
+}
+function isThreadsUrl(url){
+  try{
+    const host=new URL(url).hostname.toLowerCase().replace(/^www\./,'');
+    return host==='threads.com'||host==='threads.net'||host.endsWith('.threads.com')||host.endsWith('.threads.net');
+  }catch{return false}
+}
+function isGenericThreadsNoteTitle(title){
+  const value=String(title||'').trim();
+  return !value||/^(?:Threads|Threads 貼文|Threads 貼文[（(]待補標題[）)])$/i.test(value);
+}
+function isFacebookUrl(url){
+  try{
+    const host=new URL(url).hostname.toLowerCase();
+    return ['facebook.com','www.facebook.com','m.facebook.com','mobile.facebook.com',
+      'mbasic.facebook.com','web.facebook.com','fb.watch','www.fb.watch'].includes(host);
+  }catch{return false}
+}
+function isSupportedSocialUrl(url){return isThreadsUrl(url)||isFacebookUrl(url)}
+function isGenericSocialNoteTitle(title,url){
+  const v=String(title||'').trim();
+  if(isThreadsUrl(url))return isGenericThreadsNoteTitle(v);
+  if(isFacebookUrl(url))return !v||/^(?:Facebook|Facebook 貼文(?:[（(]待補標題[）)])?|facebook\.com|www\.facebook\.com|臉書貼文|FB 貼文)$/i.test(v);
+  return false;
+}
+async function lookupSocialPostContent(url){
+  if(!isSupportedSocialUrl(url))return {title:'',text:''};
+  const client=window.TravelAuth?.getClient?.();
+  if(!client)return {title:'',text:''};
+  const {data,error}=await client.functions.invoke('travel-social-preview',{body:{url}});
+  if(error||data?.error||data?.available!==true)return {title:'',text:''};
+  const text=String(data.text||'').trim().slice(0,8000);
+  const title=compactSharedSentence(data.title||text,32);
+  return {title:isGenericSocialNoteTitle(title,url)?'':title,text};
+}
+function tripNoteUpdatePayload(note,content={}){
+  const resolvedTitle=String(content.title||'').trim();
+  const currentTitle=String(note.title||'');
+  const providedText=String(content.text||'').trim();
+  return {
+    id:note.id,baseVersion:Number(note.version||1),url:note.url,
+    title:isGenericSocialNoteTitle(currentTitle,note.url)&&resolvedTitle?resolvedTitle:currentTitle,
+    category:note.category,dayId:note.dayId||null,
+    note:note.note||'',sourceText:String(note.sourceText||'').trim()||providedText.slice(0,8000),
+    isPinned:Boolean(note.isPinned)
+  };
+}
+function sharedNotePreset(payload){
+  const url=String(payload?.url||'').trim();
+  const text=String(payload?.text||'').trim();
+  const sharedTitle=String(payload?.title||'').trim();
+  const platformText=isSupportedSocialUrl(url)&&/^(?:Facebook|Threads|分享貼文|Share)$/i.test(text)?'':text;
+  const socialTitle=isSupportedSocialUrl(url)?compactSharedSentence(platformText,32):'';
+  const safeSharedTitle=isSupportedSocialUrl(url)&&isGenericSocialNoteTitle(sharedTitle,url)?'':sharedTitle;
+  const title=socialTitle||safeSharedTitle||inferNoteTitleFromUrl(url)||'旅遊筆記';
+  // Source post content and the traveler's own notes must remain independent.
+  return {url,title,sourceText:platformText.slice(0,8000),note:'',category:'攻略',isPinned:false};
+}
+async function maybeOpenIncomingShare(){
+  const payload=incomingSharePayload();
+  if(!payload||incomingShareOpened||!cloudLoaded||cloudSyncState!=='synced')return;
+  incomingShareOpened=true;
+  if(!canEditTrip()){
+    incomingShareOpened=false;
+    alert('此旅程沒有新增筆記權限，請選擇可編輯的旅程。');
+    return;
+  }
+  checklistTab='notes';checklistCategory='all';
+  try{localStorage.setItem('travelChecklistTab','notes')}catch(_){}
+  showView('checklist');renderChecklist();
+  try{
+    const draft=sharedNotePreset(payload);
+    const duplicate=draft.url&&(TRIP.travelNotes||[]).find(n=>String(n.url||'').trim()===draft.url);
+    // Android may share only a short Facebook/Threads URL. Use public text
+    // when available, without replacing traveler edits or their own notes.
+    if(isSupportedSocialUrl(draft.url)){
+      const content=await lookupSocialPostContent(draft.url).catch(()=>({title:'',text:''}));
+      if(content.text&&content.text.length>draft.sourceText.length)draft.sourceText=content.text;
+      if(isGenericSocialNoteTitle(draft.title,draft.url))
+        draft.title=content.title||compactSharedSentence(draft.sourceText,32)||
+          (isFacebookUrl(draft.url)?'Facebook 貼文（待補標題）':'Threads 貼文（待補標題）');
+    }
+    if(!duplicate){
+      await travelEditor('save_trip_note',{note:draft});
+    }else{
+      const merged=tripNoteUpdatePayload(duplicate,{title:draft.title,text:draft.sourceText});
+      if(merged.title!==duplicate.title||merged.sourceText!==String(duplicate.sourceText||'')){
+        await travelEditor('save_trip_note',{note:merged});
+      }
+    }
+    clearIncomingShare();
+    await hydratePrivateCloudData();
+    showView('checklist');
+  }catch(err){
+    incomingShareOpened=false;
+    openTravelNoteEditor(null,sharedNotePreset(payload));
+    qs('#travelNoteStatus').textContent='分享尚未儲存：'+String(err?.code||err?.message||'網路錯誤')+'。可以按儲存重試。';
+  }
+}
+
+async function hydratePrivateCloudData(){
+  const client=window.TravelAuth?.getClient?.();
+  const authSnapshot=window.TravelAuth?.snapshot?.()||{};
+  const user=authSnapshot.user;
+  if(!window.TRAVEL_CONFIG?.tripSlug) return false;
+  if(!client||!user){
+    cloudLoaded=false;
+    cloudSyncState=authSnapshot.state==='reauth_required'?'auth':'cache';
+    syncTripLabels();
+    return false;
+  }
+  cloudSyncState='syncing';
+  cloudLastError='';
+  syncTripLabels();
+  try{
+    const device=await window.TravelStore.getDevice();
+    const {data,error}=await client.functions.invoke('travel-data',{body:{
+      tripSlug:window.TRAVEL_CONFIG.tripSlug,
+      devicePublicId:device.device_public_id,
+      deviceSecret:device.device_secret
+    }});
+    if(error) throw error;
+    if(data?.error) throw new Error(data.error);
+    const normalized=cloudTripToUi(data);
+    currentTripRole=normalized.role||'viewer';
+    TRIP=normalized;
+    selectRouteGroupFromTrip();
+    cloudLoaded=true;
+    cloudSyncState='synced';
+    cloudLastError='';
+    if(TRIP?.currentPersonId){
+      expenseIdentityPrompted=true;
+      qs('#expenseIdentitySheet')?.classList.remove('show');
+      qs('#expenseIdentityBackdrop')?.classList.remove('show');
+      qs('#expenseIdentitySheet')?.setAttribute('aria-hidden','true');
+    }
+    if(initialTripDaySelectionPending){
+      syncToReferenceTripDay(false,true);
+      initialTripDaySelectionPending=false;
+    }else{
+      selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
+      mapPrimaryDay=selectedDay;
+      mapSelectedDays=new Set(TRIP.days.length?[selectedDay]:[]);
+    }
+    await window.TravelStore?.replaceTrip?.({...data,bookings:normalized.bookings});
+    syncTripLabels();
+    updateDemoModeUI();
+    renderAll();
+    updateEditAvailability();
+    setTimeout(maybeOpenIncomingShare,80);
+    if(!TRIP?.currentPersonId&&!expenseIdentityPrompted){
+      const activeExpense=qs('#expenseView')?.classList.contains('active');
+      const activeChecklist=qs('#checklistView')?.classList.contains('active');
+      if(activeExpense||activeChecklist){
+        expenseIdentityPrompted=true;
+        const target=activeChecklist?'checklist':'expense';
+        setTimeout(()=>{
+          if(cloudLoaded&&cloudSyncState==='synced'&&!TRIP?.currentPersonId)openExpenseIdentitySheet(target);
+        },250);
+      }
+    }
+    refreshGlobalMailBadge().catch(()=>{});
+    setTimeout(()=>maybeAutoResolveMissingPlaces().catch(()=>{}),500);
+    setTimeout(()=>maybeAutoCheckPlaceHours().catch(()=>{}),1800);
+    return true;
+  }catch(err){
+    cloudLoaded=false;
+    cloudSyncState='error';
+    cloudLastError=String(err?.message||err||'Cloud sync failed');
+    console.warn('Cloud trip data unavailable; using trusted local cache.',err);
+    try{
+      const cached=await window.TravelStore?.getTrip?.();
+      if(cached?.days?.length){
+        TRIP=cached;
+        currentTripRole=cached.role||'viewer';
+        if(initialTripDaySelectionPending){
+          syncToReferenceTripDay(false,true);
+          initialTripDaySelectionPending=false;
+        }
+        syncTripLabels();
+        renderAll();
+        updateEditAvailability();
+      }
+    }catch(_){}
+    syncTripLabels();
+    return false;
+  }
+}
+
+const SHARE_TARGET_KEY='travelOSIncomingShareV1';
+let incomingShareOpened=false;
+function extractSharedUrl(value){
+  const text=String(value||'');
+  const match=text.match(/https?:\/\/[^\s<>"]+/i);
+  return match?match[0].replace(/[),.;!?]+$/,''):'';
+}
+function incomingSharePayload(){
+  const params=new URLSearchParams(location.search);
+  // Chrome WebAPK GET share targets may replace the action's existing query
+  // string. Recognize the manifest's mapped data even without share_target=1.
+  const isShare=params.get('share_target')==='1'
+    ||params.has('shared_title')||params.has('shared_text')||params.has('shared_url');
+  if(isShare){
+    const title=String(params.get('shared_title')||'').trim();
+    let text=String(params.get('shared_text')||'').trim();
+    let url=String(params.get('shared_url')||'').trim();
+    if(!url)url=extractSharedUrl(text);
+    if(url&&text)text=text.replace(url,'').trim();
+    if(title||text||url){
+      const payload={
+        title:title.slice(0,220),text:text.slice(0,5000),
+        url:url.slice(0,2000),receivedAt:new Date().toISOString()
+      };
+      const packed=JSON.stringify(payload);
+      try{sessionStorage.setItem(SHARE_TARGET_KEY,packed)}catch(_){}
+      // sessionStorage is per-window; WebAPK navigation may open a fresh one.
+      try{localStorage.setItem(SHARE_TARGET_KEY,packed)}catch(_){}
+      return payload;
+    }
+  }
+  let saved=null,newest=0;
+  const now=Date.now();
+  for(const storage of [sessionStorage,localStorage]){
+    try{
+      const value=JSON.parse(storage.getItem(SHARE_TARGET_KEY)||'null');
+      const at=Date.parse(value?.receivedAt||'');
+      if(value&&typeof value==='object'&&Number.isFinite(at)
+        &&at<=now+60000&&now-at<=3600000&&at>=newest){
+        saved=value;newest=at;
+      }
+    }catch(_){}
+  }
+  return saved;
+}
+function clearIncomingShare(){
+  try{sessionStorage.removeItem(SHARE_TARGET_KEY)}catch(_){}
+  try{localStorage.removeItem(SHARE_TARGET_KEY)}catch(_){}
+  const slug=window.TRAVEL_CONFIG?.tripSlug;
+  if(slug)history.replaceState(null,'',tripHref(slug));
+}
+function sharedTripHref(slug){
+  const base=tripHref(slug);
+  return incomingSharePayload()?base+'&share_target=1':base;
+}
+function shareEditableTrips(rows){
+  return incomingSharePayload()?(rows||[]).filter(t=>['owner','editor'].includes(String(t.role))):(rows||[]);
+}
+
+
+// Cloud directory entries can exist on a phone even when the matching Trip
+// was never downloaded. Avoid disguising an expired account session as a
+// separate-per-Trip pairing requirement.
+let switchingTripNow=false;
+function showTripSwitchNotice(message){
+  const host=window.TRAVEL_CONFIG?.tripSlug?
+    (document.querySelector('#tripSwitchList')||document.querySelector('#tripSheet')):
+    (document.querySelector('#tripChooser .trip-chooser-inner')||document.querySelector('#tripChooser'));
+  if(!host)return;
+  let notice=host.querySelector('.trip-switch-notice');
+  if(!notice){
+    notice=document.createElement('div');
+    notice.className='trip-switch-notice';
+    notice.setAttribute('role','alert');
+    if(window.TRAVEL_CONFIG?.tripSlug)host.prepend(notice);
+    else (host.querySelector('.trip-chooser-head')||host.firstElementChild)?.insertAdjacentElement('afterend',notice);
+  }
+  notice.replaceChildren();
+  const p=document.createElement('p');p.textContent=message;notice.append(p);
+  const btn=document.createElement('button');
+  btn.type='button';btn.className='trip-switch-login-button';
+  btn.textContent='在此 App 登入帳號';
+  btn.addEventListener('click',async()=>{
+    btn.disabled=true;btn.textContent='正在恢復已授權裝置…';
+    try{await window.TravelAuth?.requestAccountLogin?.();}
+    finally{btn.disabled=false;btn.textContent='在此 App 登入帳號';}
+  });
+  notice.append(btn);
+}
+async function openAuthorizedTrip(slug){
+  if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug||'')))return;
+  if(slug===window.TRAVEL_CONFIG?.tripSlug)return;
+  if(switchingTripNow)return;
+  switchingTripNow=true;
+  try{
+    let auth=window.TravelAuth?.snapshot?.()||{};
+    if(navigator.onLine&&!auth.cloudAuthenticated){
+      await window.TravelAuth?.tryRestoreCloudSession?.();
+      auth=window.TravelAuth?.snapshot?.()||{};
+    }
+    // A working cloud session is shared by all Trips. Any additional
+    // trip-level Trusted Device approval is performed by the backend.
+    if(auth.cloudAuthenticated){location.href=sharedTripHref(slug);return;}
+    // Existing offline download may still open without internet. The
+    // destination auth gate will independently check Trusted Device state.
+    const cached=await window.TravelStore?.getTrip?.(slug).catch(()=>null);
+    if(cached?.source==='cloud'&&cached?.days?.length){
+      location.href=sharedTripHref(slug);return;
+    }
+    showTripSwitchNotice(navigator.onLine?
+      '目前顯示離線快取，這個 App 的雲端帳號尚未恢復。熊本尚未下載至此裝置；請先在同一個 App 登入一次，之後 Owner 可直接切換所有旅程。':
+      '此旅程尚未下載到手機，飛航模式無法開啟。請連線並在這個 App 完成登入及同步，之後即可離線查看。');
+  }finally{switchingTripNow=false;}
+}
+
+function tripHref(slug){
+  return `${window.TRAVEL_CONFIG?.appBasePath||'/travel-os/'}?trip=${encodeURIComponent(slug)}`;
+}
+
+async function fetchAuthorizedTrips(){
+  const cached=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+  if(!navigator.onLine){
+    authorizedTrips=cached;
+    return authorizedTrips;
+  }
+  const client=window.TravelAuth?.getClient?.();
+  if(!client){
+    authorizedTrips=cached;
+    return authorizedTrips;
+  }
+  const {data,error}=await client.functions.invoke('travel-trips',{body:{action:'list'}});
+  if(error){
+    if(cached.length){authorizedTrips=cached;return authorizedTrips}
+    throw error;
+  }
+  authorizedTrips=Array.isArray(data?.trips)?data.trips:[];
+  await window.TravelStore?.setTripDirectory?.(authorizedTrips).catch(()=>{});
+  return authorizedTrips;
+}
+async function travelTripsApi(action,payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const {data,error}=await client.functions.invoke('travel-trips',{body:{action,...payload}});
+  if(error){
+    let body=null;
+    try{body=error.context?await error.context.clone().json():null}catch(_){}
+    const e=new Error(body?.error||error.message||'edge_function_error');
+    e.code=body?.error||error.code||'edge_function_error';
+    e.linkedMailCount=body?.linkedMailCount;
+    throw e;
+  }
+  if(data?.error){
+    const e=new Error(data.error);e.code=data.error;e.linkedMailCount=data.linkedMailCount;throw e;
+  }
+  return data||{};
+}
+
+let chooserPastTripsExpanded=false;
+function chooserTodayIso(){
+  const local=new Date();
+  return new Date(local.getTime()-local.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+function chooserTripCard(t){
+  const start=t.start_date||t.startDate||'';
+  const end=t.end_date||t.endDate||'';
+  return `<button type="button" class="trip-choice" data-trip-slug="${escapeHtml(t.slug)}">
+    <div><h2>${escapeHtml(t.title||t.slug||'旅程')}</h2>
+    <p>${escapeHtml(start)} ${end?'→ '+escapeHtml(end):''}</p></div>
+    <span class="trip-role">${escapeHtml(t.role||'viewer')}</span>
+  </button>`;
+}
+function showChooserTrips(host,rows){
+  if(!host)return;
+  const trips=(Array.isArray(rows)?rows:[]).filter(t=>t?.slug);
+  if(!trips.length){
+    host.innerHTML='<div class="booking-empty">目前沒有可使用的旅程。</div>';
+    return;
+  }
+  const today=chooserTodayIso();
+  const isPast=t=>{
+    const end=String(t.end_date||t.endDate||'');
+    return /^\d{4}-\d{2}-\d{2}$/.test(end)&&end<today;
+  };
+  const current=trips.filter(t=>!isPast(t))
+    .sort((a,b)=>String(a.start_date||a.startDate||'9999-12-31')
+      .localeCompare(String(b.start_date||b.startDate||'9999-12-31')));
+  const past=trips.filter(isPast)
+    .sort((a,b)=>String(b.end_date||b.endDate||'')
+      .localeCompare(String(a.end_date||a.endDate||'')));
+  host.innerHTML=current.map(chooserTripCard).join('')+
+    (past.length?`<section class="trip-archive-section">
+      <button type="button" class="trip-archive-toggle" data-chooser-past-toggle
+        aria-expanded="${chooserPastTripsExpanded?'true':'false'}" aria-controls="chooserPastTripList">
+        <span>過去行程 <small>${past.length} 趟</small></span>
+        <span class="trip-archive-toggle-action">${chooserPastTripsExpanded?'收合':'展開'} <span aria-hidden="true">${chooserPastTripsExpanded?'▴':'▾'}</span></span>
+      </button>
+      <div class="trip-archive-content" id="chooserPastTripList" ${chooserPastTripsExpanded?'':'hidden'}>
+        ${past.map(chooserTripCard).join('')}
+      </div>
+    </section>`:'');
+  host.querySelectorAll('[data-trip-slug]').forEach(btn=>{
+    btn.onclick=()=>{openAuthorizedTrip(btn.dataset.tripSlug)};
+  });
+  const toggle=host.querySelector('[data-chooser-past-toggle]');
+  if(toggle)toggle.onclick=()=>{
+    chooserPastTripsExpanded=!chooserPastTripsExpanded;
+    const body=host.querySelector('#chooserPastTripList');
+    if(body)body.hidden=!chooserPastTripsExpanded;
+    toggle.setAttribute('aria-expanded',String(chooserPastTripsExpanded));
+    const label=toggle.querySelector('.trip-archive-toggle-action');
+    if(label)label.innerHTML=chooserPastTripsExpanded?'收合 <span aria-hidden="true">▴</span>':'展開 <span aria-hidden="true">▾</span>';
+  };
+}
+
+async function renderTripChooser(){
+  const chooser=qs('#tripChooser'),shell=qs('.app-shell');
+  if(!chooser)return;
+  chooser.hidden=false;
+  if(shell)shell.hidden=true;
+  const list=qs('#tripList'),status=qs('#chooserStatus');
+
+  const sharePayload=incomingSharePayload();
+  const missingShare=!sharePayload&&new URLSearchParams(location.search).get('share_target')==='1';
+  const recovery=qs('#shareMissingFallback');
+  if(recovery){
+    recovery.hidden=!missingShare;
+    recovery.onsubmit=event=>{
+      event.preventDefault();
+      const raw=String(qs('#shareMissingInput')?.value||'').trim();
+      const url=extractSharedUrl(raw);
+      if(!url){
+        qs('#shareMissingError').textContent='請貼上完整的 https:// 文章連結。';
+        return;
+      }
+      const payload={title:'',text:raw.replace(url,'').trim(),url,receivedAt:new Date().toISOString()};
+      try{localStorage.setItem(SHARE_TARGET_KEY,JSON.stringify(payload))}catch(_){}
+      try{sessionStorage.setItem(SHARE_TARGET_KEY,JSON.stringify(payload))}catch(_){}
+      renderTripChooser();
+    };
+  }
+  if(list)list.hidden=missingShare;
+  const cachedRaw=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+  const cached=shareEditableTrips(cachedRaw);
+  const head=chooser.querySelector('.trip-chooser-head');
+  if(head&&(sharePayload||missingShare)){
+    const h1=head.querySelector('h1'),p=head.querySelector('p');
+    if(h1)h1.textContent=sharePayload?'分享至旅程':'分享未完成';
+    if(p)p.textContent=sharePayload
+      ?'選擇要把這篇文章／貼文存到哪一趟旅程。'
+      :'Android 未把文章內容傳給 Travel OS，請先貼上連結。';
+  }
+  if(cached.length&&!navigator.onLine){
+    authorizedTrips=cached;
+    showChooserTrips(list,cached);
+    const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
+    const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
+    status.textContent=navigator.onLine?'正在更新旅程清單…':'離線模式 · 顯示此裝置已下載的旅程';
+  }else{
+    status.textContent=navigator.onLine?'讀取旅程中…':'離線且此裝置尚未下載任何旅程。請先連線開啟一次旅程。';
+  }
+
+  if(!navigator.onLine)return;
+
+  try{
+    const trips=shareEditableTrips(await fetchAuthorizedTrips());
+    showChooserTrips(list,trips);
+    const canCreate=!sharePayload&&!missingShare&&trips.some(t=>t.role==='owner');
+    const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
+    status.textContent=sharePayload?'選擇旅程後會立即將文章儲存到「筆記」。':'';
+  }catch(err){
+    console.warn(err);
+    const cached=shareEditableTrips(await window.TravelStore?.listTrips?.().catch(()=>[]));
+    if(cached?.length){
+      authorizedTrips=cached;
+      showChooserTrips(list,cached);
+      const canCreate=!sharePayload&&!missingShare&&cached.some(t=>t.role==='owner');
+      const newBtn=qs('#newTripBtn');if(newBtn)newBtn.hidden=!canCreate;
+      status.textContent='離線模式 · 顯示此裝置已下載的旅程';
+    }else{
+      status.textContent='離線且此裝置尚未下載任何旅程。請先連線開啟一次旅程。';
+    }
+  }
+}
+
+
+function pendingMailCount(){
+  return canEditTrip()&&Array.isArray(TRIP?.mailImports)?TRIP.mailImports.length:0;
+}
+function updateMailBadges(){
+  const count=pendingMailCount()+tripPlaceAlerts().length;
+  const targets=[qs('#heroMenuBtn'),qs('#tripMenuBtn'),...qsa('.subview-menu-btn')].filter(Boolean);
+  targets.forEach(btn=>{
+    let badge=btn.querySelector('.menu-mail-badge');
+    if(!badge){
+      badge=document.createElement('span');
+      badge.className='menu-mail-badge';
+      btn.appendChild(badge);
+    }
+    badge.textContent=String(count);
+    badge.hidden=!count;
+    btn.classList.toggle('has-mail-badge',Boolean(count));
+  });
+}
+function syncMoreStatus(){
+  const status=qs('#moreSyncStatus'),detail=qs('#moreSyncDetail'),email=qs('#moreAccountEmail');
+  if(status){
+    const labels={synced:'Cloud synced',syncing:'正在同步…',auth:'需要重新登入',error:'同步失敗',cache:'Offline cache'};
+    status.textContent=labels[cloudSyncState]||'Offline cache';
+  }
+  const auth=window.TravelAuth?.snapshot?.()||{};
+  if(detail){
+    detail.textContent=cloudLastError||(
+      cloudSyncState==='cache'&&!auth.cloudAuthenticated
+        ?'目前僅顯示已下載的旅程；雲端登入尚未恢復。請按重新同步查明原因。'
+        :'Travel OS Cloud'
+    );
+  }
+  const loginButton=qs('#moreSyncLogin');
+  if(loginButton)loginButton.hidden=cloudSyncState!=='auth';
+  if(email) email.textContent=auth.user?.email||'—';
+}
+async function renderMoreView(){
+  syncMoreStatus();
+  const host=qs('#moreTripList');
+  if(!host)return;
+  host.innerHTML='<div class="booking-empty">讀取旅程中…</div>';
+  try{
+    const trips=await fetchAuthorizedTrips();
+    host.innerHTML=trips.length?trips.map(t=>`
+      <button class="more-trip-card ${t.slug===window.TRAVEL_CONFIG.tripSlug?'active':''}" type="button" data-more-trip="${escapeHtml(t.slug)}">
+        <span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong><em>${escapeHtml(t.start_date||'')}${t.end_date?' → '+escapeHtml(t.end_date):''}</em></span>
+        <span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'目前':'→'}</span>
+      </button>`).join(''):'<div class="booking-empty">目前沒有可使用的旅程。</div>';
+    host.querySelectorAll('[data-more-trip]').forEach(btn=>btn.onclick=()=>{
+      if(btn.dataset.moreTrip!==window.TRAVEL_CONFIG.tripSlug) openAuthorizedTrip(btn.dataset.moreTrip);
+    });
+    const canCreate=trips.some(t=>t.role==='owner');
+    if(qs('#moreNewTrip')) qs('#moreNewTrip').hidden=!canCreate;
+    await loadGlobalMailInbox();
+  }catch(err){
+    const cached=await window.TravelStore?.listTrips?.().catch(()=>[]);
+    if(cached?.length){
+      authorizedTrips=cached;
+      host.innerHTML=cached.map(t=>`
+        <button class="more-trip-card ${t.slug===window.TRAVEL_CONFIG.tripSlug?'active':''}" type="button" data-more-trip="${escapeHtml(t.slug)}">
+          <span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong><em>${escapeHtml(t.start_date||'')}${t.end_date?' → '+escapeHtml(t.end_date):''}</em></span>
+          <span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'目前':'→'}</span>
+        </button>`).join('');
+      host.querySelectorAll('[data-more-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.moreTrip!==window.TRAVEL_CONFIG.tripSlug)openAuthorizedTrip(btn.dataset.moreTrip)});
+      if(qs('#moreNewTrip'))qs('#moreNewTrip').hidden=true;
+    }else{
+      host.innerHTML='<div class="booking-empty">離線且此裝置尚未下載旅程清單。</div>';
+    }
+    await loadGlobalMailInbox().catch(()=>{});
+  }
+}
+
+async function globalMailApi(action,payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const {data,error}=await client.functions.invoke('travel-global-mail',{body:{action,...payload}});
+  if(error) throw error;
+  if(data?.error){const e=new Error(data.error);e.code=data.error;throw e;}
+  return data||{};
+}
+function globalMailTitle(mail){
+  const d=mail?.parsed_data||{};
+  return d.title||mail?.subject||'未分類信件';
+}
+function globalMailDate(mail){
+  const d=mail?.parsed_data||{};
+  return d.startDate||d.date||d.routingEventDate||'日期未辨識';
+}
+// The received date is distinct from the booking/event date above.
+function globalMailReceivedAt(mail){
+  const value=String(mail?.received_at||'');
+  if(!value)return '收信日期未提供';
+  const date=new Date(value);
+  if(!Number.isFinite(date.getTime()))return value;
+  return date.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+}
+function renderGlobalMailInbox(data){
+  const host=qs('#moreMailInbox'),countEl=qs('#moreMailCount'),badge=qs('#globalMailBadge');
+  if(!host)return;
+  const mails=Array.isArray(data?.mails)?data.mails:[];
+  const trips=Array.isArray(data?.trips)?data.trips:[];
+  if(countEl)countEl.textContent=String(mails.length);
+  if(badge){
+    badge.textContent=String(mails.length);
+    badge.hidden=!mails.length;
+  }
+  if(!mails.length){
+    host.innerHTML='<div class="booking-empty">目前沒有未分類信件。</div>';
+    return;
+  }
+  host.innerHTML=mails.map(mail=>{
+    const d=mail.parsed_data||{};
+    const candidates=Array.isArray(mail.route_candidates)?mail.route_candidates:[];
+    const options=trips.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.title)} · ${escapeHtml(t.start_date||'')} → ${escapeHtml(t.end_date||'')}</option>`).join('');
+    const hint=mail.routing_status==='ambiguous'&&candidates.length
+      ? '可能屬於：'+candidates.slice(0,2).map(c=>c.title+' '+Math.round(Number(c.score||0)*100)+'%').join(' / ')
+      : '找不到符合日期的旅程';
+    return `
+      <article class="global-mail-card" data-global-mail="${escapeHtml(mail.id)}">
+        <div class="global-mail-top">
+          <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
+          <h3>${escapeHtml(globalMailTitle(mail))}</h3>
+          <p>${escapeHtml(globalMailDate(mail))} · ${escapeHtml(hint)}</p></div>
+          <span>${mail.routing_status==='ambiguous'?'待選擇':'未分類'}</span>
+        </div>
+        <div class="global-mail-meta">
+          <span><strong>寄件者</strong> ${escapeHtml(mail.originalSender||mail.envelope_from||'—')}</span>
+          <span><strong>收信日期</strong> ${escapeHtml(globalMailReceivedAt(mail))}</span>
+          ${Number(mail.attachmentCount||0)>0?`<span><strong>附件</strong> ${Number(mail.attachmentCount)} 個</span>`:''}
+        </div>
+        <p class="global-mail-preview">${escapeHtml(mail.preview||'無可顯示的內文摘要')}</p>
+        <button class="global-mail-detail-toggle" type="button" data-global-mail-detail="${escapeHtml(mail.id)}" aria-expanded="false">展開完整內文</button>
+        <div class="global-mail-detail" data-global-mail-panel="${escapeHtml(mail.id)}" hidden>
+          <pre class="global-mail-body"></pre>
+          <small class="global-mail-detail-note">內文僅供辨識，會以純文字顯示。只有已授權的信箱擁有者能讀取。</small>
+        </div>
+        <div class="global-mail-actions">
+          <select data-global-mail-trip="${escapeHtml(mail.id)}"><option value="">選擇旅程…</option>${options}</select>
+          <button type="button" data-global-mail-assign="${escapeHtml(mail.id)}">加入旅程</button>
+          <button type="button" class="secondary" data-global-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
+        </div>
+      </article>`;
+  }).join('');
+  // Load the full message only after an explicit click. The backend checks the
+  // active user's ownership and never sends HTML that could execute scripts.
+  host.querySelectorAll('[data-global-mail-detail]').forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.globalMailDetail;
+    const card=btn.closest('.global-mail-card');
+    const panel=card?.querySelector('[data-global-mail-panel]');
+    if(!panel)return;
+    if(!panel.hidden){
+      panel.hidden=true;btn.textContent='展開完整內文';btn.setAttribute('aria-expanded','false');return;
+    }
+    if(!panel.dataset.loaded){
+      btn.disabled=true;btn.textContent='正在讀取內文…';
+      try{
+        const data=await globalMailApi('detail',{mailId:id});
+        const pre=panel.querySelector('.global-mail-body');
+        if(pre)pre.textContent=data.mail?.bodyText||'此信沒有可讀的純文字內文。';
+        panel.dataset.loaded='1';
+        if(data.mail?.bodyTruncated){
+          const tip=panel.querySelector('.global-mail-detail-note');
+          if(tip)tip.textContent='郵件內文過長，已安全截取前 100,000 字元。';
+        }
+      }catch(err){
+        alert('讀取郵件內文失敗：'+String(err?.code||err?.message||'unknown'));
+        btn.disabled=false;btn.textContent='展開完整內文';return;
+      }
+      btn.disabled=false;
+    }
+    panel.hidden=false;btn.textContent='收合內文';btn.setAttribute('aria-expanded','true');
+  });
+  host.querySelectorAll('[data-global-mail-assign]').forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.globalMailAssign;
+    const select=host.querySelector('[data-global-mail-trip="'+CSS.escape(id)+'"]');
+    if(!select?.value){alert('請先選擇旅程。');return;}
+    btn.disabled=true;
+    try{
+      await globalMailApi('assign',{mailId:id,tripId:select.value});
+      const card=btn.closest('.global-mail-card');
+      if(card){card.classList.add('mail-removing');await new Promise(r=>setTimeout(r,360));}
+      await loadGlobalMailInbox();
+      if(select.value===TRIP?.id) await hydratePrivateCloudData();
+    }catch(err){alert('指定旅程失敗：'+(err.code||err.message||'unknown'));btn.disabled=false;}
+  });
+  host.querySelectorAll('[data-global-mail-ignore]').forEach(btn=>btn.onclick=async()=>{
+    const id=btn.dataset.globalMailIgnore;
+    if(!confirm('忽略這封未分類信件？'))return;
+    btn.disabled=true;
+    try{
+      await globalMailApi('ignore',{mailId:id});
+      const card=btn.closest('.global-mail-card');
+      if(card){card.classList.add('mail-removing');await new Promise(r=>setTimeout(r,360));}
+      await loadGlobalMailInbox();
+    }catch(err){alert('忽略失敗：'+(err.code||err.message||'unknown'));btn.disabled=false;}
+  });
+}
+async function refreshGlobalMailBadge(){
+  try{
+    const data=await globalMailApi('list');
+    const count=Number(data?.count||0);
+    const badge=qs('#globalMailBadge');
+    if(badge){badge.textContent=String(count);badge.hidden=!count;}
+    const countEl=qs('#moreMailCount');if(countEl)countEl.textContent=String(count);
+    return count;
+  }catch(_){return 0;}
+}
+async function loadGlobalMailInbox(){
+  const host=qs('#moreMailInbox');
+  if(host)host.innerHTML='<div class="booking-empty">讀取收件匣中…</div>';
+  try{
+    const data=await globalMailApi('list');
+    renderGlobalMailInbox(data);
+    return data;
+  }catch(err){
+    if(host)host.innerHTML='<div class="booking-empty">無法讀取全域收件匣。</div>';
+    throw err;
+  }
+}
+async function rerouteGlobalMail(){
+  const btn=qs('#moreRerouteMail'); if(btn)btn.disabled=true;
+  try{
+    const result=await globalMailApi('reroute');
+    await loadGlobalMailInbox();
+    if(window.TRAVEL_CONFIG?.tripSlug) await hydratePrivateCloudData();
+    return result;
+  }finally{if(btn)btn.disabled=false;}
+}
+function themeOptions(selected='earth'){
+  return Object.entries(TRIP_THEMES).map(([key,t])=>`<option value="${key}" ${key===selected?'selected':''}>${t.name} · ${t.desc}</option>`).join('');
+}
+function ensureTripSettingsSheet(){
+  let sheet=qs('#tripSettingsSheet');
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';backdrop.id='tripSettingsBackdrop';
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet trip-settings-sheet';sheet.id='tripSettingsSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP SETTINGS</span><h2 id="tripSettingsTitle">編輯旅程</h2><p>名稱、日期、時區與配色都可以之後再調整。</p></div><button class="round-btn" id="closeTripSettings">×</button></div>
+    <form class="edit-form" id="tripSettingsForm">
+      <input type="hidden" id="tripSettingsMode">
+      <label><span>旅程名稱</span><input id="tripSettingsName" required></label>
+      <div class="edit-form-grid">
+        <label><span>開始日期</span><input id="tripSettingsStart" type="date"></label>
+        <label><span>結束日期</span><input id="tripSettingsEnd" type="date"></label>
+      </div>
+      <label><span>時區</span><input id="tripSettingsTimezone" placeholder="Asia/Tokyo"></label>
+      <label><span>配色模板</span><select id="tripSettingsTheme"></select></label>
+      <div class="theme-preview-grid" id="tripThemePreview"></div>
+      <div class="edit-form-actions"><button type="submit" class="edit-save" id="tripSettingsSave">儲存</button></div>
+      <p class="edit-status" id="tripSettingsStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeTripSettings').onclick=close;backdrop.onclick=close;
+  qs('#tripSettingsForm').onsubmit=saveTripSettings;
+  qs('#tripSettingsTheme').onchange=()=>renderTripThemePreview(qs('#tripSettingsTheme').value);
+  return sheet;
+}
+function renderTripThemePreview(selected){
+  const host=qs('#tripThemePreview');if(!host)return;
+  host.innerHTML=Object.entries(TRIP_THEMES).map(([key,t])=>`
+    <button type="button" class="theme-preview ${selected===key?'active':''}" data-theme-pick="${key}">
+      <span class="theme-swatch theme-${key}"></span><strong>${t.name}</strong><small>${t.desc}</small>
+    </button>`).join('');
+  host.querySelectorAll('[data-theme-pick]').forEach(btn=>btn.onclick=()=>{
+    qs('#tripSettingsTheme').value=btn.dataset.themePick;
+    renderTripThemePreview(btn.dataset.themePick);
+  });
+}
+function openTripSettingsEditor(mode='edit'){
+  ensureTripSettingsSheet();
+  const creating=mode==='create';
+  qs('#tripSettingsMode').value=mode;
+  qs('#tripSettingsTitle').textContent=creating?'建立新旅程':'編輯旅程';
+  const title=creating?'':(TRIP?.title||'');
+  const suggested=creating?suggestTripTheme(title):currentTripTheme();
+  qs('#tripSettingsName').value=title;
+  qs('#tripSettingsStart').value=creating?'':(TRIP?.startDate||'');
+  qs('#tripSettingsEnd').value=creating?'':(TRIP?.endDate||'');
+  qs('#tripSettingsTimezone').value=creating?'Asia/Tokyo':(TRIP?.timezone||'UTC');
+  qs('#tripSettingsTheme').innerHTML=themeOptions(suggested);
+  renderTripThemePreview(suggested);
+  qs('#tripSettingsStatus').textContent='';
+  qs('#tripSettingsBackdrop').classList.add('show');qs('#tripSettingsSheet').classList.add('show');qs('#tripSettingsSheet').setAttribute('aria-hidden','false');
+}
+async function saveTripSettings(e){
+  e.preventDefault();
+  const mode=qs('#tripSettingsMode').value;
+  const title=qs('#tripSettingsName').value.trim();
+  const startDate=qs('#tripSettingsStart').value||null,endDate=qs('#tripSettingsEnd').value||null;
+  const timezone=qs('#tripSettingsTimezone').value.trim()||'UTC';
+  const theme=qs('#tripSettingsTheme').value||'earth';
+  const status=qs('#tripSettingsStatus');
+  if(!title){status.textContent='請輸入旅程名稱。';return}
+  if(startDate&&endDate&&endDate<startDate){status.textContent='結束日期不可早於開始日期。';return}
+  status.textContent='儲存中…';
+  let attemptedCreateSlug='';
+  try{
+    if(mode==='create'){
+      const suggested=title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||('trip-'+Date.now());
+      const slug=prompt('網址名稱（英文/數字/連字號）',suggested);
+      if(!slug){status.textContent='已取消建立。';return}
+      attemptedCreateSlug=slug;
+      const device=await window.TravelStore.getDevice();
+      const data=await travelTripsApi('create',{title,slug,startDate,endDate,timezone,theme,devicePublicId:device.device_public_id,deviceSecret:device.device_secret,deviceName:device.label});
+      try{
+        await globalMailApi('reroute');
+        const client=window.TravelAuth?.getClient?.();
+        if(client&&data?.trip?.id){
+          const {error}=await client.functions.invoke('travel-mail-ingest',{body:{action:'reparse',tripId:data.trip.id}});
+          if(error)console.warn('Mail reparse after trip create failed',error);
+          await globalMailApi('reroute');
+        }
+      }catch(err){console.warn('Mail reroute/reparse after trip create failed',err)}
+      location.href=tripHref(data.trip.slug);
+      return;
+    }
+    await travelTripsApi('update',{tripSlug:window.TRAVEL_CONFIG.tripSlug,title,timezone,theme});
+    if(startDate&&endDate)await travelEditor('set_trip_dates',{startDate,endDate});
+    qs('#tripSettingsSheet').classList.remove('show');qs('#tripSettingsBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    // A network/runtime error can happen after the backend has already committed
+    // the new trip. Reconcile once before telling the traveler that creation failed.
+    if(mode==='create'&&attemptedCreateSlug){
+      try{
+        const trips=await fetchAuthorizedTrips();
+        const created=trips.find(t=>String(t.slug)===String(attemptedCreateSlug));
+        if(created){
+          status.textContent='旅程已建立，正在開啟…';
+          location.href=tripHref(created.slug);
+          return;
+        }
+      }catch(reconcileErr){console.warn('Trip create reconciliation failed',reconcileErr)}
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message||'unknown');
+  }
+}
+async function createNewTrip(){openTripSettingsEditor('create')}
+
+
+async function renderTripSwitchList(){
+  let host=qs('#tripSwitchList');
+  if(!host){
+    host=document.createElement('div');host.id='tripSwitchList';host.className='trip-switch-list';
+    qs('#tripSheet')?.append(host);
+  }
+  host.innerHTML='<p class="member-status">讀取旅程中…</p>';
+  try{
+    const trips=await fetchAuthorizedTrips();
+    host.innerHTML='<div class="section-kicker">SWITCH TRIP</div>'+trips.map(t=>`<button class="sheet-action-card" data-switch-trip="${escapeHtml(t.slug)}"><span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong></span><span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'✓':'→'}</span></button>`).join('');
+    host.querySelectorAll('[data-switch-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.switchTrip!==window.TRAVEL_CONFIG.tripSlug)openAuthorizedTrip(btn.dataset.switchTrip)});
+  }catch(err){
+    const cached=await window.TravelStore?.listTrips?.().catch(()=>[])||[];
+    if(cached.length){
+      host.innerHTML='<div class="section-kicker">SWITCH TRIP · OFFLINE</div>'+cached.map(t=>`<button class="sheet-action-card" data-switch-trip="${escapeHtml(t.slug)}"><span><small>${escapeHtml(String(t.role||'viewer').toUpperCase())}</small><strong>${escapeHtml(t.title)}</strong></span><span>${t.slug===window.TRAVEL_CONFIG.tripSlug?'✓':'→'}</span></button>`).join('');
+      host.querySelectorAll('[data-switch-trip]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.switchTrip!==window.TRAVEL_CONFIG.tripSlug)openAuthorizedTrip(btn.dataset.switchTrip)});
+    }else{
+      host.innerHTML='<p class="member-status">離線且此裝置尚未下載旅程清單。</p>';
+    }
+  }
+}
+
+
+const OFFLINE_EDITOR_ACTIONS=new Set(['save_item','delete_item','reorder_items','save_day','save_reservation','delete_reservation']);
+function offlineClone(v){return JSON.parse(JSON.stringify(v))}
+function isNetworkEditorError(err){
+  const code=String(err?.code||'').toLowerCase();
+  const msg=String(err?.message||'').toLowerCase();
+  const status=Number(err?.status||0);
+  return !navigator.onLine||status===0||code==='edge_function_error'||code.includes('fetch')||msg.includes('failed to fetch')||msg.includes('network');
+}
+function offlineEventFromItem(item,existing={}){
+  return {
+    ...existing,
+    id:existing.id||item.id||('offline-'+crypto.randomUUID()),
+    version:existing.version||Number(item.baseVersion||1)||1,
+    time:item.time||'',
+    type:item.type||existing.type||'other',
+    title:item.title||'',
+    subtitle:item.subtitle||'',
+    note:item.note||'',
+    intro:item.intro||'',
+    tips:Array.isArray(item.tips)?offlineClone(item.tips):[],
+    reservationId:item.reservationId||null,
+    reservationIds:Array.isArray(item.reservationIds)?offlineClone(item.reservationIds):[],
+    address:item.address||'',
+    lat:item.lat??null,lng:item.lng??null,
+    navQuery:item.navQuery||'',
+    googleMapsUrl:item.googleMapsUrl||'',
+    googleMapsResolvedUrl:item.googleMapsResolvedUrl||'',
+    openingHours:Array.isArray(item.openingHours)?offlineClone(item.openingHours):[],
+    closedWeekdays:Array.isArray(item.closedWeekdays)?offlineClone(item.closedWeekdays):[],
+    hoursSource:item.hoursSource||null,
+    hoursCheckedAt:item.hoursCheckedAt||null,
+    uncertain:Boolean(item.uncertain)
+  };
+}
+function offlineBookingFromReservation(r,existing={}){
+  return {
+    ...existing,
+    id:existing.id||r.id||('offline-'+crypto.randomUUID()),
+    version:existing.version||Number(r.baseVersion||1)||1,
+    type:r.type||existing.type||'other',
+    provider:r.provider||'',
+    title:r.title||'預訂',
+    dates:[r.startsAt?String(r.startsAt).slice(0,10):'',r.endsAt?String(r.endsAt).slice(0,10):''].filter(Boolean).join(' → '),
+    meta:r.summary||'',
+    code:r.confirmationCode||'',
+    secret:r.pinCode||'',
+    status:r.status||'confirmed',
+    notice:r.privateNotes||'',
+    details:existing.details||{rows:[],amenities:[],tips:[],source:'離線編輯'},
+    imported:existing.imported||null,
+    amount:r.amount??existing.amount??null,
+    currency:r.currency||existing.currency||'',
+    paymentStatus:r.paymentStatus||existing.paymentStatus||'',
+    _raw:{...(existing._raw||{}),starts_at:r.startsAt||null,ends_at:r.endsAt||null,address:r.address||'',latitude:r.lat??null,longitude:r.lng??null,nav_query:r.navQuery||'',google_maps_url:r.googleMapsUrl||'',google_maps_resolved_url:r.googleMapsResolvedUrl||''}
+  };
+}
+async function applyOfflineEditorAction(action,payload){
+  if(!TRIP||!OFFLINE_EDITOR_ACTIONS.has(action))return null;
+  let entityId=action,baseVersion=1,localTempId=null;
+  if(action==='save_item'){
+    const item=offlineClone(payload.item||{});
+    let day=TRIP.days.find(d=>d.id===item.dayId)||(item.date?TRIP.days.find(d=>d.date===item.date):null);
+    if(!day)throw Object.assign(new Error('offline_day_missing'),{code:'offline_day_missing'});
+    let idx=item.id?day.events.findIndex(e=>e.id===item.id):-1;
+    const existing=idx>=0?day.events[idx]:{};
+    const local=offlineEventFromItem(item,existing);
+    if(idx>=0)day.events[idx]=local;else day.events.push(local);
+    entityId=local.id;baseVersion=Number(item.baseVersion||existing.version||1)||1;
+    if(String(entityId).startsWith('offline-')){
+      localTempId=entityId;
+      item.id=null;
+      payload={...payload,item};
+    }
+  }else if(action==='delete_item'){
+    entityId=String(payload.id||'');baseVersion=Number(payload.baseVersion||1)||1;
+    for(const day of TRIP.days){const i=day.events.findIndex(e=>e.id===entityId);if(i>=0){day.events.splice(i,1);break}}
+  }else if(action==='reorder_items'){
+    const day=TRIP.days.find(d=>d.id===payload.dayId);
+    if(day){
+      const map=new Map(day.events.map(e=>[e.id,e]));
+      day.events=(payload.orderedIds||[]).map((id,i)=>{const e=map.get(id);if(e)e.sortOrder=i;return e}).filter(Boolean);
+    }
+    entityId=String(payload.dayId||'');
+  }else if(action==='save_day'){
+    const d=payload.day||{};
+    const day=TRIP.days.find(x=>x.id===d.id)||TRIP.days.find(x=>x.date===d.date);
+    if(!day)throw Object.assign(new Error('offline_day_missing'),{code:'offline_day_missing'});
+    entityId=day.id;baseVersion=Number(d.baseVersion||day.version||1)||1;
+    Object.assign(day,{
+      name:d.name,short:d.short??d.notes??day.short,heroImageUrl:d.heroImageUrl??day.heroImageUrl,
+      km:d.km??day.km,driveMinutes:d.driveMinutes??day.driveMinutes,departureTime:d.departureTime??day.departureTime,
+      sunrise:d.sunrise??day.sunrise,sunset:d.sunset??day.sunset
+    });
+  }else if(action==='save_reservation'){
+    const r=offlineClone(payload.reservation||{});
+    let idx=r.id?TRIP.bookings.findIndex(b=>b.id===r.id):-1;
+    const existing=idx>=0?TRIP.bookings[idx]:{};
+    const local=offlineBookingFromReservation(r,existing);
+    if(idx>=0)TRIP.bookings[idx]=local;else TRIP.bookings.push(local);
+    entityId=local.id;baseVersion=Number(r.baseVersion||existing.version||1)||1;
+    if(String(entityId).startsWith('offline-')){
+      localTempId=entityId;r.id=null;payload={...payload,reservation:r};
+    }
+  }else if(action==='delete_reservation'){
+    entityId=String(payload.id||'');baseVersion=Number(payload.baseVersion||1)||1;
+    TRIP.bookings=TRIP.bookings.filter(b=>b.id!==entityId);
+  }
+  await window.TravelStore?.saveUiTrip?.(TRIP);
+  await window.TravelStore?.queueOperation?.({
+    entity_type:'editor_action',entity_id:entityId||action,action,base_version:baseVersion,
+    patch:{payload:offlineClone(payload),localTempId}
+  });
+  cloudLoaded=false;cloudSyncState='cache';
+  cloudLastError='離線變更已儲存在此裝置；恢復網路後會自動同步。';
+  syncTripLabels();renderAll();updateEditAvailability();
+  return {ok:true,offlineQueued:true};
+}
+async function invokeTravelEditorOnline(action,payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const device=await window.TravelStore.getDevice();
+  const {data,error}=await client.functions.invoke('travel-editor',{body:{
+    tripSlug:window.TRAVEL_CONFIG.tripSlug,
+    devicePublicId:device.device_public_id,
+    deviceSecret:device.device_secret,
+    action,...payload
+  }});
+  if(error){
+    let body=null;
+    try{ body=error.context?await error.context.clone().json():null; }catch(_){}
+    const code=body?.error||error.code||'edge_function_error';
+    const e=new Error(code);e.code=code;e.currentVersion=body?.currentVersion;e.status=error.context?.status;throw e;
+  }
+  if(data?.error){
+    const e=new Error(data.error);e.code=data.error;e.currentVersion=data.currentVersion;throw e;
+  }
+  return data;
+}
+let offlineFlushRunning=false;
+async function flushOfflineEditorQueue(){
+  if(offlineFlushRunning||!navigator.onLine||!window.TRAVEL_CONFIG?.tripSlug)return;
+  const pending=await window.TravelStore?.getPendingOperations?.();
+  if(!pending?.length)return;
+  offlineFlushRunning=true;
+  cloudSyncState='syncing';cloudLastError='正在同步離線變更…';syncTripLabels();
+  try{
+    for(const op of pending){
+      if(op.entity_type!=='editor_action')continue;
+      const payload=offlineClone(op.patch?.payload||{});
+      if(op.action==='save_item'&&String(payload.item?.id||'').startsWith('offline-'))payload.item.id=null;
+      if(op.action==='save_reservation'&&String(payload.reservation?.id||'').startsWith('offline-'))payload.reservation.id=null;
+      try{
+        await invokeTravelEditorOnline(op.action,payload);
+        await window.TravelStore?.completeOperation?.(op.op_id);
+      }catch(err){
+        await window.TravelStore?.updateOperation?.(op.op_id,{attempts:Number(op.attempts||0)+1,last_error:String(err?.code||err?.message||err),last_attempt_at:new Date().toISOString()});
+        if(err?.code==='version_conflict'){
+          cloudLastError='離線變更與雲端版本衝突；已保留待處理變更。';
+        }else{
+          cloudLastError='離線變更尚未同步，稍後會再試。';
+        }
+        throw err;
+      }
+    }
+    await hydratePrivateCloudData();
+    cloudLastError='';
+  }catch(err){
+    console.warn('Offline editor sync paused',err);
+    cloudSyncState='cache';syncTripLabels();
+  }finally{offlineFlushRunning=false}
+}
+
+async function travelEditor(action,payload={}){
+  if(OFFLINE_EDITOR_ACTIONS.has(action)&&!navigator.onLine){
+    return applyOfflineEditorAction(action,payload);
+  }
+  try{
+    return await invokeTravelEditorOnline(action,payload);
+  }catch(err){
+    if(OFFLINE_EDITOR_ACTIONS.has(action)&&isNetworkEditorError(err)){
+      return applyOfflineEditorAction(action,payload);
+    }
+    throw err;
+  }
+}
+
+function canEditTrip(){return currentTripRole==='owner'||currentTripRole==='editor'}
+
+function ensureDeleteTripSheet(){
+  let sheet=qs('#deleteTripSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='deleteTripBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet delete-trip-sheet';sheet.id='deleteTripSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker danger-kicker">DANGER ZONE</span><h2>刪除旅程</h2><p>這個動作不能復原。</p></div><button class="round-btn" id="closeDeleteTrip">×</button></div>
+    <div class="delete-trip-summary" id="deleteTripSummary"></div>
+    <label class="delete-confirm-label"><span>輸入完整旅程名稱以確認</span><input id="deleteTripConfirmName" autocomplete="off"></label>
+    <button type="button" class="delete-trip-confirm" id="deleteTripConfirmBtn" disabled>永久刪除旅程</button>
+    <p class="edit-status" id="deleteTripStatus"></p>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true')};
+  qs('#closeDeleteTrip').onclick=close;backdrop.onclick=close;
+  qs('#deleteTripConfirmName').oninput=()=>{
+    qs('#deleteTripConfirmBtn').disabled=qs('#deleteTripConfirmName').value.trim()!==String(TRIP?.title||'');
+  };
+  qs('#deleteTripConfirmBtn').onclick=confirmDeleteCurrentTrip;
+  return sheet;
+}
+let deleteTripPreview=null;
+async function deleteCurrentTrip(){
+  if(currentTripRole!=='owner')return;
+  ensureDeleteTripSheet();
+  qs('#deleteTripStatus').textContent='讀取資料中…';
+  qs('#deleteTripConfirmName').value='';qs('#deleteTripConfirmBtn').disabled=true;
+  qs('#deleteTripBackdrop').classList.add('show');qs('#deleteTripSheet').classList.add('show');qs('#deleteTripSheet').setAttribute('aria-hidden','false');
+  try{
+    deleteTripPreview=await travelTripsApi('delete_preview',{tripSlug:window.TRAVEL_CONFIG.tripSlug});
+    const n=Number(deleteTripPreview.linkedMailCount||0);
+    qs('#deleteTripSummary').innerHTML=`
+      <div><span>旅程</span><strong>${escapeHtml(deleteTripPreview.trip?.title||TRIP?.title||'')}</strong></div>
+      <div><span>行程項目</span><strong>${Number(deleteTripPreview.itineraryCount||0)}</strong></div>
+      <div><span>正式預訂</span><strong>${Number(deleteTripPreview.reservationCount||0)}</strong></div>
+      <div class="${n?'mail-warning':''}"><span>原始信件</span><strong>${n} 封</strong></div>
+      ${n?`<p class="delete-mail-note">刪除時會先把這 ${n} 封信解除 Trip 關聯，退回「更多 → 未分類信件」，再刪除旅程。Email 本身不會刪除。</p>`:''}`;
+    qs('#deleteTripConfirmBtn').textContent=n?'解除信件關聯並刪除旅程':'永久刪除旅程';
+    qs('#deleteTripStatus').textContent='';
+  }catch(err){
+    qs('#deleteTripStatus').textContent='無法讀取刪除資訊：'+(err.code||err.message||'unknown');
+  }
+}
+async function confirmDeleteCurrentTrip(){
+  if(!deleteTripPreview)return;
+  const btn=qs('#deleteTripConfirmBtn'),status=qs('#deleteTripStatus');
+  btn.disabled=true;status.textContent='刪除中…';
+  try{
+    const n=Number(deleteTripPreview.linkedMailCount||0);
+    await travelTripsApi('delete',{tripSlug:window.TRAVEL_CONFIG.tripSlug,confirmTitle:TRIP.title,detachMail:n>0});
+    try{await window.TravelStore?.clearTrip?.(window.TRAVEL_CONFIG.tripSlug)}catch(err){console.warn('Local trip cache cleanup failed',err)}
+    location.href=window.TRAVEL_CONFIG?.appBasePath||'/travel-os/';
+  }catch(err){
+    status.textContent='刪除失敗：'+(err.code||err.message||'unknown');
+    btn.disabled=false;
+  }
+}
+
+
+function placeAlertWeekday(dateString){
+  try{return new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(dateString+'T00:00:00Z'))}
+  catch(_){return null}
+}
+function placeAlertReviewRows(event,visitDate){
+  const names=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const zh={Monday:'\u9031\u4e00',Tuesday:'\u9031\u4e8c',Wednesday:'\u9031\u4e09',Thursday:'\u9031\u56db',Friday:'\u9031\u4e94',Saturday:'\u9031\u516d',Sunday:'\u9031\u65e5'};
+  const oldMap=placeScheduleMap(event.openingHoursPrevious,event.closedWeekdaysPrevious);
+  const newMap=placeScheduleMap(event.openingHours,event.closedWeekdays);
+  const visiting=placeAlertWeekday(visitDate);
+  const rows=names.map(day=>{
+    const key=day.toLowerCase();
+    const original=oldMap.get(key)||'\u672a\u63d0\u4f9b';
+    const latest=newMap.get(key)||'\u672a\u63d0\u4f9b';
+    const changed=oldMap.has(key)!==newMap.has(key)||(oldMap.has(key)&&placeHoursSignature(original)!==placeHoursSignature(latest));
+    return {name:zh[day],original,latest,changed,visiting:day===visiting};
+  });
+  return rows.filter(row=>row.visiting||row.changed);
+}
+function ensurePlaceAlertReviewSheet(){
+  let sheet=qs('#placeAlertReviewSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';backdrop.id='placeAlertReviewBackdrop';
+  sheet=document.createElement('aside');
+  sheet.id='placeAlertReviewSheet';sheet.className='members-sheet place-alert-review-sheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`<div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">PLACE CHANGE REVIEW</span>
+      <h2>營業時間與行程提醒</h2><p>先核對原本與 Google 最新資訊。查看不會將提醒標記已讀。</p></div>
+      <button class="round-btn" id="closePlaceAlertReview" type="button" aria-label="關閉">×</button></div>
+    <div class="place-alert-review-list" id="placeAlertReviewList"></div>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{
+    sheet.classList.remove('show');backdrop.classList.remove('show');sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closePlaceAlertReview').onclick=close;
+  backdrop.onclick=close;
+  sheet.closeReview=close;
+  return sheet;
+}
+function openPlaceAlertReview(){
+  closeSheet();
+  const sheet=ensurePlaceAlertReviewSheet(), host=qs('#placeAlertReviewList');
+  const map=new Map();
+  tripPlaceAlerts().forEach(alert=>{
+    const key=alert.itemId||String(alert.dayIndex)+'-'+alert.eventIndex;
+    if(!map.has(key))map.set(key,{...alert,kinds:new Set()});
+    const record=map.get(key);record.kinds.add(alert.kind);
+    if(alert.kind==='changed')record.message=alert.message;
+  });
+  const alerts=[...map.values()];
+  if(!alerts.length){host.innerHTML='<p class="place-alert-empty">目前沒有需要查看的行程提醒。</p>';}
+  else host.innerHTML=alerts.map((alert,index)=>{
+    const day=TRIP.days[alert.dayIndex],event=day?.events?.[alert.eventIndex];
+    if(!event)return '';
+    const changed=alert.kinds.has('changed')&&event.hoursChangePending;
+    const oldAvailable=Boolean((event.openingHoursPrevious||[]).length||(event.closedWeekdaysPrevious||[]).length);
+    const rows=changed?placeAlertReviewRows(event,day.date):[];
+    const labels=rows.length?rows.map(row=>`<tr class="${row.visiting?'visit-day':''}${row.changed?' changed-day':''}">
+      <th scope="row">${escapeHtml(row.name)}${row.visiting?' <span class="visit-indicator">造訪日</span>':''}</th>
+      <td>${escapeHtml(row.original)}</td><td>${escapeHtml(row.latest)}</td></tr>`).join('')
+      :'<tr><td colspan="3">目前沒有可比較的每週營業資料</td></tr>';
+    const source=event.hoursSource||'Google Maps';
+    const checked=event.hoursChangedAt||event.hoursCheckedAt;
+    const lastChecked=checked?new Date(checked).toLocaleString('zh-TW'):'時間未提供';
+    return `<section class="place-alert-review-card" data-review-index="${index}">
+      <div class="place-alert-review-heading"><div>
+        <span class="place-alert-day">${escapeHtml(day.date||'')} · ${escapeHtml(event.time||'未設定時間')}</span>
+        <h3>${escapeHtml(event.title||'未命名景點')}</h3>
+      </div><span class="place-alert-kind">${changed?'營業時間變動':'行程注意事項'}</span></div>
+      ${changed?`<div class="place-alert-compare-scroll"><table class="place-alert-compare">
+        <thead><tr><th>星期</th><th>原本營業時間</th><th>最新營業時間</th></tr></thead>
+        <tbody>${labels}</tbody></table></div>
+        ${oldAvailable?'':'<p class="place-alert-note">先前沒有儲存營業時段，無法還原舊資料，請以最新資訊查核。</p>'}`:''}
+      <p class="place-alert-message">${escapeHtml(alert.message)}</p>
+      <p class="place-alert-meta">來源：${escapeHtml(source)} · 更新：${escapeHtml(lastChecked)}</p>
+      <div class="place-alert-review-actions">
+        <button type="button" class="mini-btn" data-place-alert-view="${index}">查看行程</button>
+        ${changed?`<button type="button" class="mini-btn" data-place-alert-keep="${index}">保留未確認</button>`:''}
+        ${changed&&canEditTrip()?`<button type="button" class="mini-btn place-alert-ack" data-place-alert-ack="${index}" >已確認這項變動</button>`:''}
+      </div><small class="place-alert-review-status" data-place-alert-status="${index}" role="status"></small>
+    </section>`;
+  }).join('');
+  host.querySelectorAll('[data-place-alert-view]').forEach(btn=>btn.onclick=()=>{
+    const alert=alerts[Number(btn.dataset.placeAlertView)];if(!alert)return;
+    sheet.closeReview();
+    selectedDay=alert.dayIndex;mapPrimaryDay=alert.dayIndex;mapSelectedDays=new Set([alert.dayIndex]);
+    showView('today');renderAll();
+    setTimeout(()=>document.querySelector(`#timeline [data-event-index="${alert.eventIndex}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}),80);
+  });
+  host.querySelectorAll('[data-place-alert-keep]').forEach(btn=>btn.onclick=()=>{
+    // Deliberately no backend mutation and no acknowledgement.
+    sheet.closeReview();
+  });
+  host.querySelectorAll('[data-place-alert-ack]').forEach(btn=>btn.onclick=async()=>{
+    const alert=alerts[Number(btn.dataset.placeAlertAck)];
+    if(!alert?.itemId||!canEditTrip())return;
+    const status=host.querySelector(`[data-place-alert-status="${btn.dataset.placeAlertAck}"]`);
+    btn.disabled=true;if(status)status.textContent='正在確認這筆變動…';
+    try{
+      await travelEditor('ack_place_alert',{id:alert.itemId});
+      const loaded=await hydratePrivateCloudData();
+      if(!loaded)throw new Error('已提交確認，但重新讀取失敗，請重新查看');
+      openPlaceAlertReview();
+    }catch(err){
+      const reason=String(err?.code||err?.message||'網路錯誤');
+      if(status){
+        if(reason.includes('已提交確認')){
+          status.textContent='已送出確認，但重新讀取尚未成功；請重新開啟提醒檢查。';
+        }else if(!navigator.onLine||/auth_not_ready|unauthorized|invalid.*session|network|fetch|timeout|connection|failed to fetch|edge_function_error/i.test(reason)){
+          status.textContent='無法連上雲端或登入尚未恢復；請到「更多 → 資料與同步」重新同步後再試。提醒仍保留。';
+        }else{
+          status.textContent='確認失敗：'+reason+'；提醒仍保留。';
+        }
+      }
+      btn.disabled=false;
+    }
+  });
+  sheet.classList.add('show');qs('#placeAlertReviewBackdrop').classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+
+function updateEditAvailability(){
+  let btn=qs('#editModeBtn');
+  if(!canEditTrip()){
+    editMode=false;
+    if(btn){btn.remove();btn=null;}
+    qsa('.edit-inline-actions,.edit-chip').forEach(el=>el.remove());
+    syncEditModeChrome();
+  }else if(!btn&&qs('#membersBtn')){
+    btn=document.createElement('button');
+    btn.id='editModeBtn';btn.type='button';btn.className='sheet-action-card';
+    btn.innerHTML='<span><small>ITINERARY</small><strong>編輯行程</strong></span><span>→</span>';
+    qs('#membersBtn').before(btn);
+    btn.onclick=()=>{closeSheet();toggleEditMode();};
+  }
+
+  let alertBtn=qs('#tripAlertBtn');
+  const placeAlerts=tripPlaceAlerts();
+  if(!alertBtn&&qs('#membersBtn')){
+    alertBtn=document.createElement('button');
+    alertBtn.id='tripAlertBtn';alertBtn.type='button';alertBtn.className='sheet-action-card';
+    qs('#membersBtn').before(alertBtn);
+    alertBtn.onclick=()=>openPlaceAlertReview();
+  }
+  if(alertBtn){
+    alertBtn.hidden=!placeAlerts.length;
+    alertBtn.innerHTML='<span><small>TRIP ALERT</small><strong>行程提醒</strong><em>'+placeAlerts.length+' 筆需要注意 · 點一下查看</em></span><span class="trip-alert-count">'+placeAlerts.length+'</span>';
+  }
+
+  let audit=qs('#placeAuditBtn');
+  if(!audit&&qs('#membersBtn')){
+    audit=document.createElement('button');
+    audit.id='placeAuditBtn';audit.type='button';audit.className='sheet-action-card';
+    audit.innerHTML='<span><small>PLACE CHECK</small><strong>檢查營業時間 / 公休日</strong><em id="placeAuditStatus">檢查已補 Google Maps 連結的行程</em></span><span>→</span>';
+    qs('#membersBtn').before(audit);
+    audit.onclick=auditTripPlaceHours;
+  }
+  if(audit){
+    audit.hidden=!canEditTrip();
+    const placeNoticeCount=placeAlerts.length;
+    const auditStatus=qs('#placeAuditStatus')?.textContent||'檢查已補 Google Maps 連結的行程';
+    audit.innerHTML='<span><small>PLACE CHECK</small><strong>檢查營業時間 / 公休日</strong><em id="placeAuditStatus">'+escapeHtml(auditStatus)+'</em></span>'+(placeNoticeCount?'<span class="trip-alert-count">'+placeNoticeCount+'</span>':'<span>→</span>');
+  }
+  let mailBtn=qs('#mailImportBtn');
+  if(!mailBtn&&qs('#membersBtn')){
+    mailBtn=document.createElement('button');
+    mailBtn.id='mailImportBtn';mailBtn.type='button';mailBtn.className='sheet-action-card';
+    qs('#membersBtn').before(mailBtn);
+    mailBtn.onclick=()=>{closeSheet();openMailImportSheet();};
+  }
+  if(mailBtn){
+    const pending=Array.isArray(TRIP?.mailImports)?TRIP.mailImports.length:0;
+    mailBtn.hidden=!canEditTrip();
+    mailBtn.innerHTML='<span><small>MAIL IMPORT</small><strong>信箱匯入</strong><em>'+(pending?pending+' 筆待確認':'目前沒有待確認')+'</em></span>'+(pending?'<span class="trip-alert-count">'+pending+'</span>':'<span>→</span>');
+  }
+  const publicShare=qs('#publicShareBtn');
+  if(publicShare) publicShare.hidden=currentTripRole!=='owner';
+
+  let deleteTripBtn=qs('#deleteTripBtn');
+  if(!deleteTripBtn&&qs('#tripSheet')){
+    deleteTripBtn=document.createElement('button');
+    deleteTripBtn.id='deleteTripBtn';
+    deleteTripBtn.type='button';
+    deleteTripBtn.className='sheet-action-card trip-delete-card';
+    deleteTripBtn.innerHTML='<span><small>DANGER ZONE</small><strong>刪除旅程</strong><em>永久刪除這個 Trip 與其行程 / 預訂資料</em></span><span>→</span>';
+    qs('#tripSheet').append(deleteTripBtn);
+    deleteTripBtn.onclick=deleteCurrentTrip;
+  }
+  if(deleteTripBtn) deleteTripBtn.hidden=currentTripRole!=='owner';
+  syncTripLabels();
+}
+
+
+function ensureMailImportSheet(){
+  let sheet=qs('#mailImportSheet');
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='mailImportBackdrop';
+  sheet=document.createElement('aside');
+  sheet.className='members-sheet mail-import-sheet';
+  sheet.id='mailImportSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">MAIL IMPORT</span><h2>信箱匯入</h2><p>來自 mTripPlan Gmail。先比較差異，確認後才更新正式預訂。</p></div>
+      <button class="round-btn" id="closeMailImport">×</button>
+    </div>
+    <div class="mail-import-toolbar">
+      <div class="mail-import-status" id="mailImportStatus"></div>
+      <button type="button" class="mini-btn mail-reparse-btn" id="mailReparseBtn">重新辨識既有信件</button>
+    </div>
+    <div class="mail-import-list" id="mailImportList"></div>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeMailImport').onclick=close;
+  backdrop.onclick=close;
+  qs('#mailReparseBtn').onclick=reparseTripMail;
+  return sheet;
+}
+
+async function reparseTripMail(){
+  if(!canEditTrip()||!TRIP?.id)return;
+  const btn=qs('#mailReparseBtn');
+  if(btn){btn.disabled=true;btn.textContent='重新辨識中…';}
+  try{
+    const client=window.TravelAuth?.getClient?.();
+    if(!client)throw new Error('auth_not_ready');
+    const {data,error}=await client.functions.invoke('travel-mail-ingest',{body:{action:'reparse',tripId:TRIP.id}});
+    if(error)throw error;
+    if(data?.error){const e=new Error(data.error);e.code=data.error;throw e;}
+    await hydratePrivateCloudData();
+    renderMailImportSheet();
+    const total=Number(data?.total??data?.changed??0);
+    const autoIgnored=Number(data?.autoIgnored||0);
+    const pending=Number(data?.pendingReview||0);
+    const excluded=Number(data?.excluded||0);
+    const failed=Number(data?.failed||0);
+    alert([
+      '信件重新辨識完成',
+      '',
+      '總共辨識：'+total+' 封',
+      '已有相同資料，已自動忽略：'+autoIgnored+' 封',
+      '待人工確認：'+pending+' 封',
+      ...(excluded?['非預訂信件已排除：'+excluded+' 封']:[]),
+      ...(failed?['⚠️ 處理失敗：'+failed+' 封（尚未略過，請稍後重試）']:[]),
+      '',
+      '已略過的信不會重複出現在待確認列表；有差異的信件仍需逐筆確認。',
+      '重新辨識不會覆寫任何正式預訂。'
+    ].join('\n'));
+  }catch(err){
+    alert('重新辨識失敗：'+(err.code||err.message||'unknown'));
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='重新辨識既有信件';}
+  }
+}
+
+function mailValue(value){
+  if(value===null||value===undefined||value==='')return '—';
+  if(typeof value==='object')return JSON.stringify(value);
+  return String(value);
+}
+function mailSuggestedItems(mail){
+  const d=mail?.parsed_data||{};
+  const hits=[];
+  if(mail?.reservation_type==='stay'&&d.startDate){
+    const dayIndex=(TRIP.days||[]).findIndex(x=>x.date===String(d.startDate).slice(0,10));
+    if(dayIndex>=0){
+      const key=normalizedStayName(d.displayTitle||d.title||'');
+      (TRIP.days[dayIndex].events||[]).forEach((e,eventIndex)=>{
+        if(e.type!=='stay')return;
+        const ek=normalizedStayName(e.title||'');
+        if(key&&ek&&(ek.includes(key)||key.includes(ek)))hits.push({dayIndex,eventIndex,event:e});
+      });
+    }
+  }
+  if(mail?.reservation_type==='flight'){
+    const segs=Array.isArray(d.segments)&&d.segments.length?d.segments:[{date:d.date,flightNo:d.flightNo}];
+    segs.forEach(seg=>{
+      const dayIndex=(TRIP.days||[]).findIndex(x=>x.date===String(seg?.date||'').slice(0,10));
+      if(dayIndex<0||!seg?.flightNo)return;
+      const f=String(seg.flightNo).replace(/\s+/g,'').toLowerCase();
+      (TRIP.days[dayIndex].events||[]).forEach((e,eventIndex)=>{
+        if(e.type==='flight'&&String(e.title||'').replace(/\s+/g,'').toLowerCase().includes(f))hits.push({dayIndex,eventIndex,event:e});
+      });
+    });
+  }
+  const seen=new Set();
+  return hits.filter(x=>x.event?.id&&!seen.has(x.event.id)&&(seen.add(x.event.id),true));
+}
+function mailGroupLabel(mail){
+  const hits=mailSuggestedItems(mail);
+  if(!hits.length)return '會建立新的預訂與行程事件';
+  if(mail.reservation_type==='flight')return '會加入同一航班事件：'+hits.map(x=>x.event.title).join(' / ');
+  return '會加入同一住宿事件：'+hits[0].event.title;
+}
+
+function mailExistingReservation(mail){
+  if(!mail?.matched_reservation_id)return null;
+  return (TRIP.bookings||[]).find(b=>String(b.id)===String(mail.matched_reservation_id))||null;
+}
+function mailReviewRows(mail){
+  const d=mail?.parsed_data||{};
+  const existing=mailExistingReservation(mail);
+  const raw=existing?._raw||{};
+  const imported=raw?.details?.mailImport?.parsed||existing?.imported||{};
+  const mailMeta=raw?.details?.mailImport||{};
+  const first=(...values)=>values.find(v=>v!==null&&v!==undefined&&v!=='')??'';
+  const forwarders=Array.isArray(mailMeta.forwardedByHistory)&&mailMeta.forwardedByHistory.length
+    ?mailMeta.forwardedByHistory.join('、')
+    :mailMeta.forwardedBy||'';
+  const rows=[];
+  const add=(label,oldValue,newValue)=>{
+    if(newValue===null||newValue===undefined||newValue==='')return;
+    rows.push([label,mailValue(oldValue),mailValue(newValue)]);
+  };
+  add('轉寄自',forwarders,mail?.envelope_from);
+  add('名稱',raw.title||existing?.title,d.title);
+  add('訂位代碼',first(raw.confirmation_code,imported.confirmationCode,existing?.code),d.confirmationCode);
+  add('PIN',raw.pin_code||existing?.secret,d.pinCode);
+  add('金額',raw.amount===null||raw.amount===undefined?'':String(raw.amount)+(raw.currency?' '+raw.currency:''),d.amount!==undefined&&d.amount!==null?(d.currency?d.amount+' '+d.currency:d.amount):'');
+  add('付款',raw.payment_status,d.paymentStatus);
+  add('開始',raw.starts_at,[d.startDate||d.date,d.startTime||d.time||d.departureTime].filter(Boolean).join(' '));
+  add('結束',raw.ends_at,[d.endDate||d.date,d.endTime||d.arrivalTime].filter(Boolean).join(' '));
+  if(mail?.reservation_type==='flight'){
+    add('航空公司',imported.airlineName||imported.provider,d.airlineName||d.provider);
+    if(Array.isArray(d.segments)&&d.segments.length){
+      add('航段','',d.segments.map(seg=>[
+        seg.flightNo,
+        [seg.date,seg.departureTime,seg.departureAirport].filter(Boolean).join(' '),
+        '→',
+        [seg.arrivalDate&&seg.arrivalDate!==seg.date?seg.arrivalDate:'',seg.arrivalTime,seg.arrivalAirport].filter(Boolean).join(' ')
+      ].filter(Boolean).join(' ')).join(' / '));
+    }
+    add('行李',imported.baggageSummary,d.baggageSummary);
+    add('兌換里數','',d.awardMiles?Number(d.awardMiles).toLocaleString():'');
+  }
+  add('地址',raw.address,d.address);
+  add('取消期限',raw.cancellation_policy,d.cancellationDeadline?.date?[d.cancellationDeadline.date,d.cancellationDeadline.time].filter(Boolean).join(' '):(d.cancellationDeadlineText||d.cancellationPolicy));
+  add('房型','',d.roomType);
+  add('主要住客','',d.leadGuest);
+  add('入住人數','',d.guests||(d.guestCount?String(d.guestCount):''));
+  add('房間數','',d.roomCount?String(d.roomCount):'');
+  add('晚數','',d.nightCount?String(d.nightCount):'');
+  add('方案 / 餐食','',d.amenities);
+  add('付款卡',imported.paymentCardLast4?'••••'+imported.paymentCardLast4:'',d.paymentCardLast4?'••••'+d.paymentCardLast4:'');
+  add('PNR / 訂單',first(imported.confirmationCode,raw.confirmation_code,existing?.code),d.confirmationCode);
+  if(d.flightNo)add('航班',raw.title,d.flightNo+' '+(d.departureAirport||'')+' → '+(d.arrivalAirport||''));
+  if(d.participants)add('人數 / 方案',imported.participants,d.participants);
+  if(d.vehicle)add('車型',raw.title,d.vehicle);
+  return rows;
+}
+function renderMailImportSheet(){
+  const list=qs('#mailImportList'),status=qs('#mailImportStatus');
+  if(!list||!status)return;
+  const mails=Array.isArray(TRIP?.mailImports)?TRIP.mailImports:[];
+  status.textContent=mails.length?mails.length+' 筆待確認':'目前沒有待確認信件';
+  if(!mails.length){
+    list.innerHTML='<div class="booking-empty">新的旅遊確認信進來後會出現在這裡。</div>';
+    return;
+  }
+  list.innerHTML=mails.map(mail=>{
+    const d=mail.parsed_data||{};
+    const existing=mailExistingReservation(mail);
+    const rows=mailReviewRows(mail);
+    const diff=rows.length?rows.map(([label,oldValue,newValue])=>`
+      <div class="mail-diff-row">
+        <span>${escapeHtml(label)}</span>
+        <div><small>目前</small><strong>${escapeHtml(oldValue)}</strong></div>
+        <div><small>信件</small><strong>${escapeHtml(newValue)}</strong></div>
+      </div>`).join(''):'<div class="mail-no-diff">已解析，但沒有新的可套用欄位。</div>';
+    return `
+      <article class="mail-import-card" data-mail-id="${escapeHtml(mail.id)}">
+        <div class="mail-import-head">
+          <div><small>${escapeHtml(mail.source_provider||'UNKNOWN')} · ${escapeHtml(String(mail.reservation_type||'').toUpperCase())}</small>
+          <h3>${escapeHtml(d.title||mail.subject||'待確認信件')}</h3>
+          <p>${existing?'同一張訂單更新：'+escapeHtml(existing.title):escapeHtml(mailGroupLabel(mail))}</p>
+          <p class="mail-parser-meta">${escapeHtml(String(mail.parser_method||'rules').toUpperCase())} · 信心 ${Math.round(Number(mail.parser_confidence||0)*100)}%${Array.isArray(mail.validation_issues)&&mail.validation_issues.length?' · ⚠ '+mail.validation_issues.length+' 項':''}</p></div>
+          <span class="mail-import-badge">${existing?'MATCHED':'NEW'}</span>
+        </div>
+        <div class="mail-diff-list">${diff}</div>
+        <div class="mail-import-actions">
+          <button type="button" class="mail-ignore" data-mail-ignore="${escapeHtml(mail.id)}">忽略</button>
+          ${existing?`<button type="button" class="mail-save-new" data-mail-save-new="${escapeHtml(mail.id)}">另存</button>`:''}
+          <button type="button" class="mail-apply" data-mail-apply="${escapeHtml(mail.id)}">${existing?'套用更新':(mailSuggestedItems(mail).length?'新增訂單並合併':'新增預訂')}</button>
+        </div>
+      </article>`;
+  }).join('');
+  list.querySelectorAll('[data-mail-ignore]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailIgnore,'ignore',btn));
+  list.querySelectorAll('[data-mail-save-new]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailSaveNew,'save_new',btn));
+  list.querySelectorAll('[data-mail-apply]').forEach(btn=>btn.onclick=()=>reviewMailImport(btn.dataset.mailApply,'apply',btn));
+}
+async function openMailImportSheet(){
+  if(!canEditTrip())return;
+  const sheet=ensureMailImportSheet();
+  renderMailImportSheet();
+  qs('#mailImportBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+}
+async function reviewMailImport(mailId,mode,button){
+  if(!mailId||!canEditTrip())return;
+  const mail=(TRIP.mailImports||[]).find(x=>String(x.id)===String(mailId));
+  const existing=mailExistingReservation(mail);
+  const suggestions=mailSuggestedItems(mail);
+  const verb=mode==='apply'
+    ?(existing
+      ?'套用這封信到同一張既有訂單？\n\n未解析到的原資料會保留。'
+      :suggestions.length
+        ?'新增這張預訂，並掛到下列既有行程事件？\n\n'+suggestions.map(x=>'• '+x.event.title).join('\n')+'\n\n不同 PNR / 訂單號仍會保留成不同訂單。'
+        :'新增這張預訂，並建立對應的行程事件？')
+    :mode==='save_new'
+      ?'將這封信另存成一張獨立的新預訂？\n\n不會覆蓋目前配對到的既有預訂；系統會依這封信自己的日期建立或連到對應行程。'
+      :'忽略這封信？\n\n只會從待確認清單移除，不會刪除 Gmail 信件。';
+  if(!confirm(verb))return;
+  const card=button.closest('.mail-import-card');
+  button.disabled=true;
+  if(card) card.classList.add('mail-processing');
+  try{
+    const payload={mailId};
+    if(mode==='apply'||mode==='save_new'){
+      payload.itineraryItemIds=mode==='apply'?suggestions.map(x=>x.event.id):[];
+      payload.createItinerary=true;
+      if(mode==='save_new')payload.forceCreateNew=true;
+    }
+    await travelEditor(mode==='ignore'?'mail_ignore':'mail_apply',payload);
+    const oldHeight=card?.getBoundingClientRect().height||0;
+    if(card){
+      card.style.height=oldHeight+'px';
+      requestAnimationFrame(()=>card.classList.add('mail-removing'));
+      await new Promise(resolve=>setTimeout(resolve,420));
+    }
+    await hydratePrivateCloudData();
+    renderMailImportSheet();
+    updateEditAvailability();
+    updateMailBadges();
+  }catch(err){
+    if(card){
+      card.classList.remove('mail-processing','mail-removing');
+      card.style.height='';
+    }
+    alert('處理失敗：'+(err.code||err.message||'unknown'));
+    button.disabled=false;
+  }
+}
+
+async function auditTripPlaceHours(){
+  if(!canEditTrip())return;
+  const btn=qs('#placeAuditBtn'),status=qs('#placeAuditStatus');
+  const eligible=new Set(['spot','food','shop','stay','car','tour']);
+  const all=[];
+  TRIP.days.forEach((day,dayIndex)=>(day.events||[]).forEach((event,eventIndex)=>{
+    if(event?.id&&eligible.has(event.type)) all.push({day,dayIndex,event,eventIndex});
+  }));
+  const linked=all.filter(x=>x.event.googleMapsUrl);
+  const missing=all.filter(x=>!x.event.googleMapsUrl);
+  if(!linked.length){
+    status.textContent=`沒有可檢查的 Google Maps 地點 · 待補 ${missing.length}`;
+    return;
+  }
+  if(!confirm(`將立即重新檢查 ${linked.length} 筆地點。\n這會呼叫 Google Places API；平常自動查核會依低頻規則執行。\n\n是否繼續？`))return;
+  btn.disabled=true;
+  let done=0,withHours=0,noHours=0,failed=0,changed=0;
+  for(const row of linked){
+    const {event}=row;
+    try{
+      const before=placeHoursScheduleSignature(event.openingHours||[],event.closedWeekdays||[]);
+      const data=await travelEditor('resolve_google_map',{url:event.googleMapsUrl,title:event.title,lat:event.lat,lng:event.lng});
+      const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
+      const closed=Array.isArray(data.closedDays)?data.closedDays:[];
+      const lookup=data?.hoursLookup||{};
+      if(lookup.configured===false) throw new Error('places_api_not_configured');
+      if(lookup.status==='api_error'){failed++;continue;}
+      await travelEditor('save_place_hours',{
+        id:event.id,googleMapsUrl:event.googleMapsUrl,
+        googleMapsResolvedUrl:data.finalUrl||event.googleMapsResolvedUrl||'',
+        openingHours:hours,closedWeekdays:closed,hoursSource:data.hoursSource||null
+      });
+      if(hours.length)withHours++;else noHours++;
+      if(event.hoursCheckedAt&&(event.openingHours||[]).length&&before!==placeHoursScheduleSignature(hours,closed))changed++;
+    }catch(err){failed++}
+    finally{
+      done++;
+      status.textContent=`檢查中 ${done}/${linked.length} · 有資料 ${withHours} · 無資料 ${noHours}`;
+    }
+  }
+  await hydratePrivateCloudData();
+  const alerts=tripPlaceAlerts();
+  const conflictCount=alerts.filter(x=>x.kind==='closed'||x.kind==='conflict').length;
+  const changeCount=alerts.filter(x=>x.kind==='changed').length;
+  btn.disabled=false;
+  status.textContent=`完成 · 有營業資料 ${withHours} · 衝突 ${conflictCount} · 變動 ${changeCount}`;
+  alert([
+    '營業時間檢查完成','',
+    `已檢查：${linked.length}`,
+    `✅ 有營業時間：${withHours}`,
+    `ℹ️ Google 無營業時間資料：${noHours}`,
+    `⚠️ 行程衝突 / 公休：${conflictCount}`,
+    `🔄 營業時間變動：${changeCount}`,
+    `❌ API 查詢失敗：${failed}`,
+    `🔗 待補 Google Maps：${missing.length}`
+  ].join('\n'));
+}
+
+function syncEditModeChrome(){
+  const active=editMode&&canEditTrip();
+  document.documentElement.classList.toggle('editing-trip',active);
+  const toolbar=qs('#globalEditToolbar');
+  if(toolbar){
+    toolbar.hidden=!active;
+    qs('#globalEditRole').textContent=String(currentTripRole||'editor').toUpperCase();
+  }
+}
+function toggleEditMode(force){
+  if(!canEditTrip()){
+    alert('目前帳號為 Viewer，沒有編輯此旅程的權限。');
+    return;
+  }
+  editMode=typeof force==='boolean'?force:!editMode;
+  renderAll();
+  syncEditModeChrome();
+}
+function decorateTimelineEditor(){
+  const old=qs('#editModeBanner');if(old)old.remove();
+  if(editMode&&canEditTrip()){
+    const originCard=qs('#timeline .timeline-route-origin .timeline-card');
+    if(originCard){
+      const originActions=document.createElement('div');
+      originActions.className='edit-inline-actions';
+      const timeEdit=document.createElement('button');
+      timeEdit.type='button';
+      timeEdit.className='edit-chip';
+      timeEdit.textContent='◷ 編輯出發時間';
+      timeEdit.onclick=e=>{e.stopPropagation();openDepartureTimeEditor(selectedDay)};
+      originActions.append(timeEdit);
+      originCard.append(originActions);
+    }
+
+    qsa('#timeline .timeline-item[data-event-index]').forEach(timelineItem=>{
+      const eventIndex=Number(timelineItem.dataset.eventIndex);
+      if(!Number.isInteger(eventIndex)) return;
+      const item=currentDay().events[eventIndex];
+      const card=timelineItem.querySelector('.timeline-card');
+      if(!item||!card) return;
+      const actions=document.createElement('div');actions.className='edit-inline-actions';
+      const edit=document.createElement('button');edit.className='edit-chip';edit.textContent='✎ 編輯';edit.onclick=e=>{e.stopPropagation();openItemEditor(selectedDay,eventIndex)};
+      actions.append(edit);
+      if(!item.time){
+        const drag=document.createElement('button');
+        drag.type='button';drag.className='edit-chip drag-handle';drag.textContent='☰ 長按拖曳';
+        drag.title='無固定時間，可長按拖曳排序';
+        enableFlexibleDrag(card,drag,eventIndex);
+        actions.append(drag);
+      }else{
+        const fixed=document.createElement('span');fixed.className='fixed-time-hint';fixed.textContent='固定時間 · 自動排序';
+        actions.append(fixed);
+      }
+      card.append(actions);
+    });
+  }
+  syncEditModeChrome();
+}
+
+function ensureDepartureTimeEditor(){
+  let sheet=qs('#departureTimeSheet');
+  if(sheet) return sheet;
+
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='departureTimeBackdrop';
+
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet departure-time-sheet';
+  sheet.id='departureTimeSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">DAY ROUTE</span><h2>編輯出發時間</h2></div>
+      <button class="round-btn" id="closeDepartureTimeEdit">×</button>
+    </div>
+    <form class="edit-form" id="departureTimeForm">
+      <input type="hidden" id="departureDayIndex">
+      <label><span>出發時間</span><input id="departureTimeInput" type="time"></label>
+      <p class="edit-help">這個時間只屬於當天路線起點，不會新增一筆假的行程。</p>
+      <div class="edit-form-actions">
+        <button type="button" class="edit-delete departure-clear" id="clearDepartureTime">清除</button>
+        <button type="submit" class="edit-save">儲存</button>
+      </div>
+      <p class="edit-status" id="departureTimeStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeDepartureTimeEdit').onclick=close;
+  backdrop.onclick=close;
+  qs('#departureTimeForm').onsubmit=saveDepartureTimeEditor;
+  qs('#clearDepartureTime').onclick=()=>{
+    qs('#departureTimeInput').value='';
+  };
+  return sheet;
+}
+
+function openDepartureTimeEditor(dayIndex){
+  if(!canEditTrip()) return;
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const sheet=ensureDepartureTimeEditor();
+  qs('#departureDayIndex').value=String(dayIndex);
+  qs('#departureTimeInput').value=d.departureTime||'';
+  qs('#departureTimeStatus').textContent='';
+  qs('#departureTimeBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>qs('#departureTimeInput')?.focus(),60);
+}
+
+async function saveDepartureTimeEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#departureDayIndex').value);
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const departureTime=qs('#departureTimeInput').value||'';
+  const status=qs('#departureTimeStatus');
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_day',{day:{
+      id:d.id,
+      baseVersion:d.version,
+      date:d.date,
+      label:d.label,
+      name:d.name,
+      short:d.short||'',
+      heroImageUrl:d.heroImageUrl,
+      km:d.km,
+      driveMinutes:d.driveMinutes,
+      departureTime,
+      sunrise:d.sunrise,
+      sunset:d.sunset
+    }});
+    qs('#departureTimeSheet').classList.remove('show');
+    qs('#departureTimeBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    if(err.code==='version_conflict'){
+      status.textContent='本日資料已被其他裝置更新，正在重新載入…';
+      await hydratePrivateCloudData();
+      return;
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message);
+  }
+}
+
+function setItemEditorOpen(open){
+  document.documentElement.classList.toggle('item-editor-open',Boolean(open));
+}
+function closeItemEditor(){
+  const sheet=qs('#itemEditSheet'),backdrop=qs('#itemEditBackdrop');
+  if(sheet){
+    sheet.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  }
+  if(backdrop)backdrop.classList.remove('show');
+  setItemEditorOpen(false);
+}
+function ensureItemEditor(){
+  let sheet=qs('#itemEditSheet');
+  if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='itemEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet';sheet.id='itemEditSheet';sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">ITINERARY EDITOR</span><h2 id="itemEditTitle">新增行程</h2></div><button class="round-btn" id="closeItemEdit" type="button" aria-label="取消編輯">×</button></div>
+    <form class="edit-form" id="itemEditForm">
+      <input type="hidden" id="editItemId"><input type="hidden" id="editItemVersion">
+      <div class="edit-form-grid">
+        <label><span>日期</span><input id="editItemDate" type="date" required></label>
+        <label><span>時間</span><input id="editItemTime" type="time"></label>
+      </div>
+
+      <label class="google-map-primary-field">
+        <span>Google Maps 連結 <small class="inline-field-help">（貼上後會自動抓取資料）</small></span>
+        <div class="map-link-display" id="itemMapLinkDisplay" hidden>
+          <a class="mini-btn map-open-link" id="editItemMapOpen" target="_blank" rel="noopener">開啟 Google Maps ↗</a>
+          <button type="button" class="mini-btn map-edit-link" id="editItemMapEdit">編輯</button>
+        </div>
+        <div class="map-import-row" id="editItemMapEditRow"><input id="editItemMapUrl" inputmode="url" placeholder="貼上 Google Maps 連結"></div>
+      </label>
+      <p class="edit-status map-import-status" id="mapImportStatus"></p>
+
+      <div class="edit-form-grid">
+        <label><span>類型</span><select id="editItemType"><option value="spot">景點</option><option value="drive">移動</option><option value="stay">住宿</option><option value="food">餐食</option><option value="tour">Tour</option><option value="flight">航班</option><option value="car">租車</option><option value="shop">補給</option><option value="plan">備案</option><option value="other">其他</option></select></label>
+        <label><span>名稱</span><input id="editItemName" required></label>
+      </div>
+      <label class="route-group-edit-row" id="itemRouteGroupRow" hidden>
+        <span>參加組別</span><select id="editItemRouteGroup"><option value="">共同（所有分組）</option></select>
+        <small class="field-help">分組行程只出現在指定小組；共同景點只需建立一次。</small>
+      </label>
+      <label class="uncertain-row"><input id="editItemUncertain" type="checkbox"><span>不確定</span><small>可能不會去；不列入地圖、里程與駕車時間</small></label>
+      <label id="stayReservationLinkRow"><span>住宿預訂連動</span><select id="editItemReservation"><option value="">不連動預訂</option></select><small class="field-help">連動後，名稱以每日行程為準；地址、GPS、Google Maps 由住宿預訂共用。</small></label>
+      <label><span>副標題</span><input id="editItemSubtitle"></label>
+      <label><span>備註</span><textarea id="editItemNote"></textarea></label>
+      <label><span>景點介紹</span><textarea id="editItemIntro"></textarea></label>
+      <label><span>注意事項（每行一項）</span><textarea id="editItemTips"></textarea></label>
+      <label><span>地址</span><input id="editItemAddress" autocomplete="street-address" placeholder="有解析到地址時會保留；也可手動輸入"></label>
+      <div class="edit-form-grid">
+        <label><span>Latitude</span><input id="editItemLat" type="number" step="any"></label>
+        <label><span>Longitude</span><input id="editItemLng" type="number" step="any"></label>
+      </div>
+      <label><span>導航搜尋（可留空）</span><input id="editItemNav"></label>
+
+      <div class="edit-form-actions item-edit-actions">
+        <button type="button" class="edit-delete" id="deleteItemBtn">刪除</button>
+        <button type="button" class="edit-cancel" id="cancelItemEdit">取消</button>
+        <button type="submit" class="edit-save">確認</button>
+      </div>
+      <p class="edit-status" id="itemEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  qs('#closeItemEdit').onclick=closeItemEditor;
+  qs('#cancelItemEdit').onclick=closeItemEditor;
+  backdrop.onclick=closeItemEditor;
+  qs('#itemEditForm').onsubmit=saveItemEditor;
+  qs('#deleteItemBtn').onclick=deleteCurrentItem;
+  qs('#editItemMapEdit').onclick=()=>setItemMapEditMode(true);
+  qs('#editItemMapUrl').addEventListener('input',scheduleItemMapImport);
+  qs('#editItemMapUrl').addEventListener('change',scheduleItemMapImport);
+  qs('#editItemType').onchange=()=>{
+    const row=qs('#stayReservationLinkRow');
+    if(row) row.hidden=qs('#editItemType').value!=='stay';
+  };
+  return sheet;
+}
+
+let itemMapImportTimer=0;
+function usableMapUrl(value){return /^https?:\/\//i.test(String(value||'').trim())}
+function setItemMapEditMode(editing=false){
+  const input=qs('#editItemMapUrl'),row=qs('#editItemMapEditRow'),display=qs('#itemMapLinkDisplay'),open=qs('#editItemMapOpen');
+  if(!input||!row||!display||!open)return;
+  const url=input.dataset.resolvedUrl||input.value.trim();
+  const has=usableMapUrl(url);
+  row.hidden=has&&!editing;
+  display.hidden=!has||editing;
+  if(has)open.href=url;
+  if(editing)setTimeout(()=>{input.focus();input.select()},30);
+}
+function scheduleItemMapImport(){
+  clearTimeout(itemMapImportTimer);
+  const input=qs('#editItemMapUrl'),url=input?.value.trim()||'';
+  if(!url){setItemMapEditMode(true);return}
+  if(!usableMapUrl(url))return;
+  itemMapImportTimer=setTimeout(()=>importGoogleMapIntoEditor(),450);
+}
+
+function openItemEditor(dayIndex,eventIndex){
+  if(!canEditTrip())return;
+  const sheet=ensureItemEditor(),event=eventIndex===null?null:TRIP.days[dayIndex]?.events?.[eventIndex];
+  qs('#itemEditTitle').textContent=event?'編輯行程':'新增行程';
+  qs('#editItemDate').value=event?(TRIP.days[dayIndex]?.date||''):(TRIP.days[dayIndex]?.date||TRIP.startDate||'');
+  qs('#editItemId').value=event?.id||'';
+  qs('#editItemVersion').value=event?.version||'';
+  qs('#editItemTime').value=event?.time||'';
+  qs('#editItemType').value=event?.type||'spot';
+  const groupRow=qs('#itemRouteGroupRow'),groupSelect=qs('#editItemRouteGroup');
+  groupRow.hidden=!routeGroups().length;
+  groupSelect.innerHTML='<option value="">共同（所有分組）</option>'+
+    routeGroups().map(g=>'<option value="'+escapeHtml(g.id)+'">'+escapeHtml(g.name)+'</option>').join('');
+  // Do not auto-assign newly created or previously shared events to the
+  // currently viewed route group. Every new itinerary item defaults to shared.
+  groupSelect.value=event?.routeGroupId||'';
+  qs('#editItemName').value=event?.title||'';
+  qs('#editItemUncertain').checked=Boolean(event?.uncertain);
+  const reservationSelect=qs('#editItemReservation');
+  const stayBookings=(TRIP.bookings||[]).map((b,i)=>({b,i})).filter(x=>x.b?.type==='stay');
+  reservationSelect.innerHTML='<option value="">不連動預訂</option>'+stayBookings.map(({b})=>`<option value="${escapeHtml(b.id||'')}">${escapeHtml(b.title||'住宿預訂')}</option>`).join('');
+  reservationSelect.value=event?.reservationId||'';
+  reservationSelect.dataset.reservationIds=JSON.stringify(Array.isArray(event?.reservationIds)?event.reservationIds:(event?.reservationId?[event.reservationId]:[]));
+  qs('#stayReservationLinkRow').hidden=(event?.type||'spot')!=='stay';
+  qs('#editItemSubtitle').value=event?.subtitle||'';
+  qs('#editItemNote').value=event?.note||'';
+  qs('#editItemIntro').value=event?.details?.intro||'';
+  qs('#editItemTips').value=(event?.details?.tips||[]).join('\n');
+  qs('#editItemAddress').value=event?.address||'';
+  qs('#editItemLat').value=Number.isFinite(event?.lat)?event.lat:'';
+  qs('#editItemLng').value=Number.isFinite(event?.lng)?event.lng:'';
+  qs('#editItemMapUrl').value=event?.googleMapsUrl||'';
+  qs('#editItemMapUrl').dataset.resolvedUrl=event?.googleMapsResolvedUrl||'';
+  qs('#editItemMapUrl').dataset.openingHours=JSON.stringify(event?.openingHours||[]);
+  qs('#editItemMapUrl').dataset.closedWeekdays=JSON.stringify(event?.closedWeekdays||[]);
+  qs('#editItemMapUrl').dataset.hoursSource=event?.hoursSource||'';
+  qs('#editItemMapUrl').dataset.hoursCheckedAt=event?.hoursCheckedAt||'';
+  qs('#mapImportStatus').textContent=event?.hoursCheckedAt?'上次營業時間檢查：'+new Date(event.hoursCheckedAt).toLocaleString():'';
+  setItemMapEditMode(!usableMapUrl(event?.googleMapsResolvedUrl||event?.googleMapsUrl));
+
+  qs('#editItemNav').value=event?.navQuery||'';
+  qs('#deleteItemBtn').hidden=!event;
+  qs('#itemEditStatus').textContent='';
+  setItemEditorOpen(true);
+  qs('#itemEditBackdrop').classList.add('show');sheet.classList.add('show');sheet.setAttribute('aria-hidden','false');
+}
+
+async function importGoogleMapIntoEditor(){
+  const input=qs('#editItemMapUrl');
+  const url=input?.value.trim();
+  const status=qs('#mapImportStatus');
+  if(!url){status.textContent='請先貼上 Google Maps 連結。';return}
+  status.textContent='解析 Google Maps 連結中…';
+  try{
+    const data=await travelEditor('resolve_google_map',{url});
+    if(!data?.ok) throw new Error(data?.error||'map_resolve_failed');
+
+    const nameInput=qs('#editItemName');
+    const typeInput=qs('#editItemType');
+    const addressInput=qs('#editItemAddress');
+    const existingTitle=String(nameInput?.value||'').trim();
+    const existingType=String(typeInput?.value||'').trim();
+    const isNew=!String(qs('#editItemId')?.value||'').trim();
+
+    // Prefer the localized Google Maps title for a new item. If the current
+    // auto-derived title is only a shorter fragment (e.g. "Milch"), enrich it
+    // to the full localized place name. Preserve unrelated user-written names.
+    const localizedName=String(data.localizedName||data.name||'').trim();
+    const originalName=String(data.originalName||'').trim();
+    const currentTitle=String(nameInput?.value||'').trim();
+    const titleLooksLikeFragment=Boolean(
+      currentTitle&&localizedName&&localizedName.toLocaleLowerCase().includes(currentTitle.toLocaleLowerCase())&&localizedName.length>currentTitle.length
+    );
+    if((!currentTitle||titleLooksLikeFragment)&&localizedName) nameInput.value=localizedName;
+
+    const subtitleInput=qs('#editItemSubtitle');
+    const currentSubtitle=String(subtitleInput?.value||'').trim();
+    if(!currentSubtitle&&originalName&&originalName!==localizedName) subtitleInput.value=originalName;
+
+    const rating=Number(data.rating);
+    const ratingCount=Number(data.userRatingCount);
+    const ratingText=Number.isFinite(rating)
+      ?rating.toFixed(1).replace(/\.0$/,'')+'⭐'+(Number.isFinite(ratingCount)?'('+Math.round(ratingCount).toLocaleString('en-US')+')':'')
+      :'';
+    const noteInput=qs('#editItemNote');
+    const currentNote=String(noteInput?.value||'').trim();
+    if(ratingText&&(!currentNote||/^\d(?:\.\d)?⭐(?:\([\d,]+\))?$/.test(currentNote))) noteInput.value=ratingText;
+
+    const introInput=qs('#editItemIntro');
+    const currentIntro=String(introInput?.value||'').trim();
+    if(!currentIntro&&data.editorialSummary) introInput.value=String(data.editorialSummary).trim();
+
+    if(data.address) addressInput.value=data.address;
+    if(Number.isFinite(data.lat)) qs('#editItemLat').value=data.lat;
+    if(Number.isFinite(data.lng)) qs('#editItemLng').value=data.lng;
+    if(data.navQuery) qs('#editItemNav').value=data.navQuery;
+
+    // New itinerary items always default to 景點. Google Maps parsing may suggest
+    // a type, but never changes the user's type selection automatically.
+    const suggestedType=(isNew&&data.suggestedType&&typeInput?.querySelector(`option[value="${data.suggestedType}"]`))
+      ?data.suggestedType
+      :'';
+
+    // Preserve what the user pasted. Store the expanded URL separately for audit/debugging.
+    input.dataset.resolvedUrl=data.finalUrl||'';
+
+    const visitDate=qs('#editItemDate')?.value||'';
+    const visitWeekday=visitDate?new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(visitDate+'T00:00:00Z')):'';
+    const hours=Array.isArray(data.weeklyHours)?data.weeklyHours:[];
+    input.dataset.openingHours=JSON.stringify(hours);
+    input.dataset.closedWeekdays=JSON.stringify(Array.isArray(data.closedDays)?data.closedDays:[]);
+    input.dataset.hoursSource=data.hoursSource||'';
+    input.dataset.hoursCheckedAt=new Date().toISOString();
+
+    const hoursText=hours.length?'營業時間：'+hours.map(x=>`${x.day} ${x.hours}`).join('；'):'';
+    const closedToday=visitWeekday&&Array.isArray(data.closedDays)&&data.closedDays.includes(visitWeekday);
+    const warning=closedToday?`⚠️ 行程日期 ${visitDate}（${visitWeekday.slice(0,3).toUpperCase()}）為公休日，請調整行程。`:'';
+
+    // Google Places business hours are reference/attention information, not
+    // the visible itinerary subtitle/note. Put them into the expandable
+    // "注意事項" section so the collapsed card stays concise.
+    const tipsBox=qs('#editItemTips');
+    const currentTips=tipsBox.value.split('\n').map(x=>x.trim()).filter(Boolean);
+    const withoutAutoHours=currentTips.filter(x=>!/^營業時間：/.test(x)&&!/^⚠️ 行程日期 .*為公休日/.test(x));
+    if(hoursText)withoutAutoHours.push(hoursText);
+    if(warning)withoutAutoHours.push(warning);
+    tipsBox.value=Array.from(new Set(withoutAutoHours)).join('\n');
+
+    // Clean old auto-generated hours from Note when resolving the place again.
+    const noteBox=qs('#editItemNote');
+    noteBox.value=noteBox.value.split('\n')
+      .filter(x=>!/^營業時間：/.test(x.trim())&&!/^⚠️ 行程日期 .*為公休日/.test(x.trim()))
+      .join('\n').trim();
+
+    const filled=[
+      localizedName?'中文名稱':'',
+      originalName&&originalName!==localizedName?'原文名稱':'',
+      ratingText?'Google 評價':'',
+      data.editorialSummary?'景點介紹':'',
+      data.address?'地址':'',
+      Number.isFinite(data.lat)&&Number.isFinite(data.lng)?'GPS':'',
+      hours.length?'營業時間':''
+    ].filter(Boolean).join('、');
+    const kept=existingTitle?'；已保留你原本輸入的名稱':'';
+    const typeHint=suggestedType&&suggestedType!==existingType
+      ?`；Google 類型建議：${typeLabel[suggestedType]||suggestedType}（未自動修改）`
+      :'';
+    status.textContent=warning?warning:(filled?`已帶入：${filled}${kept}${typeHint}`:`連結已展開並保留原始網址${kept}${typeHint}。`);
+    setItemMapEditMode(false);
+  }catch(err){
+    status.textContent='解析失敗，已保留你貼上的原始連結，不會覆蓋現有資料：'+(err.code||err.message||'unknown');
+    setItemMapEditMode(true);
+  }
+}
+
+async function saveItemEditor(e){
+  e.preventDefault();
+  const selectedDate=qs('#editItemDate').value;
+  if(!selectedDate){qs('#itemEditStatus').textContent='請選擇日期。';return;}
+  const existingDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
+  const item={
+    id:qs('#editItemId').value||null,baseVersion:Number(qs('#editItemVersion').value)||0,
+    date:selectedDate,dayId:existingDayIndex>=0?TRIP.days[existingDayIndex].id:null,
+    time:qs('#editItemTime').value,type:qs('#editItemType').value,title:qs('#editItemName').value.trim(),
+    ...(routeGroups().length?{routeGroupId:qs('#editItemRouteGroup').value||null}:{}),
+    subtitle:qs('#editItemSubtitle').value.trim(),note:qs('#editItemNote').value.trim(),intro:qs('#editItemIntro').value.trim(),
+    tips:qs('#editItemTips').value.split('\n').map(x=>x.trim()).filter(Boolean),
+    reservationId:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?qs('#editItemReservation').value:null,
+    reservationIds:(()=>{
+      const existing=JSON.parse(qs('#editItemReservation').dataset.reservationIds||'[]');
+      const chosen=(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?[qs('#editItemReservation').value]:[];
+      return Array.from(new Set([...(Array.isArray(existing)?existing:[]),...chosen].filter(Boolean)));
+    })(),
+    address:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemAddress').value.trim(),
+    lat:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?null:(qs('#editItemLat').value===''?null:Number(qs('#editItemLat').value)),
+    lng:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?null:(qs('#editItemLng').value===''?null:Number(qs('#editItemLng').value)),
+    navQuery:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemNav').value.trim(),
+    googleMapsUrl:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':qs('#editItemMapUrl').value.trim(),
+    googleMapsResolvedUrl:(qs('#editItemType').value==='stay'&&qs('#editItemReservation').value)?'':(qs('#editItemMapUrl').dataset.resolvedUrl||''),
+    openingHours:JSON.parse(qs('#editItemMapUrl').dataset.openingHours||'[]'),
+    closedWeekdays:JSON.parse(qs('#editItemMapUrl').dataset.closedWeekdays||'[]'),
+    hoursSource:qs('#editItemMapUrl').dataset.hoursSource||null,
+    hoursCheckedAt:qs('#editItemMapUrl').dataset.hoursCheckedAt||null,
+    uncertain:qs('#editItemUncertain').checked
+  };
+  qs('#itemEditStatus').textContent='儲存中…';
+  try{
+    await travelEditor('save_item',{item});
+    closeItemEditor();
+    await hydratePrivateCloudData();
+    const savedDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
+    if(savedDayIndex>=0){selectedDay=savedDayIndex;mapPrimaryDay=savedDayIndex;mapSelectedDays=new Set([savedDayIndex]);renderAll();}
+  }catch(err){
+    if(err.code==='version_conflict'){
+      qs('#itemEditStatus').textContent='資料已被其他人更新，正在重新載入…';
+      await hydratePrivateCloudData();return;
+    }
+    qs('#itemEditStatus').textContent='正在確認伺服器是否已儲存…';
+    try{
+      await hydratePrivateCloudData();
+      const retryDayIndex=TRIP.days.findIndex(d=>d.date===selectedDate);
+      const saved=TRIP.days?.[retryDayIndex]?.events?.some(x=>
+        (item.id&&x.id===item.id)||(!item.id&&x.title===item.title&&String(x.time||'')===String(item.time||''))
+      );
+      if(saved){
+        qs('#itemEditStatus').textContent='已儲存。';
+        setTimeout(()=>closeItemEditor(),250);
+        return;
+      }
+    }catch(_){}
+    qs('#itemEditStatus').textContent='儲存失敗：'+(err.code||err.message);
+  }
+}
+
+async function deleteCurrentItem(){
+  const id=qs('#editItemId').value;if(!id)return;
+  if(!confirm('刪除這筆行程？'))return;
+  qs('#itemEditStatus').textContent='刪除中…';
+  try{
+    await travelEditor('delete_item',{id,baseVersion:Number(qs('#editItemVersion').value)||0});
+    qs('#itemEditSheet').classList.remove('show');qs('#itemEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){qs('#itemEditStatus').textContent='刪除失敗：'+err.message}
+}
+
+function enableFlexibleDrag(card,handle,eventIndex){
+  const itemEl=card.closest('.timeline-item');
+  const source=()=>currentDay().events[eventIndex];
+  let timer=null,active=false,pointerId=null,startX=0,startY=0,targetEl=null,dropAfter=false,ghost=null,placeholder=null,lastX=0,lastY=0;
+  let grabOffsetX=0,grabOffsetY=0;
+
+  const clearTargets=()=>qsa('#timeline .timeline-item').forEach(x=>x.classList.remove('drag-over','drop-before','drop-after'));
+  const itemIndex=(el)=>Number(el?.dataset?.eventIndex);
+  const eligibleTarget=(el)=>{
+    if(!el||!el.closest('#timeline')||el===itemEl)return null;
+    const idx=itemIndex(el);
+    return Number.isInteger(idx)&&idx>=0?el:null;
+  };
+  const eligibleItems=()=>qsa('#timeline .timeline-item').filter(el=>eligibleTarget(el));
+
+  const targetForY=y=>{
+    const candidates=eligibleItems();
+    if(!candidates.length)return {el:null,after:false};
+    for(const el of candidates){
+      const r=el.getBoundingClientRect();
+      if(y<r.top+r.height/2) return {el,after:false};
+    }
+    return {el:candidates[candidates.length-1],after:true};
+  };
+
+  const placePlaceholder=(el,after)=>{
+    if(!placeholder||!el)return;
+    const parent=el.parentNode;
+    if(!parent)return;
+    if(after) parent.insertBefore(placeholder,el.nextSibling);
+    else parent.insertBefore(placeholder,el);
+  };
+
+  const moveGhost=(x,y)=>{
+    if(!ghost)return;
+    ghost.style.transform=`translate3d(${Math.round(x-grabOffsetX)}px,${Math.round(y-grabOffsetY)}px,0)`;
+  };
+
+  const cleanup=()=>{
+    if(timer){clearTimeout(timer);timer=null}
+    window.removeEventListener('pointermove',onMove,{capture:true});
+    window.removeEventListener('pointerup',onUp,{capture:true});
+    window.removeEventListener('pointercancel',onCancel,{capture:true});
+    active=false;pointerId=null;targetEl=null;dropAfter=false;
+    itemEl.classList.remove('dragging','drag-ready','drag-source-hidden');
+    clearTargets();
+    document.body.classList.remove('timeline-dragging');
+    if(ghost){ghost.remove();ghost=null}
+    if(placeholder){placeholder.remove();placeholder=null}
+  };
+
+  const begin=()=>{
+    const s=source();if(!s||s.time)return;
+    active=true;
+    itemEl.classList.add('drag-ready','dragging');
+    document.body.classList.add('timeline-dragging');
+
+    const rect=card.getBoundingClientRect();
+    grabOffsetX=Math.max(0,Math.min(rect.width,lastX-rect.left));
+    grabOffsetY=Math.max(0,Math.min(rect.height,lastY-rect.top));
+
+    ghost=card.cloneNode(true);
+    ghost.className='timeline-card timeline-drag-ghost';
+    ghost.querySelectorAll('button').forEach(x=>x.remove());
+    ghost.style.width=`${rect.width}px`;
+    ghost.style.height=`${rect.height}px`;
+    document.body.append(ghost);
+
+    placeholder=document.createElement('div');
+    placeholder.className='timeline-drop-placeholder';
+    placeholder.style.height=`${Math.max(64,itemEl.getBoundingClientRect().height)}px`;
+    itemEl.parentNode?.insertBefore(placeholder,itemEl);
+    itemEl.classList.add('drag-source-hidden');
+
+    moveGhost(lastX,lastY);
+    window.addEventListener('pointermove',onMove,{capture:true,passive:false});
+    window.addEventListener('pointerup',onUp,{capture:true,passive:false});
+    window.addEventListener('pointercancel',onCancel,{capture:true,passive:false});
+    if(navigator.vibrate) navigator.vibrate(18);
+  };
+
+  const onMove=e=>{
+    if(!active||e.pointerId!==pointerId)return;
+    e.preventDefault();e.stopPropagation();
+    lastX=e.clientX;lastY=e.clientY;
+    moveGhost(lastX,lastY);
+    clearTargets();
+
+    const hit=targetForY(lastY);
+    targetEl=hit.el;dropAfter=hit.after;
+    if(targetEl){
+      targetEl.classList.add('drag-over',dropAfter?'drop-after':'drop-before');
+      placePlaceholder(targetEl,dropAfter);
+    }
+
+    const edge=82;
+    if(lastY<edge) window.scrollBy(0,-16);
+    else if(lastY>window.innerHeight-edge) window.scrollBy(0,16);
+  };
+
+  const onUp=async e=>{
+    if(!active||e.pointerId!==pointerId){cleanup();return}
+    e.preventDefault();e.stopPropagation();
+    const sourceId=source()?.id;
+    const targetIndex=targetEl?itemIndex(targetEl):-1;
+    const targetId=targetIndex>=0?currentDay().events[targetIndex]?.id:null;
+    const after=dropAfter;
+    cleanup();
+    if(sourceId&&targetId&&sourceId!==targetId) await reorderFlexibleItem(selectedDay,sourceId,targetId,after);
+  };
+  const onCancel=()=>cleanup();
+
+  handle.addEventListener('pointerdown',e=>{
+    e.stopPropagation();
+    if(e.button!==undefined&&e.button!==0)return;
+    e.preventDefault();
+    startX=lastX=e.clientX;
+    startY=lastY=e.clientY;
+    pointerId=e.pointerId;
+    itemEl.classList.add('drag-ready');
+    timer=setTimeout(()=>begin(),320);
+  },{passive:false});
+
+  handle.addEventListener('pointermove',e=>{
+    if(!timer||active)return;
+    lastX=e.clientX;lastY=e.clientY;
+    if(Math.hypot(e.clientX-startX,e.clientY-startY)>10){
+      clearTimeout(timer);timer=null;itemEl.classList.remove('drag-ready');
+    }
+  },{passive:true});
+
+  handle.addEventListener('pointerup',()=>{
+    if(timer){clearTimeout(timer);timer=null;itemEl.classList.remove('drag-ready')}
+  },{passive:true});
+  handle.addEventListener('pointercancel',cleanup,{passive:true});
+}
+
+async function reorderFlexibleItem(dayIndex,sourceId,targetId,after=false){
+  const day=TRIP.days[dayIndex];
+  if(!day?.id||!sourceId||!targetId||sourceId===targetId)return;
+  const source=day.events.find(e=>e.id===sourceId),target=day.events.find(e=>e.id===targetId);
+  if(!source||!target||source.time)return;
+
+  const originalEvents=[...day.events];
+  const ids=originalEvents.map(e=>e.id);if(ids.some(id=>!id))return;
+  const from=ids.indexOf(sourceId);if(from<0)return;
+  ids.splice(from,1);
+  const targetPos=ids.indexOf(targetId);if(targetPos<0)return;
+  ids.splice(targetPos+(after?1:0),0,sourceId);
+
+  // Optimistic UI: move the card immediately on drop instead of waiting for
+  // the network round-trip + cloud re-hydration. This prevents users from
+  // thinking the drop failed and repeating the gesture.
+  const byId=new Map(originalEvents.map(e=>[e.id,e]));
+  day.events=ids.map((id,i)=>{
+    const ev=byId.get(id);
+    if(ev) ev.sortOrder=i;
+    return ev;
+  }).filter(Boolean);
+  if(selectedDay===dayIndex) renderToday();
+
+  try{
+    await travelEditor('reorder_items',{dayId:day.id,orderedIds:ids});
+    // Reconcile with the server after the instant local move.
+    await hydratePrivateCloudData();
+  }catch(err){
+    day.events=originalEvents;
+    if(selectedDay===dayIndex) renderToday();
+    alert('排序失敗，已恢復原順序：'+(err.code||err.message));
+  }
+}
+
+function ensureDayEditor(){
+  let sheet=qs('#dayEditSheet');
+  if(sheet) return sheet;
+  const backdrop=document.createElement('div');
+  backdrop.className='modal-backdrop';
+  backdrop.id='dayEditBackdrop';
+
+  sheet=document.createElement('aside');
+  sheet.className='edit-sheet day-edit-sheet';
+  sheet.id='dayEditSheet';
+  sheet.setAttribute('aria-hidden','true');
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">DAY EDITOR</span><h2>編輯本日</h2></div>
+      <button class="round-btn" id="closeDayEdit">×</button>
+    </div>
+    <form class="edit-form" id="dayEditForm">
+      <input type="hidden" id="dayEditIndex">
+      <div class="edit-form-grid">
+        <label><span>日期</span><input id="dayEditDate" type="date" readonly></label>
+        <label><span>出發時間</span><input id="dayEditDeparture" type="time"></label>
+      </div>
+      <p class="edit-help">日期由當天行程資料自動決定；若新增更早或更晚日期的行程，D0～Dn 會自動重排。</p>
+      <label><span>當日標題</span><input id="dayEditName" required placeholder="例如：斯奈山半島"></label>
+      <label><span>今日備註</span><textarea id="dayEditNote" rows="9" placeholder="整天路線、取捨策略、備案、行車提醒…"></textarea></label>
+      <div class="edit-form-actions">
+        <button type="button" class="edit-delete" id="clearDayEditNote">清除備註</button>
+        <button type="submit" class="edit-save">儲存本日</button>
+      </div>
+      <p class="edit-status" id="dayEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+
+  const close=()=>{
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    sheet.setAttribute('aria-hidden','true');
+  };
+  qs('#closeDayEdit').onclick=close;
+  backdrop.onclick=close;
+  qs('#clearDayEditNote').onclick=()=>{qs('#dayEditNote').value=''};
+  qs('#dayEditForm').onsubmit=saveDayEditor;
+  return sheet;
+}
+
+function openDayEditor(dayIndex=selectedDay){
+  if(!canEditTrip()) return;
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const sheet=ensureDayEditor();
+  qs('#dayEditIndex').value=String(dayIndex);
+  qs('#dayEditDate').value=d.date||'';
+  qs('#dayEditDeparture').value=d.departureTime||'';
+  qs('#dayEditName').value=d.name||'';
+  qs('#dayEditNote').value=d.short||'';
+  qs('#dayEditStatus').textContent='';
+  qs('#dayEditBackdrop').classList.add('show');
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden','false');
+  setTimeout(()=>qs('#dayEditName')?.focus(),60);
+}
+
+async function saveDayEditor(e){
+  e.preventDefault();
+  const dayIndex=Number(qs('#dayEditIndex').value);
+  const d=TRIP.days?.[dayIndex];
+  if(!d?.id) return;
+  const name=qs('#dayEditName').value.trim();
+  const departureTime=qs('#dayEditDeparture').value||'';
+  const short=qs('#dayEditNote').value.trim();
+  const status=qs('#dayEditStatus');
+  if(!name){status.textContent='請輸入當日標題。';return}
+  status.textContent='儲存中…';
+  try{
+    await travelEditor('save_day',{day:{
+      id:d.id,baseVersion:d.version,date:d.date,label:d.label,name,short,
+      heroImageUrl:d.heroImageUrl,km:d.km,driveMinutes:d.driveMinutes,
+      departureTime,sunrise:d.sunrise,sunset:d.sunset
+    }});
+    qs('#dayEditSheet').classList.remove('show');
+    qs('#dayEditBackdrop').classList.remove('show');
+    await hydratePrivateCloudData();
+  }catch(err){
+    if(err.code==='version_conflict'){
+      status.textContent='本日資料已被其他裝置更新，正在重新載入…';
+      await hydratePrivateCloudData();
+      return;
+    }
+    status.textContent='儲存失敗：'+(err.code||err.message);
+  }
+}
+
+function editCurrentDay(){
+  openDayEditor(selectedDay);
+}
+
+function decorateBookingEditor(list){
+  const existingAdd=qs('#addBookingBtn');
+  if(!editMode||!canEditTrip()){if(existingAdd)existingAdd.remove();return;}
+  const summary=qs('.booking-summary');
+  if(summary&&!qs('#addBookingBtn')){
+    const btn=document.createElement('button');btn.id='addBookingBtn';btn.className='edit-chip';btn.textContent='＋ 新增預訂';btn.onclick=()=>openBookingEditor(null);summary.append(btn);
+  }
+  qsa('.booking-card').forEach((card,visualIndex)=>{
+    const item=list[visualIndex];if(!item)return;
+    const actions=document.createElement('div');actions.className='edit-inline-actions';
+    const edit=document.createElement('button');edit.className='edit-chip';edit.textContent='✎ 編輯預訂';edit.onclick=e=>{e.stopPropagation();openBookingEditor(item.idx)};
+    actions.append(edit);card.append(actions);
+  });
+}
+
+function ensureBookingEditor(){
+  let sheet=qs('#bookingEditSheet');if(sheet)return sheet;
+  const backdrop=document.createElement('div');backdrop.className='modal-backdrop';backdrop.id='bookingEditBackdrop';
+  sheet=document.createElement('aside');sheet.className='edit-sheet';sheet.id='bookingEditSheet';
+  sheet.innerHTML=`
+    <div class="sheet-handle"></div><div class="sheet-title"><div><span class="section-kicker">BOOKING EDITOR</span><h2 id="bookingEditTitle">新增預訂</h2></div><button class="round-btn" id="closeBookingEdit">×</button></div>
+    <form class="edit-form" id="bookingEditForm">
+      <input type="hidden" id="editBookingId"><input type="hidden" id="editBookingVersion">
+      <div class="edit-form-grid"><label><span>類型</span><select id="editBookingType"><option value="stay">住宿</option><option value="flight">航班</option><option value="car">租車</option><option value="tour">Tour</option><option value="other">其他</option></select></label><label><span>狀態</span><select id="editBookingStatus"><option value="confirmed">confirmed</option><option value="planned">planned</option><option value="cancelled">cancelled</option></select></label></div>
+      <label><span>名稱</span><input id="editBookingName" required></label>
+      <label><span>Provider</span><input id="editBookingProvider"></label>
+      <label><span>日期摘要</span><input id="editBookingSummary" placeholder="11/22 → 11/25"></label>
+      <div class="edit-form-grid"><label><span>入住日期</span><input id="editBookingStartDate" type="date"></label><label><span>退房日期</span><input id="editBookingEndDate" type="date"></label></div>
+      <label><span>地點 / Meta</span><input id="editBookingLocation"></label>
+      <label><span>地址</span><input id="editBookingAddress" autocomplete="street-address"></label>
+      <div class="edit-form-grid"><label><span>Latitude</span><input id="editBookingLat" type="number" step="any"></label><label><span>Longitude</span><input id="editBookingLng" type="number" step="any"></label></div>
+      <label><span>Google Maps</span>
+        <div class="map-link-display" id="bookingMapLinkDisplay" hidden>
+          <a class="mini-btn map-open-link" id="editBookingMapOpen" target="_blank" rel="noopener">開啟 Google Maps ↗</a>
+          <button type="button" class="mini-btn map-edit-link" id="editBookingMapEdit">編輯</button>
+        </div>
+        <div class="map-import-row" id="editBookingMapEditRow"><input id="editBookingMapUrl" inputmode="url" placeholder="貼上 Google Maps 連結，會自動帶入"></div>
+      </label>
+      <p class="edit-status map-import-status" id="bookingMapImportStatus"></p>
+      <label><span>導航搜尋（可留空）</span><input id="editBookingNav"></label>
+      <div class="edit-form-grid"><label><span>Confirmation</span><input id="editBookingCode"></label><label><span>PIN</span><input id="editBookingPin"></label></div>
+      <label><span>私人備註</span><textarea id="editBookingNotes"></textarea></label>
+      <label><span>取消條款</span><textarea id="editBookingCancel"></textarea></label>
+      <div class="edit-form-actions"><button type="button" class="edit-delete" id="deleteBookingBtn">刪除</button><button type="submit" class="edit-save">儲存</button></div>
+      <p class="edit-status" id="bookingEditStatus"></p>
+    </form>`;
+  document.body.append(backdrop,sheet);
+  const close=()=>{sheet.classList.remove('show');backdrop.classList.remove('show')};
+  qs('#closeBookingEdit').onclick=close;backdrop.onclick=close;qs('#bookingEditForm').onsubmit=saveBookingEditor;qs('#deleteBookingBtn').onclick=deleteCurrentBooking;
+  qs('#editBookingMapEdit').onclick=()=>setBookingMapEditMode(true);
+  qs('#editBookingMapUrl').addEventListener('input',scheduleBookingMapImport);
+  qs('#editBookingMapUrl').addEventListener('change',scheduleBookingMapImport);
+  return sheet;
+}
+
+let bookingMapImportTimer=0;
+function setBookingMapEditMode(editing=false){
+  const input=qs('#editBookingMapUrl'),row=qs('#editBookingMapEditRow'),display=qs('#bookingMapLinkDisplay'),open=qs('#editBookingMapOpen');
+  if(!input||!row||!display||!open)return;
+  const url=input.dataset.resolvedUrl||input.value.trim();
+  const has=usableMapUrl(url);
+  row.hidden=has&&!editing;
+  display.hidden=!has||editing;
+  if(has)open.href=url;
+  if(editing)setTimeout(()=>{input.focus();input.select()},30);
+}
+function scheduleBookingMapImport(){
+  clearTimeout(bookingMapImportTimer);
+  const input=qs('#editBookingMapUrl'),url=input?.value.trim()||'';
+  if(!url){setBookingMapEditMode(true);return}
+  if(!usableMapUrl(url))return;
+  bookingMapImportTimer=setTimeout(()=>importGoogleMapIntoBookingEditor(),450);
+}
+
+function openBookingEditor(idx){
+  if(!canEditTrip())return;
+  const sheet=ensureBookingEditor(),b=idx===null?null:TRIP.bookings[idx],raw=b?._raw||{};
+  qs('#bookingEditTitle').textContent=b?'編輯預訂':'新增預訂';
+  qs('#editBookingId').value=b?.id||'';qs('#editBookingVersion').value=b?.version||'';
+  qs('#editBookingType').value=b?.type||'stay';qs('#editBookingStatus').value=b?.status||'confirmed';
+  qs('#editBookingName').value=b?.title||'';qs('#editBookingProvider').value=b?.provider||'';
+  qs('#editBookingSummary').value=b?.dates||'';qs('#editBookingLocation').value=raw.location_name||b?.meta||'';
+  qs('#editBookingStartDate').value=raw.starts_at?String(raw.starts_at).slice(0,10):'';
+  qs('#editBookingEndDate').value=raw.ends_at?String(raw.ends_at).slice(0,10):'';
+  qs('#editBookingAddress').value=raw.address||'';
+  qs('#editBookingLat').value=Number.isFinite(raw.latitude)?raw.latitude:'';
+  qs('#editBookingLng').value=Number.isFinite(raw.longitude)?raw.longitude:'';
+  qs('#editBookingMapUrl').value=raw.google_maps_url||'';
+  qs('#editBookingMapUrl').dataset.resolvedUrl=raw.google_maps_resolved_url||'';
+  setBookingMapEditMode(!usableMapUrl(raw.google_maps_resolved_url||raw.google_maps_url));
+  qs('#editBookingNav').value=raw.nav_query||'';
+  qs('#bookingMapImportStatus').textContent='';
+  qs('#editBookingCode').value=b?.code==='—'?'':(b?.code||'');qs('#editBookingPin').value=b?.secret||'';
+  qs('#editBookingNotes').value=b?.notice||'';qs('#editBookingCancel').value=raw.cancellation_policy||'';
+  qs('#deleteBookingBtn').hidden=!b;qs('#bookingEditStatus').textContent='';
+  qs('#bookingEditBackdrop').classList.add('show');sheet.classList.add('show');
+}
+
+async function importGoogleMapIntoBookingEditor(){
+  const input=qs('#editBookingMapUrl'),status=qs('#bookingMapImportStatus');
+  const url=input?.value.trim();
+  if(!url){status.textContent='請先貼上 Google Maps 連結。';return}
+  status.textContent='解析 Google Maps 連結中…';
+  try{
+    const data=await travelEditor('resolve_google_map',{url});
+    if(!data?.ok) throw new Error(data?.error||'map_resolve_failed');
+    if(data.address) qs('#editBookingAddress').value=data.address;
+    if(Number.isFinite(data.lat)) qs('#editBookingLat').value=data.lat;
+    if(Number.isFinite(data.lng)) qs('#editBookingLng').value=data.lng;
+    if(data.navQuery) qs('#editBookingNav').value=data.navQuery;
+    input.dataset.resolvedUrl=data.finalUrl||'';
+    const name=qs('#editBookingName');
+    if(name&&!name.value.trim()&&data.name) name.value=data.name;
+    status.textContent='已帶入住宿地址、GPS 與導航資料。';
+    setBookingMapEditMode(false);
+  }catch(err){
+    status.textContent='解析失敗，已保留原始連結：'+(err.code||err.message||'unknown');
+    setBookingMapEditMode(true);
+  }
+}
+
+async function saveBookingEditor(e){
+  e.preventDefault();
+  const reservation={
+    id:qs('#editBookingId').value||null,baseVersion:Number(qs('#editBookingVersion').value)||0,
+    type:qs('#editBookingType').value,status:qs('#editBookingStatus').value,title:qs('#editBookingName').value.trim(),
+    provider:qs('#editBookingProvider').value.trim(),summary:qs('#editBookingSummary').value.trim(),
+    startsAt:qs('#editBookingStartDate').value||null,endsAt:qs('#editBookingEndDate').value||null,
+    locationName:qs('#editBookingLocation').value.trim(),address:qs('#editBookingAddress').value.trim(),
+    lat:qs('#editBookingLat').value===''?null:Number(qs('#editBookingLat').value),
+    lng:qs('#editBookingLng').value===''?null:Number(qs('#editBookingLng').value),
+    navQuery:qs('#editBookingNav').value.trim(),googleMapsUrl:qs('#editBookingMapUrl').value.trim(),
+    googleMapsResolvedUrl:qs('#editBookingMapUrl').dataset.resolvedUrl||'',
+    confirmationCode:qs('#editBookingCode').value.trim(),
+    pinCode:qs('#editBookingPin').value.trim(),privateNotes:qs('#editBookingNotes').value.trim(),
+    cancellationPolicy:qs('#editBookingCancel').value.trim(),sourceType:'manual'
+  };
+  qs('#bookingEditStatus').textContent='儲存中…';
+  try{await travelEditor('save_reservation',{reservation});qs('#bookingEditSheet').classList.remove('show');qs('#bookingEditBackdrop').classList.remove('show');await hydratePrivateCloudData()}
+  catch(err){qs('#bookingEditStatus').textContent=err.code==='version_conflict'?'資料已被其他人更新，請重新開啟。':'儲存失敗：'+err.message}
+}
+
+async function deleteCurrentBooking(){
+  const id=qs('#editBookingId').value;if(!id||!confirm('刪除這筆預訂？'))return;
+  try{await travelEditor('delete_reservation',{id,baseVersion:Number(qs('#editBookingVersion').value)||0});qs('#bookingEditSheet').classList.remove('show');qs('#bookingEditBackdrop').classList.remove('show');await hydratePrivateCloudData()}
+  catch(err){qs('#bookingEditStatus').textContent='刪除失敗：'+err.message}
+}
+
+async function loadPublicShareStatus(){
+  const status=qs('#publicShareStatus');
+  try{
+    const data=await tripAdmin('public_share_status');
+    const active=Boolean(data?.active);
+    if(status) status.textContent=active?'已開啟':'尚未開啟';
+    qs('#publicShareInactive').hidden=active;
+    qs('#publicShareActive').hidden=!active;
+    if(active){
+      // Token itself is never returned by status lookup. Existing links can only
+      // be copied in the browser session that created/reset them.
+      const cached=localStorage.getItem('travelPublicShareUrl:'+window.TRAVEL_CONFIG.tripSlug)||'';
+      qs('#publicShareUrl').value=cached;
+      qs('#copyPublicShare').disabled=!cached;
+      qs('#publicShareMessage').textContent=cached?'':'安全起見，伺服器只保存 token hash；若要重新取得可分享網址，請按「重設連結」。';
+    }
+    return active;
+  }catch(err){
+    if(status) status.textContent='讀取失敗';
+    return false;
+  }
+}
+
+async function createOrResetPublicShare(){
+  const msg=qs('#publicShareMessage');
+  if(msg) msg.textContent='建立中…';
+  try{
+    const data=await tripAdmin('create_public_share');
+    const url=data?.url||'';
+    if(url){
+      localStorage.setItem('travelPublicShareUrl:'+window.TRAVEL_CONFIG.tripSlug,url);
+      qs('#publicShareUrl').value=url;
+      qs('#copyPublicShare').disabled=false;
+    }
+    qs('#publicShareInactive').hidden=true;
+    qs('#publicShareActive').hidden=false;
+    qs('#publicShareStatus').textContent='已開啟';
+    if(msg) msg.textContent='公開連結已建立。舊連結（若有）已失效。';
+  }catch(err){
+    if(msg) msg.textContent='建立失敗：'+(err.message||'unknown');
+  }
+}
+
+async function revokePublicShare(){
+  if(!confirm('停止公開分享？目前的公開連結會立即失效。')) return;
+  const msg=qs('#publicShareMessage');
+  if(msg) msg.textContent='停止分享中…';
+  try{
+    await tripAdmin('revoke_public_share');
+    localStorage.removeItem('travelPublicShareUrl:'+window.TRAVEL_CONFIG.tripSlug);
+    qs('#publicShareUrl').value='';
+    qs('#publicShareInactive').hidden=false;
+    qs('#publicShareActive').hidden=true;
+    qs('#publicShareStatus').textContent='尚未開啟';
+  }catch(err){
+    if(msg) msg.textContent='停止分享失敗：'+(err.message||'unknown');
+  }
+}
+
+async function openPublicShareSheet(){
+  closeSheet();
+  qs('#publicShareBackdrop').classList.add('show');
+  qs('#publicShareSheet').classList.add('show');
+  qs('#publicShareSheet').setAttribute('aria-hidden','false');
+  await loadPublicShareStatus();
+}
+
+function closePublicShareSheet(){
+  qs('#publicShareBackdrop').classList.remove('show');
+  qs('#publicShareSheet').classList.remove('show');
+  qs('#publicShareSheet').setAttribute('aria-hidden','true');
+}
+
+async function tripAdmin(action='list',payload={}){
+  const client=window.TravelAuth?.getClient?.();
+  if(!client) throw new Error('auth_not_ready');
+  const response=await client.functions.invoke('trip-admin',{body:{tripSlug:window.TRAVEL_CONFIG.tripSlug,action,...payload}});
+  if(response.error){
+    let body=null;
+    try{body=response.error.context?await response.error.context.clone().json():null}catch(_){}
+    const code=body?.error||response.error.code||'edge_function_error';
+    const err=new Error(code);
+    err.code=code;
+    err.status=Number(response.error.context?.status||0);
+    err.invitePending=Boolean(body?.invitePending);
+    throw err;
+  }
+  if(response.data?.error){
+    const err=new Error(response.data.error);
+    err.code=response.data.error;
+    err.invitePending=Boolean(response.data.invitePending);
+    throw err;
+  }
+  return response.data;
+}
+
+async function issueMemberDeviceCode(email,card,button){
+  const status=qs('#memberStatus');
+  button.disabled=true;
+  status.textContent='產生裝置登入碼中…';
+  try{
+    const client=window.TravelAuth?.getClient?.();
+    if(!client)throw new Error('auth_not_ready');
+    const {data,error}=await client.functions.invoke('travel-device-code',{
+      body:{action:'issue',tripSlug:window.TRAVEL_CONFIG.tripSlug,email}
+    });
+    if(error){
+      let detail=null;
+      try{detail=await error.context?.clone().json()}catch(_){}
+      throw new Error(detail?.error||'code_issue_failed');
+    }
+    if(!data?.ok||!data.code)throw new Error(data?.error||'code_issue_failed');
+    const link=location.origin+window.TRAVEL_CONFIG.appBasePath+'?trip='+encodeURIComponent(window.TRAVEL_CONFIG.tripSlug);
+    const shareText=['Travel OS 登入資訊','旅程：'+link,'Email：'+email,'一次性登入碼：'+data.code,'有效 60 分鐘，只能使用一次'].join('\n');
+    const box=document.createElement('section');box.className='member-pairing-result';
+    const label=document.createElement('small');
+    label.textContent='有效至 '+new Date(data.expiresAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})+' · 有效碼 '+data.active+'/3';
+    const code=document.createElement('strong');code.textContent=data.code;
+    const copy=document.createElement('button');copy.type='button';copy.textContent='複製登入資訊';
+    copy.onclick=async()=>{try{await navigator.clipboard.writeText(shareText);status.textContent='已複製旅程連結、Email 和登入碼。'}catch(_){status.textContent='無法自動複製，請手動記下登入碼。'}};
+    box.append(label,code,copy);
+    card.querySelector('.member-pairing-result')?.remove();
+    card.append(box);
+    status.textContent='登入碼已產生，不會寄出驗證信。';
+  }catch(err){
+    status.textContent=err.message==='code_limit'?'這個 Email 已有 3 組有效碼，使用或到期後可再產生。':'核發失敗：'+String(err.message||err);
+  }finally{button.disabled=false}
+}
+function memberPairingButton(email,card){
+  const button=document.createElement('button');
+  button.type='button';button.className='member-issue-code';button.textContent='產生登入碼';
+  button.onclick=()=>issueMemberDeviceCode(email,card,button);
+  return button;
+}
+function closeMembersSheet(){
+  qs('#membersSheet')?.classList.remove('show');
+  qs('#membersBackdrop')?.classList.remove('show');
+}
+async function loadMembers(){
+  const box=qs('#membersList'),status=qs('#memberStatus');
+  status.textContent='讀取中…';
+  try{
+    const data=await tripAdmin('list');
+    const owner=data.role==='owner';
+    qs('#inviteMemberForm').hidden=!owner;
+    qs('#membersRoleHint').textContent=currentTripTitle()+' · '+String(data.role||'viewer').toUpperCase();
+    box.replaceChildren();
+
+    for(const m of (data.members||[]).filter(x=>!x.revoked_at)){
+      const card=document.createElement('article');card.className='member-card';
+      const head=document.createElement('div');head.className='member-head';
+      const who=document.createElement('div');
+      const strong=document.createElement('strong');strong.textContent=m.email||m.user_id;
+      const small=document.createElement('small');
+      const claimedPerson=(TRIP?.people||[]).find(p=>p.linkedUserId&&String(p.linkedUserId)===String(m.user_id));
+      const claimText=claimedPerson
+        ?'已認領：'+claimedPerson.displayName+(claimedPerson.shortCode?'（'+claimedPerson.shortCode+'）':'')
+        :'尚未認領旅伴身份';
+      small.textContent=(m.role==='owner'?'Trip Owner':'已啟用')+' · '+claimText;
+      who.append(strong,small);head.append(who);
+
+      const actions=document.createElement('div');actions.className='member-actions';
+      if(owner&&m.role!=='owner'){
+        const role=document.createElement('select');
+        role.innerHTML='<option value="editor">Editor</option><option value="viewer">Viewer</option>';
+        role.value=m.role;
+        role.onchange=async()=>{status.textContent='更新權限中…';await tripAdmin('role',{userId:m.user_id,role:role.value});await loadMembers()};
+        const remove=document.createElement('button');remove.className='member-remove';remove.textContent='移除';
+        remove.onclick=async()=>{if(confirm('移除此 Trip 成員？他的這個 Trip 裝置權限也會一併撤銷。')){await tripAdmin('remove_member',{userId:m.user_id});await loadMembers()}};
+        actions.append(role,remove);
+      }else{
+        const badge=document.createElement('span');badge.className='member-role';badge.textContent=m.role;actions.append(badge);
+      }
+      if(owner&&m.email)actions.append(memberPairingButton(m.email,card));
+      head.append(actions);card.append(head);
+
+      const list=document.createElement('div');list.className='device-list';
+      const memberDevices=(data.devices||[]).filter(x=>x.user_id===m.user_id);
+      if(!memberDevices.length){
+        const empty=document.createElement('div');empty.className='device-empty';empty.textContent='尚無 Trusted Device';list.append(empty);
+      }
+      for(const d of memberDevices){
+        const row=document.createElement('div');row.className='device-row';
+        if(d.revoked_at) row.classList.add('revoked');
+        const label=document.createElement('div');
+        const ds=document.createElement('strong');ds.textContent=d.device_name||'Trusted Device';
+        const meta=document.createElement('small');
+        meta.textContent=d.revoked_at?'已撤銷':(d.last_seen_at?'最近使用 '+new Date(d.last_seen_at).toLocaleString('zh-TW'):'已核准');
+        label.append(ds,meta);row.append(label);
+        if(owner&&!d.revoked_at){
+          const revoke=document.createElement('button');revoke.textContent='撤銷裝置';
+          revoke.onclick=async()=>{if(confirm('只撤銷這一台 Trusted Device？其他裝置仍可使用。')){await tripAdmin('revoke_device',{deviceId:d.id});await loadMembers()}};
+          row.append(revoke);
+        }
+        list.append(row);
+      }
+      card.append(list);box.append(card);
+    }
+
+    for(const i of (data.invites||[]).filter(x=>x.status==='pending')){
+      const card=document.createElement('article');card.className='member-card invite-pending';
+      const head=document.createElement('div');head.className='member-head';
+      const who=document.createElement('div');
+      const strong=document.createElement('strong');strong.textContent=i.email;
+      const small=document.createElement('small');small.textContent='待完成登入 · '+String(i.role||'viewer').toUpperCase()+' · 由 Owner 核發登入碼';
+      who.append(strong,small);head.append(who);
+      if(owner){
+        const actions=document.createElement('div');actions.className='member-actions';
+        actions.append(memberPairingButton(i.email,card));
+        const cancel=document.createElement('button');cancel.className='member-remove';cancel.textContent='取消邀請';
+        cancel.onclick=async()=>{await tripAdmin('revoke_invite',{inviteId:i.id});await loadMembers()};
+        actions.append(cancel);head.append(actions);
+      }
+      card.append(head);box.append(card);
+    }
+
+    status.textContent='';
+  }catch(err){console.warn(err);status.textContent='無法讀取成員資料。'}
+}
+qs('#publicShareBtn').onclick=openPublicShareSheet;
+qs('#closePublicShare').onclick=closePublicShareSheet;
+qs('#publicShareBackdrop').onclick=closePublicShareSheet;
+qs('#createPublicShare').onclick=createOrResetPublicShare;
+qs('#resetPublicShare').onclick=()=>{if(confirm('重設公開連結？舊連結會立即失效。')) createOrResetPublicShare()};
+qs('#revokePublicShare').onclick=revokePublicShare;
+qs('#copyPublicShare').onclick=async()=>{
+  const url=qs('#publicShareUrl').value;
+  if(!url)return;
+  try{await navigator.clipboard.writeText(url);qs('#publicShareMessage').textContent='已複製公開連結。'}
+  catch(_){qs('#publicShareUrl').select();document.execCommand('copy');qs('#publicShareMessage').textContent='已複製公開連結。'}
+};
+
+qs('#membersBtn').onclick=async()=>{
+  closeSheet();qs('#membersBackdrop').classList.add('show');qs('#membersSheet').classList.add('show');qs('#membersSheet').setAttribute('aria-hidden','false');await loadMembers();
+};
+qs('#closeMembers').onclick=closeMembersSheet;
+qs('#membersBackdrop').onclick=closeMembersSheet;
+qs('#dayNoteToggle').onclick=toggleDayNote;
+qs('#dayNoteEditBtn').onclick=e=>{e.stopPropagation();openDayEditor(selectedDay)};
+qs('#inviteMemberForm').onsubmit=async e=>{
+  e.preventDefault();
+  const email=qs('#inviteEmail').value.trim(),role=qs('#inviteRole').value;
+  const status=qs('#memberStatus');
+  status.textContent='正在建立邀請…';
+  try{
+    const result=await tripAdmin('invite',{email,role});
+    qs('#inviteEmail').value='';
+    status.textContent='成員已授權。請在下方產生裝置登入碼，無需驗證信。';
+    await loadMembers();
+  }catch(err){
+    console.warn(err);
+    if(err.code==='invite_email_rate_limited'){
+      status.textContent='成員權限已保留，但 Supabase 寄信頻率已達上限。稍後可在「待完成登入」旁按重新寄送。';
+      qs('#inviteEmail').value='';
+      await loadMembers();
+    }else if(err.invitePending){
+      status.textContent='成員權限已保留，但邀請信沒有成功寄出。稍後可按重新寄送。';
+      qs('#inviteEmail').value='';
+      await loadMembers();
+    }else{
+      status.textContent='邀請失敗：'+(err.code||err.message||'unknown');
+    }
+  }
+};
+
+async function initCloudShell(){
+  try{
+    const fallbackSeed=null;
+    const local=await window.TravelStore?.init?.(fallbackSeed);
+    if(window.TRAVEL_CONFIG?.tripSlug&&local?.trip?.days?.length){
+      TRIP=local.trip;
+      currentTripRole=local.trip.role||'viewer';
+      selectedDay=Math.min(selectedDay,Math.max(0,TRIP.days.length-1));
+      syncTripLabels();
+      renderAll();
+      updateEditAvailability();
+    }
+  }catch(err){console.warn('Local store init failed',err)}
+
+  if(window.TravelAuth){
+    window.TravelAuth.onChange(s=>{
+      setAuthGateState(s.state);
+      if(s.state==='reauth_required'){
+        cloudLoaded=false;
+        cloudSyncState='auth';
+        syncTripLabels();
+      }else if(s.state==='offline_ready'){
+        cloudLoaded=false;
+        cloudSyncState='cache';
+        syncTripLabels();
+        if(!window.TRAVEL_CONFIG?.tripSlug)renderTripChooser();
+      }else if(s.state==='ready'){
+        if(window.TRAVEL_CONFIG?.tripSlug) hydratePrivateCloudData();
+        else renderTripChooser();
+      }
+    });
+    const authState=await window.TravelAuth.init();
+    setAuthGateState(authState.state);
+    if(authState.state==='ready'){
+      if(window.TRAVEL_CONFIG?.tripSlug) await hydratePrivateCloudData();
+      else await renderTripChooser();
+    }else if(authState.state==='offline_ready'&&!window.TRAVEL_CONFIG?.tripSlug){
+      await renderTripChooser();
+    }
+  }
+}
+
+qs('.app-shell')?.classList.add('today-mode');
+const authTitle=qs('#authTripTitle');
+if(authTitle) authTitle.textContent=`${APP_NAME} V${APP_VERSION}`;
+// Hide unauthenticated private itinerary until Trusted Device is approved.
+if(window.TRAVEL_CONFIG?.tripSlug){
+  qs('.app-shell').style.visibility='hidden';
+}
+initCloudShell().finally(()=>{if(qs('.app-shell'))qs('.app-shell').style.visibility=''});
+window.addEventListener('online',async()=>{
+  if(!window.TRAVEL_CONFIG?.tripSlug) return;
+  cloudSyncState='syncing';
+  syncTripLabels();
+  try{
+    await window.TravelAuth?.resumeSessionCheck?.({keepReady:true});
+    await flushOfflineEditorQueue();
+    await hydratePrivateCloudData();
+    updateEditAvailability();
+  }catch(err){
+    cloudLoaded=false;
+    cloudSyncState='error';
+    cloudLastError=String(err?.message||err||'Reconnect failed');
+    syncTripLabels();
+  }
+});
+lastObservedIcelandDate=icelandTodayISO();
+setInterval(()=>{
+  if(demoMode) return;
+  const now=icelandTodayISO();
+  if(now===lastObservedIcelandDate) return;
+  lastObservedIcelandDate=now;
+  syncToReferenceTripDay();
+  renderAll();
+},60000);
+if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+
+/* travel-cloud-session-foreground-recovery-20261021-v1
+   Never replace local changes from background recovery. */
+(()=>{
+  let running=false,lastAttemptAt=0,scheduled=null;
+  const attempt=async()=>{
+    if(running||document.visibilityState==='hidden'||!window.TRAVEL_CONFIG?.tripSlug)return;
+    if(cloudSyncState==='synced'||cloudSyncState==='syncing')return;
+    const snap=window.TravelAuth?.snapshot?.();
+    if(!snap||!['offline_ready','ready'].includes(snap.state))return;
+    if(Date.now()-lastAttemptAt<120000)return;
+    try{
+      const pending=await window.TravelStore?.getPendingOperations?.();
+      if(Array.isArray(pending)&&pending.length){
+        cloudLastError='尚有未同步的本機修改；自動恢復暫停，資料保留原狀。請至資料與同步查看。';
+        syncMoreStatus();return;
+      }
+    }catch(_){return;}
+    running=true;lastAttemptAt=Date.now();
+    try{
+      const result=await syncWithDeadline(
+        window.TravelAuth?.tryRestoreCloudSession?.()||Promise.resolve({ok:false,reason:'auth_module_unavailable'}),
+        22000,'auth_restore_timeout'
+      );
+      cloudLastError=result?.ok
+        ?'已恢復雲端登入，正在下載最新旅程…'
+        :'自動恢復登入尚未成功（'+String(result?.reason||'unknown')+'）。本機資料保留；請按「重新同步」查看詳細結果。';
+      syncMoreStatus();
+    }catch(err){
+      cloudLastError='自動恢復登入失敗（'+String(err?.message||'network_error')+'）；本機資料保留。';
+      syncMoreStatus();
+    }finally{running=false;}
+  };
+  const schedule=(delay=1800)=>{
+    if(scheduled)clearTimeout(scheduled);
+    scheduled=setTimeout(()=>{scheduled=null;attempt().catch(()=>{});},delay);
+  };
+  window.addEventListener('pageshow',()=>schedule(5000));
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule(1800);});
+  window.addEventListener('online',()=>schedule(1800));
+  schedule(12000);
+})();

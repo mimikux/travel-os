@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#173c35" />
+  <title>Matt's Travel OS V1.5.27</title>
+  <link rel="manifest" href="manifest.json?v=20261021-ground-route-after-flight-v1" />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="app.css?v=20261021-ground-route-after-flight-v1" />
+<style id="travel-hero-menu-position-v2">
+/* travel-hero-menu-absolute-pin-v2: independent of one/two-line titles or notification count */
+#heroCard .hero-header-row {
+  position: relative !important;
+  box-sizing: border-box !important;
+  padding-right: 50px !important;
+}
+#heroCard .hero-header-row > .hero-menu-group {
+  position: absolute !important;
+  top: 6px !important;
+  right: 0 !important;
+  bottom: auto !important;
+  left: auto !important;
+  z-index: 15 !important;
+  margin: 0 !important;
+  transform: none !important;
+  align-self: auto !important;
+  width: max-content !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  overflow: visible !important;
+}
+#heroCard .hero-header-row > .hero-menu-group > #heroMenuBtn {
+  position: relative !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  transform: none !important;
+  flex: 0 0 38px !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  display: grid !important;
+  place-items: center !important;
+  overflow: visible !important;
+}
+#heroCard #heroMenuBtn > .menu-mail-badge {
+  position: absolute !important;
+  top: -5px !important;
+  right: -5px !important;
+  margin: 0 !important;
+  transform: none !important;
+  pointer-events: none !important;
+  z-index: 999 !important;
+}
+
+</style></head>
+<body>
+  <section class="auth-gate" id="authGate" aria-live="polite" data-auth-boot="1">
+    <div class="auth-card">
+      <div class="auth-mark">I</div>
+      <span class="section-kicker">TRAVEL OS</span>
+      <h1 id="authTripTitle">Matt's Travel OS V1.5.27</h1>
+      <p id="authMessage">正在確認這台裝置的登入狀態…</p>
+      <form id="magicLinkForm" class="auth-form" hidden>
+        <label for="authEmail">Email</label>
+        <input id="authEmail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com" required>
+        <label for="authPairCode">一次性登入碼</label>
+        <input id="authPairCode" type="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required>
+        <button type="submit" id="magicLinkBtn">登入 Travel OS</button>
+      </form>
+      <button id="ownerRecoveryToggle" type="button" class="owner-recovery-toggle">Owner 無法取得登入碼？</button>
+      <form id="ownerRecoveryForm" class="owner-recovery-form" hidden>
+        <label for="ownerRecoveryEmail">已登記的 Owner Email</label>
+        <input id="ownerRecoveryEmail" type="email" autocomplete="email" required placeholder="owner@example.com">
+        <button type="submit">寄送救援登入連結</button>
+        <p id="ownerRecoveryStatus" role="status"></p>
+      </form>
+      <button id="pasteMagicToggle" type="button" class="owner-recovery-toggle">在此 App 貼上 Magic Link 登入</button>
+      <form id="pasteMagicForm" class="owner-recovery-form magic-paste-form" hidden>
+        <p class="magic-paste-help">請在 Gmail 長按「Sign in」並選「複製連結位址」，<strong>不要先點開</strong>。回到此 App 貼上網址後驗證；網址不會儲存，也不要傳給任何人。</p>
+        <label for="pasteMagicUrl">一次性 Magic Link 網址</label>
+        <textarea id="pasteMagicUrl" autocomplete="off" autocapitalize="none" spellcheck="false" rows="3" required placeholder="在此貼上 Gmail 的 Sign in 連結"></textarea>
+        <button type="submit">驗證連結並登入此 App</button>
+        <p id="pasteMagicStatus" role="status"></p>
+      </form>
+      <p class="auth-foot" id="authFoot">登入碼由旅程 Owner 提供 · 有效 60 分鐘 · 每組限用一次</p>
+    </div>
+  </section>
+  <section class="trip-chooser" id="tripChooser" hidden>
+    <div class="trip-chooser-inner">
+      <div class="trip-chooser-head">
+        <div><span class="section-kicker">TRAVEL OS</span><h1>我的旅程</h1><p>只會顯示你有權限的旅程。</p></div>
+        <button class="round-btn chooser-signout" id="chooserSignOut" type="button" aria-label="登出">↗</button>
+      </div>
+      <form id="shareMissingFallback" class="share-missing-fallback" hidden>
+        <strong>沒有收到文章連結</strong>
+        <p>Android 已打開 Travel OS，但沒有傳入分享內容。可在此貼上 Threads、Facebook 或其他文章連結，再選擇旅程。</p>
+        <textarea id="shareMissingInput" rows="2" placeholder="https://www.threads.com/..." required></textarea>
+        <button type="submit">繼續收藏到旅程</button>
+        <small id="shareMissingError" role="status"></small>
+      </form>
+      <div class="trip-list" id="tripList"></div>
+      <button class="new-trip-btn" id="newTripBtn" type="button" hidden>＋ 建立新旅程</button>
+      <p class="chooser-status" id="chooserStatus"></p>
+    </div>
+  </section>
+  <div class="app-shell today-mode">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ICELAND · 2026</div>
+        <h1 id="pageTitle">今天</h1>
+      </div>
+      <button class="round-btn" id="tripMenuBtn" aria-label="旅程資訊">•••</button>
+    </header>
+
+    <main>
+      <section class="view active" id="todayView">
+        <div class="hero-card hero-today-shell" id="heroCard">
+          <div class="hero-media-overlay"></div>
+          <div class="hero-header-row">
+            <div class="hero-heading-group">
+              <div class="hero-meta-line">
+                <button class="hero-trip-switch" id="heroTripSwitch" type="button" data-trip-title>ICELAND · 2026</button>
+                <span class="hero-meta-day" id="heroDay">D3 · 11/23</span>
+              </div>
+              <div class="hero-title-combined">
+                <span class="hero-today-word" id="heroRelativeLabel">今日</span>
+                <span class="hero-topic" id="heroTitle">冰洞日</span>
+              </div>
+            </div>
+            <div class="hero-menu-group"><span class="demo-badge" id="heroDemoBadge" hidden>DEMO</span><button class="round-btn hero-menu-btn" id="heroMenuBtn" aria-label="旅程資訊">•••</button></div>
+          </div>
+          <button class="weather-pill weather-inline" id="weatherBtn" type="button" aria-label="查看天氣預報">
+            <span class="weather-icon" id="weatherIconWrap" aria-hidden="true"></span>
+            <strong id="weatherTemp">-2°</strong>
+            <small id="weatherLabel">陰天</small>
+          </button>
+          <div class="hero-stats" id="heroStats">
+            <div class="hero-stat">
+              <small>里程</small>
+              <strong id="todayKm">220 km</strong>
+            </div>
+            <div class="hero-stat">
+              <small>駕車</small>
+              <strong id="todayDrive">3h 05m</strong>
+            </div>
+            <div class="hero-stat">
+              <small>日出</small>
+              <strong id="todaySunrise">09:58</strong>
+            </div>
+            <div class="hero-stat">
+              <small>日落</small>
+              <strong id="todaySunset">15:49</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="day-strip" id="dayStrip"></div>
+        <div class="route-group-selector" id="todayRouteGroups" hidden></div>
+
+        <button class="checklist-home-card" id="checklistHomeCard" type="button" data-nav="checklist">
+          <span class="checklist-home-icon" aria-hidden="true">✓</span>
+          <span class="checklist-home-copy">
+            <small>TRIP CHECKLIST</small>
+            <strong id="checklistHomeTitle">出發準備</strong>
+            <em id="checklistHomeSummary">開始建立旅行清單</em>
+          </span>
+          <span class="checklist-home-arrow">→</span>
+        </button>
+
+        <section class="day-note-wrap" id="dayNoteWrap" hidden>
+          <button class="day-note-card" id="dayNoteToggle" type="button" aria-expanded="false">
+            <span class="day-note-icon" id="dayNoteIcon" aria-hidden="true"></span>
+            <span class="day-note-copy">
+              <span class="day-note-kicker">DAY NOTE</span>
+              <strong>今日備註</strong>
+              <span class="day-note-preview" id="dayNotePreview"></span>
+            </span>
+            <span class="day-note-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="day-note-body" id="dayNoteBody" hidden>
+            <div class="day-note-text" id="dayNoteText"></div>
+            <button class="day-note-edit-btn" id="dayNoteEditBtn" type="button" hidden>✎ 編輯備註</button>
+          </div>
+        </section>
+
+        <div class="section-head">
+          <div><span class="section-kicker">TIMELINE</span><h2 id="timelineHeading">今日行程</h2></div>
+          <button class="text-btn" data-nav="map">看地圖 →</button>
+        </div>
+        <div class="timeline" id="timeline"></div>
+
+        <div class="section-head">
+          <div><span class="section-kicker">STAY</span><h2>今晚住宿</h2></div>
+          <button class="text-btn" data-nav="booking">全部預訂 →</button>
+        </div>
+        <div id="tonightCard"></div>
+      </section>
+
+      <section class="view" id="mapView">
+        <div class="subview-trip-header">
+          <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>旅程地圖</h1></div>
+          <div class="subview-header-actions"><button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button></div>
+        </div>
+        <div class="map-controls">
+          <div class="map-day-title"><span id="mapDayLabel">D3</span><strong id="mapDayName">冰洞日</strong></div>
+          <div class="map-control-actions">
+            <button id="exportGoogleRoute" class="google-route-btn" type="button">Google 路線 ↗</button>
+            <button id="playRoute" class="play-btn">▶ 跟著走</button>
+          </div>
+        </div>
+        <div class="route-group-selector" id="mapRouteGroups" hidden></div>
+        <div class="map-range-head">
+          <div>
+            <span class="section-kicker">ROUTE RANGE</span>
+            <strong id="mapRangeHint">點日期直接切換</strong>
+          </div>
+          <div class="map-range-actions">
+            <button class="map-flights-toggle active" id="mapFlightsToggle" type="button" aria-pressed="true" title="顯示或隱藏飛行航段，不影響地面里程">✈ 含航班</button>
+            <button class="map-multi-toggle" id="mapMultiToggle" type="button">複選</button>
+            <div class="map-range-summary" id="mapRangeSummary">1 天</div>
+          </div>
+        </div>
+        <div class="map-day-strip" id="mapDayStrip"></div>
+        <div id="map"></div>
+        <div class="route-panel" id="routePanel">
+          <div class="route-progress-row">
+            <button id="routePlayCircle" class="route-play-circle">▶</button>
+            <div class="route-progress-copy">
+              <div class="route-current" id="routeCurrent">Fossar Cabin</div>
+              <div class="route-meta" id="routeMeta">D3 · 08:15</div>
+            </div>
+            <div class="route-metric-cluster">
+              <button class="route-metric-toggle" id="routeMetricToggle" type="button" aria-label="切換公里與分鐘">
+                <span data-route-metric="distance">KM</span><span data-route-metric="time">MIN</span>
+              </button>
+              <div class="route-distance"><strong id="routeDistance">0</strong><span id="routeDistanceSuffix"> / <span id="routeTotal">220</span> km</span></div>
+            </div>
+          </div>
+          <div class="route-scale-wrap" id="routeScaleWrap">
+            <div class="route-stops" id="routeStops"></div>
+            <input type="range" id="routeSlider" min="0" max="100" value="0" aria-label="路線進度" />
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="bookingView">
+        <div class="subview-trip-header">
+          <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>預訂</h1></div>
+          <button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button>
+        </div>
+        <div class="booking-summary">
+          <span class="section-kicker">BOOKING CENTER</span>
+          <h2>所有重要預訂都在這裡</h2>
+          <p>住宿、航班、租車、Tour；訂位碼與 PIN 預設隱藏，需要時再顯示。</p>
+        </div>
+        <div class="route-group-selector booking-route-groups" id="bookingRouteGroups" hidden></div>
+        <div class="filter-row" id="bookingFilters"></div>
+        <div class="booking-list" id="bookingList"></div>
+      </section>
+
+      <section class="view expense-view" id="expenseView">
+        <div class="subview-trip-header">
+          <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>花費</h1></div>
+          <button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button>
+        </div>
+
+        <div class="expense-hero">
+          <div>
+            <span class="section-kicker">TRIP LEDGER</span>
+            <h2 id="expenseTotalTitle">旅程總花費</h2>
+            <strong id="expenseTotal">—</strong>
+            <p id="expenseTotalHint">已確認帳目</p>
+          </div>
+          <div class="expense-hero-side">
+            <span>我的身分</span>
+            <button type="button" id="expenseIdentityBtn">設定</button>
+          </div>
+        </div>
+
+        <div class="expense-stats" id="expenseStats">
+          <div><small>事前預訂</small><strong id="expenseBookedTotal">—</strong></div>
+          <div><small>旅途中</small><strong id="expenseTripTotal">—</strong></div>
+          <div><small>帳目</small><strong id="expenseCount">0</strong></div>
+        </div>
+
+        <div class="expense-actions">
+          <button type="button" class="expense-primary" id="addExpenseBtn">＋ 手動記帳</button>
+          <button type="button" class="expense-secondary" id="receiptExpenseBtn">▣ 拍收據</button>
+        </div>
+
+        <div class="expense-tab-row">
+          <button type="button" class="active" data-expense-tab="ledger">帳目</button>
+          <button type="button" data-expense-tab="bookings">預訂費用</button>
+          <button type="button" data-expense-tab="people">分帳人員</button>
+          <button type="button" data-expense-tab="analysis">分析</button>
+        </div>
+
+        <section class="expense-panel active" id="expenseLedgerPanel">
+          <div class="expense-list" id="expenseList"></div>
+        </section>
+
+        <section class="expense-panel" id="expenseBookingsPanel">
+          <div class="expense-section-copy">
+            <h3>從正式預訂納入花費</h3>
+            <p>只有已確認的 Reservation 才會出現在這裡；納入後仍可再修改支付人與分帳。</p>
+          </div>
+          <div class="expense-booking-list" id="expenseBookingList"></div>
+        </section>
+
+        <section class="expense-panel" id="expensePeoplePanel">
+          <div class="expense-section-copy">
+            <h3>分帳人員</h3>
+            <p>登入帳號與分帳身份分開；未登入旅伴可以先手動建立，之後再由本人認領。</p>
+          </div>
+          <div class="expense-people-list" id="expensePeopleList"></div>
+          <button type="button" class="expense-secondary expense-add-person" id="addExpensePersonBtn">＋ 新增分帳人</button>
+        </section>
+
+        <section class="expense-panel" id="expenseAnalysisPanel">
+          <div class="expense-analysis-placeholder" id="expenseAnalysis">
+            <strong>分析會隨帳目自動更新</strong>
+            <p>第一版先顯示逐日與類別摘要；圓餅圖與支付方式圖表接在下一步。</p>
+          </div>
+        </section>
+      </section>
+
+      <section class="view checklist-view" id="checklistView">
+        <div class="subview-trip-header">
+          <div><div class="eyebrow" data-trip-title>ICELAND · 2026</div><h1>清單</h1></div>
+          <button class="round-btn subview-menu-btn" type="button" aria-label="旅程資訊">•••</button>
+        </div>
+
+        <div class="checklist-hero">
+          <div>
+            <span class="section-kicker">TRIP CHECKLIST</span>
+            <h2 id="checklistHeroTitle">出發準備</h2>
+            <p id="checklistHeroSummary">把該帶的、想買的都放在同一個地方。</p>
+            <div class="checklist-legend" id="checklistLegend">
+              <span><i class="legend-box todo" aria-hidden="true"></i>尚未準備</span>
+              <span><i class="legend-box ready" aria-hidden="true">✓</i>已準備、未打包</span>
+              <span><i class="legend-box packed" aria-hidden="true">✓</i>已打包</span>
+            </div>
+          </div>
+          <div class="checklist-hero-actions">
+            <button type="button" class="checklist-import-btn" id="checklistImportBtn">從旅程匯入</button>
+            <button type="button" class="checklist-scope-btn" id="checklistScopeBtn">全部隊友</button>
+          </div>
+        </div>
+
+        <div class="checklist-tab-row">
+          <button type="button" class="active" data-checklist-tab="pack">要帶</button>
+          <button type="button" data-checklist-tab="buy">要買</button>
+          <button type="button" data-checklist-tab="notes">筆記</button>
+        </div>
+
+        <div class="checklist-toolbar">
+          <div class="checklist-filters" id="checklistFilters"></div>
+          <button type="button" class="checklist-add-btn" id="addChecklistItemBtn">＋ 新增</button>
+        </div>
+
+        <div class="checklist-person-head" id="checklistPersonHead" hidden></div>
+
+        <section class="checklist-panel active" id="checklistPackPanel">
+          <div class="checklist-list" id="checklistPackList"></div>
+        </section>
+        <section class="checklist-panel" id="checklistBuyPanel">
+          <div class="checklist-list" id="checklistBuyList"></div>
+        </section>
+        <section class="checklist-panel travel-notes-panel" id="checklistNotesPanel">
+          <div class="travel-notes-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="travelNotesSearch" type="search" placeholder="搜尋標題、備註、網站…" autocomplete="off">
+          </div>
+          <div class="travel-note-recovery-bar" id="travelNoteRecoveryBar" hidden>
+            <button type="button" id="travelNoteRecoverTitlesBtn">補抓標題</button>
+            <small id="travelNoteRecoveryStatus" role="status"></small>
+          </div>
+          <div class="travel-notes-list" id="travelNotesList"></div>
+        </section>
+      </section>
+
+      <section class="view more-view" id="moreView">
+        <div class="subview-trip-header more-page-header">
+          <button type="button" id="moreBackBtn" class="more-back-btn" aria-label="返回旅程">← 返回</button>
+          <div><div class="eyebrow">TRAVEL OS</div><h1>更多</h1></div>
+        </div>
+
+        <section class="more-section">
+          <div class="more-section-head"><span class="section-kicker">MY TRIPS</span><h2>我的旅程</h2><p>切換到其他旅程，或建立新的旅程。</p></div>
+          <div class="more-trip-list" id="moreTripList"><div class="booking-empty">讀取旅程中…</div></div>
+          <button class="more-primary-btn" id="moreNewTrip" type="button" hidden>＋ 建立新旅程</button>
+        </section>
+
+        <section class="more-section more-mail-section">
+          <div class="more-section-head more-mail-head">
+            <div><span class="section-kicker">GLOBAL MAIL INBOX</span><h2>未分類信件 <span class="more-mail-count" id="moreMailCount">0</span></h2><p>無法可靠判斷旅程的訂房、機票與租車信會留在這裡。</p></div>
+            <button type="button" class="more-small-btn" id="moreRerouteMail">重新分類</button>
+          </div>
+          <div class="more-mail-inbox" id="moreMailInbox"><div class="booking-empty">讀取收件匣中…</div></div>
+        </section>
+
+        <section class="more-section">
+          <div class="more-section-head"><span class="section-kicker">DATA &amp; SYNC</span><h2>資料與同步</h2></div>
+          <div class="more-setting-card">
+            <div><small>目前狀態</small><strong id="moreSyncStatus">—</strong><em id="moreSyncDetail">Travel OS Cloud</em></div>
+            <button type="button" id="moreResync">重新同步</button>
+          </div>
+          <button type="button" id="moreSyncLogin" class="more-sync-login" hidden>在此 App 登入帳號</button>
+        </section>
+
+        <section class="more-section">
+          <div class="more-section-head"><span class="section-kicker">ACCOUNT</span><h2>帳號</h2></div>
+          <div class="more-setting-card more-account-card">
+            <div><small>登入帳號</small><strong id="moreAccountEmail">—</strong><em>目前裝置已登入 Travel OS</em></div>
+            <button type="button" id="moreSignOut">登出</button>
+          </div>
+        </section>
+
+        <section class="more-section more-app-section">
+          <div class="more-section-head"><span class="section-kicker">APP</span><h2>Travel OS</h2></div>
+          <div class="more-about-card">
+            <div><strong id="moreAppVersion">V1.5.25</strong><span>Matt's Travel OS · Multi-trip cloud edition</span></div>
+            <small>旅程層級操作請使用右上角 •••</small>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-target="today"><span class="nav-icon" data-icon="today"></span><small>行程</small></button>
+      <button class="nav-item" data-target="map"><span class="nav-icon" data-icon="map"></span><small>地圖</small></button>
+      <button class="nav-item" data-target="booking"><span class="nav-icon" data-icon="booking"></span><small>預訂</small></button>
+      <button class="nav-item" data-target="expense"><span class="nav-icon" data-icon="expense"></span><small>花費</small></button>
+      <button class="nav-item" data-target="checklist"><span class="nav-icon" data-icon="checklist"></span><small>清單</small></button>
+    </nav>
+  </div>
+
+  <div class="global-edit-toolbar" id="globalEditToolbar" hidden>
+    <div class="global-edit-status"><span class="edit-live-dot"></span><strong>編輯模式</strong><small id="globalEditRole">OWNER</small></div>
+    <div class="global-edit-actions">
+      <button type="button" id="globalManageGroups">設定分組</button>
+      <button type="button" id="globalEditDay">編輯本日</button>
+      <button type="button" id="globalAddItem">＋ 新增</button>
+      <button type="button" class="done" id="globalDoneEdit">完成</button>
+    </div>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <aside class="trip-sheet" id="tripSheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP</span><h2 data-trip-title>Iceland 2026</h2></div><button class="round-btn" id="closeSheet">×</button></div>
+    <div class="sheet-grid">
+      <button class="trip-date-card" id="editTripDatesBtn" type="button"><span><small>TRIP SETTINGS</small><strong id="tripDateSummary">—</strong></span><em>編輯旅程</em></button>
+      <div><small>我的權限</small><strong id="tripRoleSummary">—</strong></div>
+      <button class="sheet-toggle-card sheet-toggle-wide" id="demoModeToggle" type="button" aria-pressed="false">
+        <small>DEMO 模式</small><strong id="demoModeState">關閉</strong>
+      </button>
+    </div>
+    <button class="sheet-action-card" id="publicShareBtn" type="button">
+  <span><small>PUBLIC SHARE</small><strong>公開分享</strong><em id="publicShareStatus">尚未開啟</em></span><span>→</span>
+</button>
+<button class="sheet-action-card" id="membersBtn" type="button">
+  <span><small>TRIP ACCESS</small><strong>成員與裝置</strong></span><span>→</span>
+</button>
+<button class="sheet-action-card" id="moreSettingsBtn" type="button">
+  <span><small>MORE &amp; ACCOUNT</small><strong>更多與帳號</strong><em>旅程切換、同步、未分類信件</em></span>
+  <span class="sheet-action-end">→<b class="global-mail-badge" id="globalMailBadge" hidden>0</b></span>
+</button>
+<div class="info-note">此 Trip 的 Owner 可邀請 Editor / Viewer，並管理每位成員的 Trusted Device。</div>
+  </aside>
+
+  <div class="modal-backdrop" id="tripDatesBackdrop"></div>
+  <aside class="edit-sheet" id="tripDatesSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><div><span class="section-kicker">TRIP DATES</span><h2>編輯旅行日期</h2><p>空白日可以縮短；已有行程或預訂的日期會自動保留。</p></div><button class="round-btn" id="closeTripDates">×</button></div>
+    <form class="edit-form" id="tripDatesForm">
+      <div class="edit-form-grid">
+        <label><span>開始日期</span><input id="tripStartDateInput" type="date" required></label>
+        <label><span>結束日期</span><input id="tripEndDateInput" type="date" required></label>
+      </div>
+      <div class="info-note">新增超出目前範圍的行程時，Travel OS 仍會自動向前／向後增加天數；不會因為某天暫時沒有行程就自動刪除。</div>
+      <div class="edit-form-actions"><button type="submit" class="edit-save">儲存日期</button></div>
+      <p class="edit-status" id="tripDatesStatus"></p>
+    </form>
+  </aside>
+
+  <div class="modal-backdrop" id="publicShareBackdrop"></div>
+  <aside class="members-sheet public-share-sheet" id="publicShareSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">PUBLIC SHARE</span><h2>公開分享</h2><p>只分享 D0～Dn 與公開行程；不顯示實際日期與住宿精確位置。</p></div>
+      <button class="round-btn" id="closePublicShare">×</button>
+    </div>
+
+    <div class="public-privacy-list">
+      <div><span>實際日期</span><strong>隱藏</strong></div>
+      <div><span>住宿地址 / GPS</span><strong>隱藏</strong></div>
+      <div><span>訂位代碼 / PIN / 聯絡資料</span><strong>隱藏</strong></div>
+      <div><span>行程時間 / 景點</span><strong>顯示</strong></div>
+      <div><span>價格 / 房型 / 套裝內容</span><strong>顯示</strong></div>
+    </div>
+
+    <div class="public-share-control" id="publicShareInactive">
+      <p>目前尚未建立公開連結。</p>
+      <button type="button" class="edit-save" id="createPublicShare">建立公開連結</button>
+    </div>
+
+    <div class="public-share-control" id="publicShareActive" hidden>
+      <label><span>公開連結</span><div class="public-link-row"><input id="publicShareUrl" readonly><button type="button" id="copyPublicShare">複製</button></div></label>
+      <div class="public-share-actions">
+        <button type="button" id="resetPublicShare">重設連結</button>
+        <button type="button" class="danger" id="revokePublicShare">停止分享</button>
+      </div>
+      <p class="member-status" id="publicShareMessage"></p>
+    </div>
+  </aside>
+
+  <div class="modal-backdrop" id="membersBackdrop"></div>
+  <aside class="members-sheet" id="membersSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      <div><span class="section-kicker">TRIP ACCESS</span><h2>成員與裝置</h2><p id="membersRoleHint">Iceland 2026</p></div>
+      <button class="round-btn" id="closeMembers">×</button>
+    </div>
+    <form id="inviteMemberForm" class="member-invite-form">
+      <label><span>Email</span><input id="inviteEmail" type="email" autocomplete="email" placeholder="member@example.com" required></label>
+      <label><span>權限</span><select id="inviteRole"><option value="editor">Editor · 可共同編輯</option><option value="viewer">Viewer · 唯讀觀看</option></select></label>
+      <button type="submit">＋ 邀請成員</button>
+    </form>
+    <p class="member-status" id="memberStatus"></p>
+    <div class="members-list" id="membersList"></div>
+  </aside>
+
+  <div class="modal-backdrop" id="weatherBackdrop"></div>
+  <aside class="weather-sheet" id="weatherSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title weather-sheet-title">
+      <div>
+        <span class="section-kicker">WEATHER</span>
+        <h2 id="weatherSheetTitle">今日天氣</h2>
+        <p id="weatherSheetSubtitle">逐小時預測</p>
+      </div>
+      <button class="round-btn" id="closeWeather">×</button>
+    </div>
+    <div class="weather-summary" id="weatherSummary"></div>
+    <div class="weather-hourly" id="weatherHourly"></div>
+    <div class="weather-sources" id="weatherSources"></div>
+  </aside>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
+  <script src="config.js?v=20261021-ground-route-after-flight-v1"></script>
+  <script src="data.js?v=20261021-ground-route-after-flight-v1"></script>
+  <script src="local-db.js?v=20261021-ground-route-after-flight-v1"></script>
+  <script src="sync-engine.js?v=20261021-ground-route-after-flight-v1"></script>
+  <script src="auth.js?v=20261021-ground-route-after-flight-v1"></script>
+  <script src="app.js?v=20261021-ground-route-after-flight-v1"></script>
+</body>
+</html>

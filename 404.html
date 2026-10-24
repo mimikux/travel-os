@@ -1,17 +1,15 @@
 <!doctype html>
-<meta charset="utf-8">
-<title>Travel OS</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Travel OS · 頁面轉址</title></head><body>
+<p>正在進入 Travel OS… <a href="/travel-os/">開啟 Travel OS</a></p>
 <script>
 (function(){
-  var base='/travel-os/';
-  var path=location.pathname;
-  if(path.indexOf(base)!==0){ location.replace(base); return; }
-  var rel=path.slice(base.length).split('/').filter(Boolean);
-  var slug=((rel[0]||'').match(/^([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)/)||[])[1]||'';
-  var params=new URLSearchParams(location.search);
-  if(slug) params.set('trip',slug);
-  var q=params.toString();
-  location.replace(base+(q?'?'+q:'')+location.hash);
+  const base='/travel-os/';
+  if(!location.pathname.startsWith(base)){return;}
+  const rel=location.pathname.slice(base.length).split('/').filter(Boolean);
+  const slug=(rel[0]||'').match(/^([a-z0-9]+(?:-[a-z0-9]+)*)$/i)?.[1]||'';
+  const params=new URLSearchParams(location.search);
+  if(slug&&slug!=='index')params.set('trip',slug);
+  const query=params.toString();
+  location.replace(base+(query?'?'+query:'')+location.hash);
 })();
-</script>
-<noscript><a href="/travel-os/">Open Travel OS</a></noscript>
+</script></body></html>
