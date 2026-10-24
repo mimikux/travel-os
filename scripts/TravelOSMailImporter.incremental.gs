@@ -14,6 +14,51 @@ const IMPORT_OPTIONS = Object.freeze({
   MESSAGES_PER_RUN: 8,
   BATCH_SIZE: 8
 });
+
+/**
+ * Read PDFs only for recognized airline e-ticket emails. This conversion
+ * requires Apps Script Advanced Google service "Drive API" (v3) plus Drive
+ * access authorization. Temporary Google Docs are always trashed/deleted.
+ *
+ * It deliberately avoids external PDF/OCR SaaS and logs no private text.
+ * For scanned PDFs, Drive conversion may be imperfect: human review stays on.
+ */
+function extractAirlinePdfText_(mail, attachments) {
+  const forwarded=String(mail.getPlainBody()||'');
+  const subject=String(mail.getSubject()||'');
+  if(!(/中華航空.*電子機票|China Airlines.*e-?Ticket/i.test(subject)
+    && /(?:eticket@amadeus\.com|chinaairlines\.com)/i.test(forwarded+' '+mail.getFrom()))) return '';
+  const pdfs=attachments.filter(a=>/\.pdf$/i.test(String(a.getName()||''))
+    && a.getSize()>0 && a.getSize()<=6*1024*1024).slice(0,2);
+  const chunks=[];
+  for (const attachment of pdfs) {
+    let tempId='';
+    try {
+      // Drive.Files.create comes from the Advanced Drive API, not DriveApp.
+      const temp=Drive.Files.create({
+        name:'Travel OS temporary PDF extraction',
+        mimeType:'application/vnd.google-apps.document'
+      },attachment.copyBlob(),{fields:'id',ocrLanguage:'en'});
+      tempId=String(temp.id||'');
+      if(!tempId)throw new Error('Missing temporary Drive file ID');
+      const readable=DocumentApp.openById(tempId).getBody().getText().trim();
+      if(readable.length>=25){
+        chunks.push('[[Travel OS PDF text: '+attachment.getName()+']]\n'
+          +readable.slice(0,85000)+'\n[[End Travel OS PDF text]]');
+      }else{
+        console.warn('PDF converted but yielded insufficient text: '+attachment.getName());
+      }
+    }catch(err){
+      console.warn('PDF extraction failed ('+attachment.getName()+'): '+String(err?.message||err));
+    }finally{
+      if(tempId)try{Drive.Files.delete(tempId)}catch(e){
+        console.warn('Could not delete temporary converted PDF: '+tempId);
+      }
+    }
+  }
+  return chunks.join('\n\n');
+}
+
 function importTravelMail(){
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(1000))return;
@@ -39,20 +84,24 @@ function importTravelMail(){
     if(!selected.length){console.log('No new eligible mail.');return;}
     for(let offset=0;offset<selected.length;offset+=IMPORT_OPTIONS.BATCH_SIZE){
       const items=selected.slice(offset,offset+IMPORT_OPTIONS.BATCH_SIZE);
-      const payload={mailboxEmail:CONFIG.MAILBOX,messages:items.map(({mail,thread,id})=>({
+      const payload={mailboxEmail:CONFIG.MAILBOX,messages:items.map(({mail,thread,id})=>{
+        const attachments=mail.getAttachments({includeInlineImages:false});
+        const original=mail.getPlainBody();
+        const pdfText=extractAirlinePdfText_(mail,attachments);
+        return ({
         id,
         threadId:thread.getId(),
         date:mail.getDate().toISOString(),
         from:mail.getFrom(),
         to:String(mail.getTo()||'').split(',').map(s=>s.trim()).filter(Boolean),
         subject:mail.getSubject(),
-        body:mail.getPlainBody().slice(0,180000),
+        body:(original.slice(0,90000)+(pdfText?'\n\n'+pdfText:'')).slice(0,180000),
         // Metadata only. Do not call getBytes() on every attachment:
         // repeatedly reading attachment bodies is a major quota expense.
-        attachments:mail.getAttachments({includeInlineImages:false}).map(a=>({
+        attachments:attachments.map(a=>({
           name:a.getName(),mimeType:a.getContentType(),size:a.getSize()
         }))
-      }))};
+      });})};
       const response=UrlFetchApp.fetch(CONFIG.ENDPOINT,{
         method:'post',
         contentType:'application/json',
